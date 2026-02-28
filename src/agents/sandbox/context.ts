@@ -211,6 +211,7 @@ async function resolveSandboxContextInner(
     workspaceDir,
     agentWorkspaceDir,
     cfg: resolvedCfg,
+    abortSignal,
   });
   await updateRegistry({
     containerName: backend.runtimeId,
@@ -271,6 +272,7 @@ async function resolveSandboxContextInner(
           cfg: resolvedCfg,
           evaluateEnabled,
           bridgeAuth,
+          abortSignal,
         })
       : null;
 
