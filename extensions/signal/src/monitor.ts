@@ -10,10 +10,6 @@ import type { BackoffPolicy } from "openclaw/plugin-sdk/infra-runtime";
 import { waitForTransportReady } from "openclaw/plugin-sdk/infra-runtime";
 import { saveMediaBuffer } from "openclaw/plugin-sdk/media-runtime";
 import { DEFAULT_GROUP_HISTORY_LIMIT, type HistoryEntry } from "openclaw/plugin-sdk/reply-history";
-import {
-  deliverTextOrMediaReply,
-  resolveSendableOutboundReplyParts,
-} from "openclaw/plugin-sdk/reply-payload";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import {
   chunkTextWithMode,
@@ -33,6 +29,11 @@ import type {
   SignalReactionMessage,
   SignalReactionTarget,
 } from "./monitor/event-handler.types.js";
+import {
+  markSignalReplyConsumed,
+  resolveSignalReplyDelivery,
+  type SignalReplyDeliveryState,
+} from "./monitor/reply-delivery.js";
 import { sendMessageSignal } from "./send.js";
 import { runSignalSseLoop } from "./sse-reconnect.js";
 
@@ -299,36 +300,63 @@ async function deliverReplies(params: {
   maxBytes: number;
   textLimit: number;
   chunkMode: "length" | "newline";
+  inheritedReplyToId?: string;
+  replyDeliveryState?: SignalReplyDeliveryState;
+  resolveQuoteAuthor?: (replyToId: string) => string | undefined;
 }) {
   const { replies, target, baseUrl, account, accountId, runtime, maxBytes, textLimit, chunkMode } =
     params;
   for (const payload of replies) {
-    const reply = resolveSendableOutboundReplyParts(payload);
-    const delivered = await deliverTextOrMediaReply({
+    const { payload: resolvedPayload, effectiveReplyTo } = resolveSignalReplyDelivery({
       payload,
-      text: reply.text,
-      chunkText: (value) => chunkTextWithMode(value, textLimit, chunkMode),
-      sendText: async (chunk) => {
+      inheritedReplyToId: params.inheritedReplyToId,
+      state: params.replyDeliveryState,
+    });
+    const effectiveQuoteAuthor = effectiveReplyTo
+      ? params.resolveQuoteAuthor?.(effectiveReplyTo)
+      : undefined;
+    const text = resolvedPayload.text ?? "";
+    const resolvedMediaList =
+      resolvedPayload.mediaUrls ?? (resolvedPayload.mediaUrl ? [resolvedPayload.mediaUrl] : []);
+    if (!text && resolvedMediaList.length === 0) {
+      continue;
+    }
+    if (resolvedMediaList.length === 0) {
+      let first = true;
+      for (const chunk of chunkTextWithMode(text, textLimit, chunkMode)) {
         await sendMessageSignal(target, chunk, {
           baseUrl,
           account,
           maxBytes,
           accountId,
+          replyTo: first ? effectiveReplyTo : undefined,
+          quoteAuthor: first ? effectiveQuoteAuthor : undefined,
         });
-      },
-      sendMedia: async ({ mediaUrl, caption }) => {
-        await sendMessageSignal(target, caption ?? "", {
+        if (first) {
+          markSignalReplyConsumed(params.replyDeliveryState, effectiveReplyTo);
+        }
+        first = false;
+      }
+    } else {
+      let first = true;
+      for (const url of resolvedMediaList) {
+        const caption = first ? text : "";
+        await sendMessageSignal(target, caption, {
           baseUrl,
           account,
           mediaUrl,
           maxBytes,
           accountId,
+          replyTo: first ? effectiveReplyTo : undefined,
+          quoteAuthor: first ? effectiveQuoteAuthor : undefined,
         });
-      },
-    });
-    if (delivered !== "empty") {
-      runtime.log?.(`delivered reply to ${target}`);
+        if (first) {
+          markSignalReplyConsumed(params.replyDeliveryState, effectiveReplyTo);
+        }
+        first = false;
+      }
     }
+    runtime.log?.(`delivered reply to ${target}`);
   }
 }
 

@@ -15,6 +15,7 @@ type DirectSendOptions = {
   cfg: OpenClawConfig;
   accountId?: string | null;
   replyToId?: string | null;
+  quoteAuthor?: string | null;
   mediaUrl?: string;
   mediaLocalRoots?: readonly string[];
   maxBytes?: number;
@@ -78,6 +79,7 @@ export function createDirectTextMediaOutbound<
     accountId?: string | null;
     deps?: OutboundSendDeps;
     replyToId?: string | null;
+    quoteAuthor?: string | null;
     mediaUrl?: string;
     mediaLocalRoots?: readonly string[];
     buildOptions: (params: DirectSendOptions) => TOpts;
@@ -96,6 +98,7 @@ export function createDirectTextMediaOutbound<
         mediaLocalRoots: sendParams.mediaLocalRoots,
         accountId: sendParams.accountId,
         replyToId: sendParams.replyToId,
+        quoteAuthor: sendParams.quoteAuthor,
         maxBytes,
       }),
     );
@@ -109,7 +112,7 @@ export function createDirectTextMediaOutbound<
     textChunkLimit: 4000,
     sendPayload: async (ctx) =>
       await sendTextMediaPayload({ channel: params.channel, ctx, adapter: outbound }),
-    sendText: async ({ cfg, to, text, accountId, deps, replyToId }) => {
+    sendText: async ({ cfg, to, text, accountId, deps, replyToId, quoteAuthor }) => {
       return await sendDirect({
         cfg,
         to,
@@ -117,10 +120,21 @@ export function createDirectTextMediaOutbound<
         accountId,
         deps,
         replyToId,
+        quoteAuthor,
         buildOptions: params.buildTextOptions,
       });
     },
-    sendMedia: async ({ cfg, to, text, mediaUrl, mediaLocalRoots, accountId, deps, replyToId }) => {
+    sendMedia: async ({
+      cfg,
+      to,
+      text,
+      mediaUrl,
+      mediaLocalRoots,
+      accountId,
+      deps,
+      replyToId,
+      quoteAuthor,
+    }) => {
       return await sendDirect({
         cfg,
         to,
@@ -130,6 +144,7 @@ export function createDirectTextMediaOutbound<
         accountId,
         deps,
         replyToId,
+        quoteAuthor,
         buildOptions: params.buildMediaOptions,
       });
     },
