@@ -476,8 +476,11 @@ export function createSignalEventHandler(deps: SignalEventHandlerDeps) {
       if (!combinedText.trim()) {
         return;
       }
-      // Preserve quoteTarget from the earliest entry that has one
-      const earliestQuoteTarget = entries.find((entry) => entry.quoteTarget)?.quoteTarget;
+      // Preserve quoteTarget from the latest entry that has one so the reply
+      // target matches the newest text in the merged body.
+      const latestQuoteTarget = entries
+        .toReversed()
+        .find((entry) => entry.quoteTarget)?.quoteTarget;
       await handleSignalInboundMessage({
         ...last,
         bodyText: combinedText,
@@ -485,7 +488,7 @@ export function createSignalEventHandler(deps: SignalEventHandlerDeps) {
         mediaType: undefined,
         mediaPaths: undefined,
         mediaTypes: undefined,
-        quoteTarget: earliestQuoteTarget ?? last.quoteTarget,
+        quoteTarget: latestQuoteTarget ?? last.quoteTarget,
       });
     },
     onError: (err) => {
