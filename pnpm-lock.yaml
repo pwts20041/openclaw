@@ -501,6 +501,8 @@ importers:
 
   extensions/qianfan: {}
 
+  extensions/searxng: {}
+
   extensions/sglang: {}
 
   extensions/signal: {}

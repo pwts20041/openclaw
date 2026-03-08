@@ -335,6 +335,12 @@ export async function setupSearch(
   const keyConfigured = hasExistingKey(config, choice);
   const envAvailable = hasKeyInEnv(entry);
 
+  // Key-free providers (e.g. SearXNG) don't need an API key prompt.
+  const isKeyFreeProvider = !entry.credentialPath?.endsWith(".apiKey");
+  if (isKeyFreeProvider) {
+    return preserveDisabledState(config, applySearchProviderSelection(config, choice));
+  }
+
   if (opts?.quickstartDefaults && (keyConfigured || envAvailable)) {
     const result = existingKey
       ? applySearchKey(config, choice, existingKey)
