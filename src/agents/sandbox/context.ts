@@ -172,20 +172,20 @@ function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
       signal.reason instanceof Error ? signal.reason : new Error("Sandbox init aborted");
     return Promise.reject(reason);
   }
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) => {
-      signal.addEventListener(
-        "abort",
-        () => {
-          const r =
-            signal.reason instanceof Error ? signal.reason : new Error("Sandbox init aborted");
-          reject(r);
-        },
-        { once: true },
-      );
-    }),
-  ]);
+  // Track the listener so we can remove it when the wrapped promise settles,
+  // preventing a leaked abort listener on the success path.
+  let abortListener: (() => void) | undefined;
+  const abortPromise = new Promise<never>((_, reject) => {
+    abortListener = () => {
+      const r =
+        signal.reason instanceof Error ? signal.reason : new Error("Sandbox init aborted");
+      reject(r);
+    };
+    signal.addEventListener("abort", abortListener, { once: true });
+  });
+  return Promise.race([promise, abortPromise]).finally(() => {
+    if (abortListener) signal.removeEventListener("abort", abortListener);
+  });
 }
 
 async function resolveSandboxContextInner(
