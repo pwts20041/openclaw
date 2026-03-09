@@ -177,14 +177,15 @@ function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   let abortListener: (() => void) | undefined;
   const abortPromise = new Promise<never>((_, reject) => {
     abortListener = () => {
-      const r =
-        signal.reason instanceof Error ? signal.reason : new Error("Sandbox init aborted");
+      const r = signal.reason instanceof Error ? signal.reason : new Error("Sandbox init aborted");
       reject(r);
     };
     signal.addEventListener("abort", abortListener, { once: true });
   });
   return Promise.race([promise, abortPromise]).finally(() => {
-    if (abortListener) signal.removeEventListener("abort", abortListener);
+    if (abortListener) {
+      signal.removeEventListener("abort", abortListener);
+    }
   });
 }
 
