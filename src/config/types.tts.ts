@@ -70,6 +70,23 @@ export type LegacyTtsConfigCompat = {
     proxy?: string;
     timeoutMs?: number;
   };
+  /** Legacy Typecast configuration. Prefer providers.typecast. */
+  typecast?: {
+    apiKey?: SecretInput;
+    baseHost?: string;
+    voiceId?: string;
+    model?: "ssfm-v21" | "ssfm-v30";
+    language?: string;
+    emotionPreset?: string;
+    emotionIntensity?: number;
+    seed?: number;
+    output?: {
+      volume?: number;
+      audioPitch?: number;
+      audioTempo?: number;
+      audioFormat?: "wav" | "mp3";
+    };
+  };
   /** Legacy Microsoft speech configuration. Prefer providers.microsoft. */
   microsoft?: {
     enabled?: boolean;

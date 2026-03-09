@@ -12016,6 +12016,202 @@
       "hasChildren": false
     },
     {
+      "path": "channels.discord.accounts.*.voice.tts.typecast",
+      "kind": "channel",
+      "type": "object",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": true
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.apiKey",
+      "kind": "channel",
+      "type": [
+        "object",
+        "string"
+      ],
+      "required": false,
+      "deprecated": false,
+      "sensitive": true,
+      "tags": [
+        "auth",
+        "channels",
+        "media",
+        "network",
+        "security"
+      ],
+      "hasChildren": true
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.apiKey.id",
+      "kind": "channel",
+      "type": "string",
+      "required": true,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.apiKey.provider",
+      "kind": "channel",
+      "type": "string",
+      "required": true,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.apiKey.source",
+      "kind": "channel",
+      "type": "string",
+      "required": true,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.baseHost",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.emotionIntensity",
+      "kind": "channel",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.emotionPreset",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
+      "enumValues": [
+        "normal",
+        "happy",
+        "sad",
+        "angry",
+        "whisper",
+        "toneup",
+        "tonedown"
+      ],
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.language",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.model",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
+      "enumValues": [
+        "ssfm-v21",
+        "ssfm-v30"
+      ],
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.output",
+      "kind": "channel",
+      "type": "object",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": true
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.output.audioFormat",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
+      "enumValues": [
+        "wav",
+        "mp3"
+      ],
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.output.audioPitch",
+      "kind": "channel",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.output.audioTempo",
+      "kind": "channel",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.output.volume",
+      "kind": "channel",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.seed",
+      "kind": "channel",
+      "type": "integer",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.accounts.*.voice.tts.typecast.voiceId",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
       "path": "channels.discord.ackReaction",
       "kind": "channel",
       "type": "string",
@@ -14676,6 +14872,202 @@
       "path": "channels.discord.voice.tts.timeoutMs",
       "kind": "channel",
       "type": "integer",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast",
+      "kind": "channel",
+      "type": "object",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": true
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.apiKey",
+      "kind": "channel",
+      "type": [
+        "object",
+        "string"
+      ],
+      "required": false,
+      "deprecated": false,
+      "sensitive": true,
+      "tags": [
+        "auth",
+        "channels",
+        "media",
+        "network",
+        "security"
+      ],
+      "hasChildren": true
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.apiKey.id",
+      "kind": "channel",
+      "type": "string",
+      "required": true,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.apiKey.provider",
+      "kind": "channel",
+      "type": "string",
+      "required": true,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.apiKey.source",
+      "kind": "channel",
+      "type": "string",
+      "required": true,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.baseHost",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.emotionIntensity",
+      "kind": "channel",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.emotionPreset",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
+      "enumValues": [
+        "normal",
+        "happy",
+        "sad",
+        "angry",
+        "whisper",
+        "toneup",
+        "tonedown"
+      ],
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.language",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.model",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
+      "enumValues": [
+        "ssfm-v21",
+        "ssfm-v30"
+      ],
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.output",
+      "kind": "channel",
+      "type": "object",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": true
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.output.audioFormat",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
+      "enumValues": [
+        "wav",
+        "mp3"
+      ],
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.output.audioPitch",
+      "kind": "channel",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.output.audioTempo",
+      "kind": "channel",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.output.volume",
+      "kind": "channel",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.seed",
+      "kind": "channel",
+      "type": "integer",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.discord.voice.tts.typecast.voiceId",
+      "kind": "channel",
+      "type": "string",
       "required": false,
       "deprecated": false,
       "sensitive": false,
@@ -44156,6 +44548,200 @@
       "path": "messages.tts.timeoutMs",
       "kind": "core",
       "type": "integer",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "messages.tts.typecast",
+      "kind": "core",
+      "type": "object",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": true
+    },
+    {
+      "path": "messages.tts.typecast.apiKey",
+      "kind": "core",
+      "type": [
+        "object",
+        "string"
+      ],
+      "required": false,
+      "deprecated": false,
+      "sensitive": true,
+      "tags": [
+        "auth",
+        "media",
+        "security"
+      ],
+      "hasChildren": true
+    },
+    {
+      "path": "messages.tts.typecast.apiKey.id",
+      "kind": "core",
+      "type": "string",
+      "required": true,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "messages.tts.typecast.apiKey.provider",
+      "kind": "core",
+      "type": "string",
+      "required": true,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "messages.tts.typecast.apiKey.source",
+      "kind": "core",
+      "type": "string",
+      "required": true,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "messages.tts.typecast.baseHost",
+      "kind": "core",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "messages.tts.typecast.emotionIntensity",
+      "kind": "core",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "messages.tts.typecast.emotionPreset",
+      "kind": "core",
+      "type": "string",
+      "required": false,
+      "enumValues": [
+        "normal",
+        "happy",
+        "sad",
+        "angry",
+        "whisper",
+        "toneup",
+        "tonedown"
+      ],
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "messages.tts.typecast.language",
+      "kind": "core",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "messages.tts.typecast.model",
+      "kind": "core",
+      "type": "string",
+      "required": false,
+      "enumValues": [
+        "ssfm-v21",
+        "ssfm-v30"
+      ],
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "messages.tts.typecast.output",
+      "kind": "core",
+      "type": "object",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": true
+    },
+    {
+      "path": "messages.tts.typecast.output.audioFormat",
+      "kind": "core",
+      "type": "string",
+      "required": false,
+      "enumValues": [
+        "wav",
+        "mp3"
+      ],
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "messages.tts.typecast.output.audioPitch",
+      "kind": "core",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "messages.tts.typecast.output.audioTempo",
+      "kind": "core",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "messages.tts.typecast.output.volume",
+      "kind": "core",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "messages.tts.typecast.seed",
+      "kind": "core",
+      "type": "integer",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "messages.tts.typecast.voiceId",
+      "kind": "core",
+      "type": "string",
       "required": false,
       "deprecated": false,
       "sensitive": false,

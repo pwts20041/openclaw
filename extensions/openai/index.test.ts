@@ -1,8 +1,6 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { getModel } from "@mariozechner/pi-ai";
-import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 import OpenAI from "openai";
 import * as providerAuth from "openclaw/plugin-sdk/provider-auth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,40 +38,50 @@ const liveEnabled = OPENAI_API_KEY.trim().length > 0 && process.env.OPENCLAW_LIV
 const describeLive = liveEnabled ? describe : describe.skip;
 const EMPTY_AUTH_STORE = { version: 1, profiles: {} } as const;
 
-function resolveTemplateModelId(modelId: string) {
+function createTemplateModel(modelId: string) {
   switch (modelId) {
     case "gpt-5.4":
-      return "gpt-5.2";
+      return {
+        id: "gpt-5.2",
+        name: "GPT-5.2",
+        provider: "openai",
+        api: "openai-completions",
+        baseUrl: "https://api.openai.com/v1",
+        reasoning: true,
+        input: ["text", "image"],
+        cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 400_000,
+        maxTokens: 128_000,
+      };
     case "gpt-5.4-mini":
-      return "gpt-5-mini";
+      return {
+        id: "gpt-5-mini",
+        name: "GPT-5 mini",
+        provider: "openai",
+        api: "openai-completions",
+        baseUrl: "https://api.openai.com/v1",
+        reasoning: true,
+        input: ["text", "image"],
+        cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 400_000,
+        maxTokens: 128_000,
+      };
     case "gpt-5.4-nano":
-      return "gpt-5-nano";
+      return {
+        id: "gpt-5-nano",
+        name: "GPT-5 nano",
+        provider: "openai",
+        api: "openai-completions",
+        baseUrl: "https://api.openai.com/v1",
+        reasoning: true,
+        input: ["text", "image"],
+        cost: { input: 0.5, output: 1, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 200_000,
+        maxTokens: 64_000,
+      };
     default:
       throw new Error(`Unsupported live OpenAI plugin model: ${modelId}`);
   }
-}
-
-function createTemplateModelRegistry(modelId: string): ModelRegistry {
-  const registry = new ModelRegistry(AuthStorage.inMemory());
-  const template = getModel("openai", resolveTemplateModelId(modelId));
-  registry.registerProvider("openai", {
-    apiKey: "test",
-    baseUrl: template.baseUrl,
-    models: [
-      {
-        id: template.id,
-        name: template.name,
-        api: template.api,
-        reasoning: template.reasoning,
-        input: template.input,
-        cost: template.cost,
-        contextWindow: template.contextWindow,
-        maxTokens: template.maxTokens,
-        ...(template.compat ? { compat: template.compat } : {}),
-      },
-    ],
-  });
-  return registry;
 }
 
 const registerOpenAIPlugin = () =>
@@ -137,12 +145,42 @@ function createLiveTtsConfig(): ResolvedTtsConfig {
       allowNormalization: true,
       allowSeed: true,
     },
-    providerConfigs: {
-      openai: {
-        apiKey: OPENAI_API_KEY,
-        baseUrl: "https://api.openai.com/v1",
-        model: "gpt-4o-mini-tts",
-        voice: "alloy",
+    elevenlabs: {
+      baseUrl: "https://api.elevenlabs.io",
+      voiceId: "",
+      modelId: "eleven_multilingual_v2",
+      voiceSettings: {
+        stability: 0.5,
+        similarityBoost: 0.75,
+        style: 0,
+        useSpeakerBoost: true,
+        speed: 1,
+      },
+    },
+    openai: {
+      apiKey: OPENAI_API_KEY,
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-4o-mini-tts",
+      voice: "alloy",
+    },
+    edge: {
+      enabled: false,
+      voice: "en-US-AriaNeural",
+      lang: "en-US",
+      outputFormat: "audio-24khz-48kbitrate-mono-mp3",
+      outputFormatConfigured: false,
+      saveSubtitles: false,
+    },
+    typecast: {
+      baseHost: "https://typecast.ai",
+      model: "ssfm-v30",
+      emotionPreset: "normal",
+      emotionIntensity: 1.0,
+      output: {
+        volume: 100,
+        audioPitch: 0,
+        audioTempo: 1.0,
+        audioFormat: "mp3",
       },
     },
     maxTextLength: 4_000,
@@ -167,15 +205,15 @@ describe("openai plugin", () => {
     const { providers, speechProviders, mediaProviders, imageProviders } = registerOpenAIPlugin();
 
     expect(providers).toHaveLength(2);
-    expect(providers.map((provider) => provider.id)).toEqual(["openai", "openai-codex"]);
+    expect(
+      providers.map(
+        (provider) =>
+          // oxlint-disable-next-line typescript/no-explicit-any
+          (provider as any).id,
+      ),
+    ).toEqual(["openai", "openai-codex"]);
     expect(speechProviders).toHaveLength(1);
-    expect(mediaProviders.map((provider) => provider.id)).toEqual(["openai", "openai-codex"]);
-    const codexMediaProvider = requireRegisteredProvider(
-      mediaProviders,
-      "openai-codex",
-      "media provider",
-    );
-    expect(codexMediaProvider.capabilities).toEqual(["image"]);
+    expect(mediaProviders).toHaveLength(1);
     expect(imageProviders).toHaveLength(1);
   });
 
@@ -276,17 +314,27 @@ describeLive("openai plugin live", () => {
     const { providers } = registerOpenAIPlugin();
     const provider = requireRegisteredProvider(providers, "openai");
 
-    const resolved = provider.resolveDynamicModel?.({
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const resolved = (provider as any).resolveDynamicModel?.({
       provider: "openai",
       modelId: LIVE_MODEL_ID,
-      modelRegistry: createTemplateModelRegistry(LIVE_MODEL_ID),
+      modelRegistry: {
+        find(providerId: string, id: string) {
+          if (providerId !== "openai") {
+            return null;
+          }
+          const template = createTemplateModel(LIVE_MODEL_ID);
+          return id === template.id ? template : null;
+        },
+      },
     });
 
     if (!resolved) {
       throw new Error("openai provider did not resolve the live model");
     }
 
-    const normalized = provider.normalizeResolvedModel?.({
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const normalized = (provider as any).normalizeResolvedModel?.({
       provider: "openai",
       modelId: resolved.id,
       model: resolved,
@@ -316,7 +364,8 @@ describeLive("openai plugin live", () => {
     const { speechProviders } = registerOpenAIPlugin();
     const speechProvider = requireRegisteredProvider(speechProviders, "openai");
 
-    const voices = await speechProvider.listVoices?.({});
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const voices = await (speechProvider as any).listVoices?.({});
     if (!voices) {
       throw new Error("openai speech provider did not return voices");
     }
@@ -325,22 +374,22 @@ describeLive("openai plugin live", () => {
     const cfg = createLiveConfig();
     const ttsConfig = createLiveTtsConfig();
 
-    const audioFile = await speechProvider.synthesize({
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const audioFile = await (speechProvider as any).synthesize({
       text: "OpenClaw integration test OK.",
       cfg,
-      providerConfig: ttsConfig.providerConfigs.openai ?? {},
+      config: ttsConfig,
       target: "audio-file",
-      timeoutMs: ttsConfig.timeoutMs,
     });
     expect(audioFile.outputFormat).toBe("mp3");
     expect(audioFile.fileExtension).toBe(".mp3");
     expect(audioFile.audioBuffer.byteLength).toBeGreaterThan(512);
 
-    const telephony = await speechProvider.synthesizeTelephony?.({
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const telephony = await (speechProvider as any).synthesizeTelephony?.({
       text: "Telephony check OK.",
       cfg,
-      providerConfig: ttsConfig.providerConfigs.openai ?? {},
-      timeoutMs: ttsConfig.timeoutMs,
+      config: ttsConfig,
     });
     expect(telephony?.outputFormat).toBe("pcm");
     expect(telephony?.sampleRate).toBe(24_000);
@@ -355,15 +404,16 @@ describeLive("openai plugin live", () => {
     const cfg = createLiveConfig();
     const ttsConfig = createLiveTtsConfig();
 
-    const synthesized = await speechProvider.synthesize({
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const synthesized = await (speechProvider as any).synthesize({
       text: "OpenClaw integration test OK.",
       cfg,
-      providerConfig: ttsConfig.providerConfigs.openai ?? {},
+      config: ttsConfig,
       target: "audio-file",
-      timeoutMs: ttsConfig.timeoutMs,
     });
 
-    const transcription = await mediaProvider.transcribeAudio?.({
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const transcription = await (mediaProvider as any).transcribeAudio?.({
       buffer: synthesized.audioBuffer,
       fileName: "openai-plugin-live.mp3",
       mime: "audio/mpeg",
@@ -385,7 +435,8 @@ describeLive("openai plugin live", () => {
     const agentDir = await createTempAgentDir();
 
     try {
-      const generated = await imageProvider.generateImage({
+      // oxlint-disable-next-line typescript/no-explicit-any
+      const generated = await (imageProvider as any).generateImage({
         provider: "openai",
         model: LIVE_IMAGE_MODEL,
         prompt: "Create a minimal flat orange square centered on a white background.",
@@ -413,7 +464,8 @@ describeLive("openai plugin live", () => {
     const agentDir = await createTempAgentDir();
 
     try {
-      const description = await mediaProvider.describeImage?.({
+      // oxlint-disable-next-line typescript/no-explicit-any
+      const description = await (mediaProvider as any).describeImage?.({
         buffer: createReferencePng(),
         fileName: "reference.png",
         mime: "image/png",

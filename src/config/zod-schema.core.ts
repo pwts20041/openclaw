@@ -378,20 +378,21 @@ export const MarkdownConfigSchema = z
 export const TtsProviderSchema = z.string().min(1);
 export const TtsModeSchema = z.enum(["final", "all"]);
 export const TtsAutoSchema = z.enum(["off", "always", "inbound", "tagged"]);
-const TtsProviderConfigSchema = z
+const TtsMicrosoftConfigSchema = z
   .object({
-    apiKey: SecretInputSchema.optional().register(sensitive),
+    enabled: z.boolean().optional(),
+    voice: z.string().optional(),
+    lang: z.string().optional(),
+    outputFormat: z.string().optional(),
+    pitch: z.string().optional(),
+    rate: z.string().optional(),
+    volume: z.string().optional(),
+    saveSubtitles: z.boolean().optional(),
+    proxy: z.string().optional(),
+    timeoutMs: z.number().int().min(1000).max(120000).optional(),
   })
-  .catchall(
-    z.union([
-      z.string(),
-      z.number(),
-      z.boolean(),
-      z.null(),
-      z.array(z.unknown()),
-      z.record(z.string(), z.unknown()),
-    ]),
-  );
+  .strict()
+  .optional();
 export const TtsConfigSchema = z
   .object({
     auto: TtsAutoSchema.optional(),
@@ -412,7 +413,65 @@ export const TtsConfigSchema = z
       })
       .strict()
       .optional(),
-    providers: z.record(z.string(), TtsProviderConfigSchema).optional(),
+    elevenlabs: z
+      .object({
+        apiKey: SecretInputSchema.optional().register(sensitive),
+        baseUrl: z.string().optional(),
+        voiceId: z.string().optional(),
+        modelId: z.string().optional(),
+        seed: z.number().int().min(0).max(4294967295).optional(),
+        applyTextNormalization: z.enum(["auto", "on", "off"]).optional(),
+        languageCode: z.string().optional(),
+        voiceSettings: z
+          .object({
+            stability: z.number().min(0).max(1).optional(),
+            similarityBoost: z.number().min(0).max(1).optional(),
+            style: z.number().min(0).max(1).optional(),
+            useSpeakerBoost: z.boolean().optional(),
+            speed: z.number().min(0.5).max(2).optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    openai: z
+      .object({
+        apiKey: SecretInputSchema.optional().register(sensitive),
+        baseUrl: z.string().optional(),
+        model: z.string().optional(),
+        voice: z.string().optional(),
+        speed: z.number().min(0.25).max(4).optional(),
+        instructions: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    typecast: z
+      .object({
+        apiKey: SecretInputSchema.optional().register(sensitive),
+        baseHost: z.string().optional(),
+        voiceId: z.string().optional(),
+        model: z.enum(["ssfm-v21", "ssfm-v30"]).optional(),
+        language: z.string().optional(),
+        emotionPreset: z
+          .enum(["normal", "happy", "sad", "angry", "whisper", "toneup", "tonedown"])
+          .optional(),
+        emotionIntensity: z.number().min(0).max(2).optional(),
+        seed: z.number().int().min(0).optional(),
+        output: z
+          .object({
+            volume: z.number().min(0).max(200).optional(),
+            audioPitch: z.number().min(-12).max(12).optional(),
+            audioTempo: z.number().min(0.5).max(2).optional(),
+            audioFormat: z.enum(["wav", "mp3"]).optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    edge: TtsMicrosoftConfigSchema,
+    microsoft: TtsMicrosoftConfigSchema,
     prefsPath: z.string().optional(),
     maxTextLength: z.number().int().min(1).optional(),
     timeoutMs: z.number().int().min(1000).max(120000).optional(),
