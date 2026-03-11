@@ -212,6 +212,10 @@
       "types": "./dist/plugin-sdk/keyed-async-queue.d.ts",
       "default": "./dist/plugin-sdk/keyed-async-queue.js"
     },
+    "./plugin-sdk/executorch": {
+      "types": "./dist/plugin-sdk/executorch.d.ts",
+      "default": "./dist/plugin-sdk/executorch.js"
+    },
     "./cli-entry": "./openclaw.mjs"
   },
   "scripts": {

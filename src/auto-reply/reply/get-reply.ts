@@ -11,6 +11,7 @@ import { resolveChannelModelOverride } from "../../channels/model-overrides.js";
 import { type OpenClawConfig, loadConfig } from "../../config/config.js";
 import { applyLinkUnderstanding } from "../../link-understanding/apply.js";
 import { applyMediaUnderstanding } from "../../media-understanding/apply.js";
+import { getPluginMediaProviders } from "../../plugins/media-providers.js";
 import { defaultRuntime } from "../../runtime.js";
 import { normalizeStringEntries } from "../../shared/string-normalization.js";
 import { resolveCommandAuthorization } from "../command-auth.js";
@@ -130,6 +131,7 @@ export async function getReplyFromConfig(
       ctx: finalized,
       cfg,
       agentDir,
+      providers: getPluginMediaProviders(),
       activeModel: { provider, model },
     });
     await applyLinkUnderstanding({
