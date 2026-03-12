@@ -8,6 +8,11 @@ export {
 } from "../../extensions/byteplus/provider-catalog.js";
 export { buildDeepSeekProvider } from "../../extensions/deepseek/provider-catalog.js";
 export {
+  ERNIE_BASE_URL,
+  ERNIE_DEFAULT_MODEL_ID,
+  buildErnieProvider,
+} from "../../extensions/ernie/provider-catalog.js";
+export {
   buildKimiCodingProvider,
   buildKilocodeProvider,
   buildMinimaxPortalProvider,
