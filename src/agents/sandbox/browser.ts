@@ -357,19 +357,32 @@ export async function ensureSandboxBrowser(params: {
 
     const onEnsureAttachTarget = params.cfg.browser.autoStart
       ? async () => {
-          const state = await dockerContainerState(containerName);
-          if (state.exists && !state.running) {
-            await execDocker(["start", containerName], { signal: params.abortSignal });
-          }
-          const ok = await waitForSandboxCdp({
-            cdpPort: mappedCdp,
-            timeoutMs: params.cfg.browser.autoStartTimeoutMs,
-            signal: params.abortSignal,
-          });
-          if (!ok) {
-            throw new Error(
-              `Sandbox browser CDP did not become reachable on 127.0.0.1:${mappedCdp} within ${params.cfg.browser.autoStartTimeoutMs}ms.`,
-            );
+          // Use a fresh AbortController for attach operations instead of the outer
+          // init abort signal. The init signal may already be aborted (60s guard)
+          // but the browser bridge can still be valid; attach callbacks run later
+          // during the session lifetime and must not inherit stale abort state.
+          const attachCtrl = new AbortController();
+          const attachTimeout = setTimeout(
+            () => attachCtrl.abort(),
+            params.cfg.browser.autoStartTimeoutMs,
+          );
+          try {
+            const state = await dockerContainerState(containerName);
+            if (state.exists && !state.running) {
+              await execDocker(["start", containerName], { signal: attachCtrl.signal });
+            }
+            const ok = await waitForSandboxCdp({
+              cdpPort: mappedCdp,
+              timeoutMs: params.cfg.browser.autoStartTimeoutMs,
+              signal: attachCtrl.signal,
+            });
+            if (!ok) {
+              throw new Error(
+                `Sandbox browser CDP did not become reachable on 127.0.0.1:${mappedCdp} within ${params.cfg.browser.autoStartTimeoutMs}ms.`,
+              );
+            }
+          } finally {
+            clearTimeout(attachTimeout);
           }
         }
       : undefined;
