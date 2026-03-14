@@ -3,6 +3,15 @@ import {
   sendMediaWithLeadingCaption,
 } from "openclaw/plugin-sdk/reply-payload";
 import {
+  markdownToSignalTextChunks,
+  type SignalTextStyleRange,
+} from "../../../extensions/signal/src/format.js";
+import {
+  isSignalGroupTarget,
+  resolveSignalQuoteMetadata,
+} from "../../../extensions/signal/src/reply-quote.js";
+import { sendMessageSignal } from "../../../extensions/signal/src/send.js";
+import {
   chunkByParagraph,
   chunkMarkdownTextWithMode,
   resolveChunkMode,
@@ -33,7 +42,6 @@ import { hasReplyPayloadContent } from "../../interactive/payload.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { getAgentScopedMediaLocalRootsForSources } from "../../media/local-roots.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
-import { isSignalGroupTarget, resolveSignalQuoteMetadata } from "../../../extensions/signal/src/reply-quote.js";
 import { throwIfAborted } from "./abort.js";
 import { resolveOutboundChannelPlugin } from "./channel-resolution.js";
 import { ackDelivery, enqueueDelivery, failDelivery } from "./delivery-queue.js";
@@ -45,11 +53,6 @@ import { isPlainTextSurface, sanitizeForPlainText } from "./sanitize-text.js";
 import { resolveOutboundSendDep, type OutboundSendDeps } from "./send-deps.js";
 import type { OutboundSessionContext } from "./session-context.js";
 import type { OutboundChannel } from "./targets.js";
-import {
-  markdownToSignalTextChunks,
-  type SignalTextStyleRange,
-} from "../../../extensions/signal/src/format.js";
-import { sendMessageSignal } from "../../../extensions/signal/src/send.js";
 
 export type { NormalizedOutboundPayload } from "./payloads.js";
 export { normalizeOutboundPayloads } from "./payloads.js";
