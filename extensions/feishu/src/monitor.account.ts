@@ -1,15 +1,15 @@
-import * as crypto from "crypto";
-import * as Lark from "@larksuiteoapi/node-sdk";
-import type { ClawdbotConfig, RuntimeEnv, HistoryEntry } from "../runtime-api.js";
+import * as crypto from "node:crypto";
+import type * as Lark from "@larksuiteoapi/node-sdk";
+import type { ClawdbotConfig, HistoryEntry, RuntimeEnv } from "../runtime-api.js";
 import { resolveFeishuAccount } from "./accounts.js";
 import { raceWithTimeoutAndAbort } from "./async.js";
 import {
+  type FeishuBotAddedEvent,
+  type FeishuMessageEvent,
   handleFeishuMessage,
   parseFeishuMessageEvent,
-  type FeishuMessageEvent,
-  type FeishuBotAddedEvent,
 } from "./bot.js";
-import { handleFeishuCardAction, type FeishuCardActionEvent } from "./card-action.js";
+import { type FeishuCardActionEvent, handleFeishuCardAction } from "./card-action.js";
 import { maybeHandleFeishuQuickActionMenu } from "./card-ux-launcher.js";
 import { createEventDispatcher } from "./client.js";
 import {
@@ -254,7 +254,7 @@ function resolveFeishuDebounceMentions(params: {
 function registerEventHandlers(
   eventDispatcher: Lark.EventDispatcher,
   context: RegisterEventHandlersContext,
-): void {
+): { unregisterDebouncer: () => void } {
   const { cfg, accountId, runtime, chatHistories, fireAndForget } = context;
   const core = getFeishuRuntime();
   const inboundDebounceMs = core.channel.debounce.resolveInboundDebounceMs({
@@ -617,6 +617,8 @@ function registerEventHandlers(
       }
     },
   });
+
+  return { unregisterDebouncer: inboundDebouncer.unregister };
 }
 
 export type BotOpenIdSource =
@@ -639,7 +641,10 @@ export async function monitorSingleAccount(params: MonitorSingleAccountParams): 
   const botOpenIdSource = params.botOpenIdSource ?? { kind: "fetch" };
   const botIdentity =
     botOpenIdSource.kind === "prefetched"
-      ? { botOpenId: botOpenIdSource.botOpenId, botName: botOpenIdSource.botName }
+      ? {
+          botOpenId: botOpenIdSource.botOpenId,
+          botName: botOpenIdSource.botName,
+        }
       : await fetchBotIdentityForMonitor(account, { runtime, abortSignal });
   const botOpenId = botIdentity.botOpenId;
   const botName = botIdentity.botName?.trim();
@@ -670,7 +675,7 @@ export async function monitorSingleAccount(params: MonitorSingleAccountParams): 
     const chatHistories = new Map<string, HistoryEntry[]>();
     threadBindingManager = createFeishuThreadBindingManager({ accountId, cfg });
 
-    registerEventHandlers(eventDispatcher, {
+    const { unregisterDebouncer } = registerEventHandlers(eventDispatcher, {
       cfg,
       accountId,
       runtime,
@@ -678,10 +683,26 @@ export async function monitorSingleAccount(params: MonitorSingleAccountParams): 
       fireAndForget: true,
     });
 
-    if (connectionMode === "webhook") {
-      return await monitorWebhook({ account, accountId, runtime, abortSignal, eventDispatcher });
+    try {
+      if (connectionMode === "webhook") {
+        return await monitorWebhook({
+          account,
+          accountId,
+          runtime,
+          abortSignal,
+          eventDispatcher,
+        });
+      }
+      return await monitorWebSocket({
+        account,
+        accountId,
+        runtime,
+        abortSignal,
+        eventDispatcher,
+      });
+    } finally {
+      unregisterDebouncer();
     }
-    return await monitorWebSocket({ account, accountId, runtime, abortSignal, eventDispatcher });
   } finally {
     threadBindingManager?.stop();
   }
