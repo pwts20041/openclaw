@@ -328,8 +328,6 @@ describe("loadOpenClawPlugins", () => {
 
     const bundled = registry.plugins.find((entry) => entry.id === "bundled");
     expect(bundled?.status).toBe("disabled");
-    // "Disabled by default" is informational, not an error — do not show as Error in plugins info.
-    expect(bundled?.error).toBeUndefined();
   });
 
   it("loads bundled telegram plugin when enabled", () => {

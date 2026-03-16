@@ -525,11 +525,6 @@ export function registerPluginsCli(program: Command) {
       if (plugin.error) {
         lines.push(`${theme.error("Error:")} ${plugin.error}`);
       }
-      if (plugin.status === "disabled" && plugin.origin === "bundled" && !plugin.error) {
-        lines.push(
-          `${theme.muted("Hint:")} Enable with: openclaw config set plugins.entries.${plugin.id}.enabled true`,
-        );
-      }
       if (install) {
         lines.push("");
         lines.push(`${theme.muted("Install:")} ${install.source}`);

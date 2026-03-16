@@ -135,15 +135,3 @@ ui/src/ui/__screenshots__/navigation.browser.test.ts/control-UI-routing-auto-scr
 # Native extension build artifacts
 extensions/*/build/
 extensions/*/*.node
-
-# Local planning & architecture docs
-*.plan.md
-context.md
-progress.md
-report.md
-onepager.md
-*.excalidraw
-*.excalidraw.png
-voxtral-runtime-openclaw-architecture.png
-*.code-workspace
-.cursor/
