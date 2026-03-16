@@ -626,9 +626,12 @@ export async function runCronIsolatedAgentTurn(params: {
       lookupContextTokens(modelUsed, { allowAsyncLoad: false }) ??
       DEFAULT_CONTEXT_TOKENS;
 
+    // Model is from fallback if the successfully-used provider/model differs from the primary.
+    const isFromFallback = providerUsed !== provider || modelUsed !== model;
     setSessionRuntimeModel(cronSession.sessionEntry, {
       provider: providerUsed,
       model: modelUsed,
+      isFromFallback,
     });
     cronSession.sessionEntry.contextTokens = contextTokens;
     if (isCliProvider(providerUsed, cfgWithAgentDefaults)) {

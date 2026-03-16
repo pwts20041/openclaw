@@ -972,7 +972,10 @@ export function resolveSessionModelRef(
   cfg: OpenClawConfig,
   entry?:
     | SessionEntry
-    | Pick<SessionEntry, "model" | "modelProvider" | "modelOverride" | "providerOverride">,
+    | Pick<
+        SessionEntry,
+        "model" | "modelProvider" | "modelOverride" | "providerOverride" | "modelIsFromFallback"
+      >,
   agentId?: string,
 ): { provider: string; model: string } {
   const resolved = agentId
@@ -983,13 +986,19 @@ export function resolveSessionModelRef(
         defaultModel: DEFAULT_MODEL,
       });
 
+  // Skip session-stored runtime model if it came from the fallback chain.
+  // This ensures the primary model is retried on subsequent requests rather
+  // than permanently sticking with the fallback. See #47705.
+  const isFromFallback =
+    entry && "modelIsFromFallback" in entry && entry.modelIsFromFallback === true;
+
   // Prefer the last runtime model recorded on the session entry.
   // This is the actual model used by the latest run and must win over defaults.
   let provider = resolved.provider;
   let model = resolved.model;
   const runtimeModel = entry?.model?.trim();
   const runtimeProvider = entry?.modelProvider?.trim();
-  if (runtimeModel) {
+  if (runtimeModel && !isFromFallback) {
     if (runtimeProvider) {
       // Provider is explicitly recorded — use it directly. Re-parsing the
       // model string through parseModelRef would incorrectly split OpenRouter
