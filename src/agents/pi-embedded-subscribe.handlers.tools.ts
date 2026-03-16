@@ -500,6 +500,25 @@ export async function handleToolExecutionEnd(
     }
   }
 
+  // Circuit breaker: track consecutive identical tool errors and fire callback at threshold.
+  const CONSECUTIVE_ERROR_THRESHOLD = 3;
+  if (isToolError) {
+    const errorMessage2 = extractToolErrorMessage(sanitizedResult);
+    const errorSig = (errorMessage2 ?? "").slice(0, 120);
+    const prev = ctx.state.consecutiveToolErrors;
+    if (prev && prev.toolName === toolName && prev.errorSignature === errorSig) {
+      prev.count += 1;
+    } else {
+      ctx.state.consecutiveToolErrors = { toolName, errorSignature: errorSig, count: 1 };
+    }
+    const consecutive = ctx.state.consecutiveToolErrors;
+    if (consecutive && consecutive.count >= CONSECUTIVE_ERROR_THRESHOLD) {
+      ctx.params.onConsecutiveToolError?.(toolName, consecutive.count, errorMessage2 ?? "");
+    }
+  } else {
+    ctx.state.consecutiveToolErrors = null;
+  }
+
   // Commit messaging tool text on success, discard on error.
   const pendingText = ctx.state.pendingMessagingTexts.get(toolCallId);
   const pendingTarget = ctx.state.pendingMessagingTargets.get(toolCallId);

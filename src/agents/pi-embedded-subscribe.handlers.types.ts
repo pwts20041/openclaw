@@ -25,6 +25,12 @@ export type ToolErrorSummary = {
   actionFingerprint?: string;
 };
 
+export type ConsecutiveToolErrorState = {
+  toolName: string;
+  errorSignature: string;
+  count: number;
+};
+
 export type ToolCallSummary = {
   meta?: string;
   mutatingAction: boolean;
@@ -37,6 +43,7 @@ export type EmbeddedPiSubscribeState = {
   toolMetaById: Map<string, ToolCallSummary>;
   toolSummaryById: Set<string>;
   lastToolError?: ToolErrorSummary;
+  consecutiveToolErrors: ConsecutiveToolErrorState | null;
 
   blockReplyBreak: "text_end" | "message_end";
   reasoningMode: ReasoningLevel;
@@ -144,6 +151,7 @@ export type ToolHandlerParams = Pick<
   | "sessionKey"
   | "sessionId"
   | "agentId"
+  | "onConsecutiveToolError"
 >;
 
 export type ToolHandlerState = Pick<
@@ -152,6 +160,7 @@ export type ToolHandlerState = Pick<
   | "toolMetas"
   | "toolSummaryById"
   | "lastToolError"
+  | "consecutiveToolErrors"
   | "pendingMessagingTargets"
   | "pendingMessagingTexts"
   | "pendingMessagingMediaUrls"

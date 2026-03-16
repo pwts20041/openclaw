@@ -147,6 +147,26 @@ export async function runBeforeToolCallHook(args: {
     recordToolCall(sessionState, toolName, params, args.toolCallId, args.ctx.loopDetection);
   }
 
+  // Block exec/bash calls with an empty or missing command before they reach AJV validation.
+  const toolNameNorm = toolName.trim().toLowerCase();
+  if (toolNameNorm === "exec" || toolNameNorm === "bash") {
+    const record = isPlainObject(params) ? params : {};
+    const command = record.command;
+    if (!command || typeof command !== "string" || !command.trim()) {
+      const reason =
+        `\u26D4 exec blocked \u2014 "command" parameter is required but was empty or missing.\n` +
+        `This usually means the tool call was truncated during generation.\n` +
+        `DO NOT retry the same empty exec call.\n` +
+        `Instead, write the file content using a different approach: break large content into ` +
+        `smaller write operations, use a heredoc, or write a minimal script first.\n` +
+        `Do NOT call exec again without a non-empty "command" field.`;
+      log.warn(
+        `exec blocked: empty command toolCallId=${args.toolCallId ?? "?"} sessionKey=${args.ctx?.sessionKey ?? "?"}`,
+      );
+      return { blocked: true, reason };
+    }
+  }
+
   const hookRunner = getGlobalHookRunner();
   if (!hookRunner?.hasHooks("before_tool_call")) {
     return { blocked: false, params: args.params };
