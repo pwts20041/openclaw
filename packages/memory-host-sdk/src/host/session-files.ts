@@ -52,6 +52,9 @@ function normalizeSessionText(value: string): string {
  */
 function stripRawContentMeta(raw: string): string {
   const stripped = stripInboundMetadata(raw);
+  if (!stripped.includes("[[")) {
+    return stripped;
+  }
   return stripInlineDirectiveTagsForDisplay(stripped).text;
 }
 

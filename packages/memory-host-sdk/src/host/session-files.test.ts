@@ -135,6 +135,33 @@ describe("buildSessionEntry", () => {
     expect(entry!.content).toContain("Can you explain that again?");
   });
 
+  it("strips metadata from array-of-parts content (structured message form)", async () => {
+    // User message where content is an array of text parts (e.g. multi-modal messages)
+    const metaBlock = makeConvBlock();
+    const arrayContent = [
+      { type: "text", text: `${metaBlock}\n\nWhat time is the meeting?` },
+      { type: "text", text: "[[reply_to_current]] Also, who is attending?" },
+    ];
+    const jsonlLines = [
+      JSON.stringify({ type: "message", message: { role: "user", content: arrayContent } }),
+    ];
+    const filePath = path.join(tmpDir, "array-content.jsonl");
+    await fs.writeFile(filePath, jsonlLines.join("\n"));
+
+    const entry = await buildSessionEntry(filePath);
+    expect(entry).not.toBeNull();
+
+    // Metadata JSON block should not appear in the indexed text
+    expect(entry!.content).not.toContain("Conversation info");
+    expect(entry!.content).not.toContain("untrusted metadata");
+    expect(entry!.content).not.toContain("message_id");
+    // Inline directive tags should be stripped
+    expect(entry!.content).not.toContain("[[reply_to_current]]");
+    // The actual user messages should be preserved
+    expect(entry!.content).toContain("What time is the meeting?");
+    expect(entry!.content).toContain("Also, who is attending?");
+  });
+
   it("preserves normal message content without modification", async () => {
     // Plain user and assistant messages with no injected metadata
     const jsonlLines = [
