@@ -8,10 +8,7 @@ const RATE_LIMIT_RETRY_POLICY: BackoffPolicy = {
   jitter: 0.2,
 };
 
-/** Maximum number of retries before surfacing the 429 error. */
 const MAX_RETRIES = 3;
-
-/** Cap server-provided Retry-After to prevent unbounded blocking. */
 const MAX_RETRY_AFTER_MS = 30_000;
 
 /**

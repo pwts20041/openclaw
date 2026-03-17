@@ -180,6 +180,22 @@ describe("createRateLimitRetryStreamWrapper", () => {
     expect(sleepWithAbortMock).toHaveBeenCalledWith(30_000, undefined);
   });
 
+  it("preserves error properties needed by run-loop failover classification", async () => {
+    const headers = { "retry-after": "2" };
+    const error = make429Error({ headers });
+    const reject = () => Promise.reject(error) as unknown as ReturnType<StreamFn>;
+    const inner = makeStreamFn([reject, reject, reject, reject]);
+    const wrapped = createRateLimitRetryStreamWrapper(inner);
+    const thrown = await wrapped(model, context, {}).catch((e: unknown) => e);
+    // Exact reference preserved — no wrapping or mutation
+    expect(thrown).toBe(error);
+    // Run loop classifies via message text (ERROR_PATTERNS.rateLimit = /too many requests/)
+    // and HTTP status (classifyFailoverReasonFromHttpStatus(429) → "rate_limit")
+    expect((thrown as Error).message).toBe("Too Many Requests");
+    expect((thrown as { status: number }).status).toBe(429);
+    expect((thrown as { headers: unknown }).headers).toBe(headers);
+  });
+
   it("does not retry when abort signal is already aborted", async () => {
     const controller = new AbortController();
     controller.abort();
