@@ -5,6 +5,7 @@
  * error handling, priority ordering, and async support.
  */
 
+import { withTimeout } from "../node-host/with-timeout.js";
 import { concatOptionalTextSegments } from "../shared/text/join-segments.js";
 import type { PluginRegistry } from "./registry.js";
 import type {
@@ -114,10 +115,15 @@ export type HookRunnerLogger = {
   error: (message: string) => void;
 };
 
+/** Default timeout for async plugin hook handlers (ms). */
+const DEFAULT_HOOK_TIMEOUT_MS = 10_000;
+
 export type HookRunnerOptions = {
   logger?: HookRunnerLogger;
   /** If true, errors in hooks will be caught and logged instead of thrown */
   catchErrors?: boolean;
+  /** Per-handler timeout for async hooks (ms). Defaults to 10 000. Set 0 to disable. */
+  hookTimeoutMs?: number;
 };
 
 type ModifyingHookPolicy<K extends PluginHookName, TResult> = {
@@ -172,6 +178,27 @@ function getHooksForNameAndPlugin<K extends PluginHookName>(
 export function createHookRunner(registry: PluginRegistry, options: HookRunnerOptions = {}) {
   const logger = options.logger;
   const catchErrors = options.catchErrors ?? true;
+  const hookTimeoutMs =
+    typeof options.hookTimeoutMs === "number" && options.hookTimeoutMs > 0
+      ? options.hookTimeoutMs
+      : options.hookTimeoutMs === 0
+        ? undefined // explicitly disabled
+        : DEFAULT_HOOK_TIMEOUT_MS;
+
+  /**
+   * Execute a single async handler with the configured timeout.
+   * Throws on timeout; callers catch via handleHookError.
+   */
+  async function callHandlerWithTimeout<T>(
+    fn: () => Promise<T>,
+    hookName: PluginHookName,
+    pluginId: string,
+  ): Promise<T> {
+    if (!hookTimeoutMs) {
+      return fn();
+    }
+    return withTimeout(() => fn(), hookTimeoutMs, `${hookName} handler from ${pluginId}`);
+  }
 
   const firstDefined = <T>(prev: T | undefined, next: T | undefined): T | undefined => prev ?? next;
   const lastDefined = <T>(prev: T | undefined, next: T | undefined): T | undefined => next ?? prev;
@@ -271,7 +298,11 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
 
     const promises = hooks.map(async (hook) => {
       try {
-        await (hook.handler as (event: unknown, ctx: unknown) => Promise<void>)(event, ctx);
+        await callHandlerWithTimeout(
+          () => (hook.handler as (event: unknown, ctx: unknown) => Promise<void>)(event, ctx),
+          hookName,
+          hook.pluginId,
+        );
       } catch (err) {
         handleHookError({ hookName, pluginId: hook.pluginId, error: err });
       }
@@ -301,9 +332,11 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
 
     for (const hook of hooks) {
       try {
-        const handlerResult = await (
-          hook.handler as (event: unknown, ctx: unknown) => Promise<TResult>
-        )(event, ctx);
+        const handlerResult = await callHandlerWithTimeout(
+          () => (hook.handler as (event: unknown, ctx: unknown) => Promise<TResult>)(event, ctx),
+          hookName,
+          hook.pluginId,
+        );
 
         if (handlerResult !== undefined && handlerResult !== null) {
           if (policy.mergeResults) {
@@ -344,7 +377,23 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
 
     logger?.debug?.(`[hooks] running ${hookName} (${hooks.length} handlers, first-claim wins)`);
 
-    return await runClaimingHooksList(hooks, hookName, event, ctx);
+    for (const hook of hooks) {
+      try {
+        const handlerResult = await callHandlerWithTimeout(
+          () =>
+            (hook.handler as (event: unknown, ctx: unknown) => Promise<TResult | void>)(event, ctx),
+          hookName,
+          hook.pluginId,
+        );
+        if (handlerResult?.handled) {
+          return handlerResult;
+        }
+      } catch (err) {
+        handleHookError({ hookName, pluginId: hook.pluginId, error: err });
+      }
+    }
+
+    return undefined;
   }
 
   async function runClaimingHookForPlugin<
@@ -365,23 +414,14 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
       `[hooks] running ${hookName} for ${pluginId} (${hooks.length} handlers, targeted)`,
     );
 
-    return await runClaimingHooksList(hooks, hookName, event, ctx);
-  }
-
-  async function runClaimingHooksList<
-    K extends PluginHookName,
-    TResult extends { handled: boolean },
-  >(
-    hooks: Array<PluginHookRegistration<K> & { pluginId: string }>,
-    hookName: K,
-    event: Parameters<NonNullable<PluginHookRegistration<K>["handler"]>>[0],
-    ctx: Parameters<NonNullable<PluginHookRegistration<K>["handler"]>>[1],
-  ): Promise<TResult | undefined> {
     for (const hook of hooks) {
       try {
-        const handlerResult = await (
-          hook.handler as (event: unknown, ctx: unknown) => Promise<TResult | void>
-        )(event, ctx);
+        const handlerResult = await callHandlerWithTimeout(
+          () =>
+            (hook.handler as (event: unknown, ctx: unknown) => Promise<TResult | void>)(event, ctx),
+          hookName,
+          hook.pluginId,
+        );
         if (handlerResult?.handled) {
           return handlerResult;
         }
@@ -427,9 +467,12 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
     let firstError: string | null = null;
     for (const hook of hooks) {
       try {
-        const handlerResult = await (
-          hook.handler as (event: unknown, ctx: unknown) => Promise<TResult | void>
-        )(event, ctx);
+        const handlerResult = await callHandlerWithTimeout(
+          () =>
+            (hook.handler as (event: unknown, ctx: unknown) => Promise<TResult | void>)(event, ctx),
+          hookName,
+          hook.pluginId,
+        );
         if (handlerResult?.handled) {
           return { status: "handled", result: handlerResult };
         }
