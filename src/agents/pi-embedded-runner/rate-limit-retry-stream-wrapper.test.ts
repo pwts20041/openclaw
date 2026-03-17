@@ -4,15 +4,20 @@ import { createAssistantMessageEventStream } from "@mariozechner/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Mock sleepWithAbort so tests don't wait real delays.
-const sleepWithAbortMock = vi.fn(async (_ms: number, _signal?: AbortSignal) => {});
-vi.mock("../../infra/backoff.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../infra/backoff.js")>();
-  return {
-    ...actual,
-    sleepWithAbort: (...args: unknown[]) =>
-      sleepWithAbortMock(args[0] as number, args[1] as AbortSignal | undefined),
-  };
-});
+const { sleepWithAbortMock } = vi.hoisted(() => ({
+  sleepWithAbortMock: vi.fn(async (_ms: number, _signal?: AbortSignal) => {}),
+}));
+vi.mock("../../infra/backoff.js", () => ({
+  computeBackoff: (
+    policy: { initialMs: number; maxMs: number; factor: number; jitter: number },
+    attempt: number,
+  ) => {
+    const base = policy.initialMs * policy.factor ** Math.max(attempt - 1, 0);
+    const jitter = base * policy.jitter * Math.random();
+    return Math.min(policy.maxMs, Math.round(base + jitter));
+  },
+  sleepWithAbort: (ms: number, signal?: AbortSignal) => sleepWithAbortMock(ms, signal),
+}));
 
 import { createRateLimitRetryStreamWrapper } from "./rate-limit-retry-stream-wrapper.js";
 
@@ -186,7 +191,7 @@ describe("createRateLimitRetryStreamWrapper", () => {
     const reject = () => Promise.reject(error) as unknown as ReturnType<StreamFn>;
     const inner = makeStreamFn([reject, reject, reject, reject]);
     const wrapped = createRateLimitRetryStreamWrapper(inner);
-    const thrown = await wrapped(model, context, {}).catch((e: unknown) => e);
+    const thrown = await Promise.resolve(wrapped(model, context, {})).catch((e: unknown) => e);
     // Exact reference preserved — no wrapping or mutation
     expect(thrown).toBe(error);
     // Run loop classifies via message text (ERROR_PATTERNS.rateLimit = /too many requests/)
