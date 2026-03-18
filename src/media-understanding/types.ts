@@ -109,6 +109,11 @@ export type ImageDescriptionResult = {
 export type MediaUnderstandingProvider = {
   id: string;
   capabilities?: MediaUnderstandingCapability[];
+  /**
+   * Local-only providers can opt out of generic API-key resolution.
+   * When false, media-understanding passes a synthetic local token instead.
+   */
+  requiresApiKey?: boolean;
   transcribeAudio?: (req: AudioTranscriptionRequest) => Promise<AudioTranscriptionResult>;
   describeVideo?: (req: VideoDescriptionRequest) => Promise<VideoDescriptionResult>;
   describeImage?: (req: ImageDescriptionRequest) => Promise<ImageDescriptionResult>;

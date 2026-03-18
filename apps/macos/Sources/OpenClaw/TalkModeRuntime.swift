@@ -146,8 +146,7 @@ actor TalkModeRuntime {
                 self.logger.info("talk: ExecuTorch model load succeeded")
             } catch {
                 self.logger.error("talk: ExecuTorch model load failed: \(error.localizedDescription, privacy: .public)")
-                self.useExecuTorch = false
-                self.logger.info("talk: STT backend falling back to Apple Speech")
+                await self.handleExecuTorchLoadFailure()
             }
         } else {
             self.logger.info("talk: STT backend Apple Speech (no ExecuTorch)")
@@ -194,6 +193,12 @@ actor TalkModeRuntime {
             TalkModeController.shared.updateLevel(0)
             TalkModeController.shared.updatePhase(.idle)
         }
+    }
+
+    private func handleExecuTorchLoadFailure() async {
+        await self.etBridge.shutdown()
+        self.useExecuTorch = false
+        self.logger.info("talk: STT backend falling back to Apple Speech")
     }
 
     // MARK: - Speech recognition
@@ -985,6 +990,13 @@ extension TalkModeRuntime {
 
     static func _testEffectiveSilenceWindow(configured: TimeInterval, useExecuTorch: Bool) -> TimeInterval {
         effectiveSilenceWindow(configured: configured, useExecuTorch: useExecuTorch)
+    }
+
+    func _testHandleExecuTorchLoadFailure() async -> (useExecuTorch: Bool, bridgeState: ExecuTorchSTTBridge.State) {
+        self.useExecuTorch = true
+        await self.etBridge._testSetState(.error("test"))
+        await self.handleExecuTorchLoadFailure()
+        return (self.useExecuTorch, await self.etBridge.currentState)
     }
 }
 #endif

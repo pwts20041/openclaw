@@ -11,4 +11,11 @@ struct TalkModeRuntimeSpeechTests {
         #expect(request.shouldReportPartialResults)
         #expect(request.taskHint == .dictation)
     }
+
+    @Test func `execuTorch load failure fallback resets bridge state`() async {
+        let result = await TalkModeRuntime.shared._testHandleExecuTorchLoadFailure()
+
+        #expect(result.useExecuTorch == false)
+        #expect(result.bridgeState == .idle)
+    }
 }
