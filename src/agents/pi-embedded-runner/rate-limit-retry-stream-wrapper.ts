@@ -140,7 +140,8 @@ export function createRateLimitRetryStreamWrapper(
           // can detect yield aborts via `err.cause === "sessions_yield"`.
           // sleepWithAbort wraps the AbortError, losing signal.reason as cause.
           if (abortSignal?.aborted) {
-            throw new Error("aborted", { cause: sleepErr });
+            // oxlint-disable-next-line preserve-caught-error -- intentional: propagate signal.reason, not sleepErr
+            throw new Error("aborted", { cause: abortSignal.reason as unknown });
           }
           throw sleepErr;
         }
