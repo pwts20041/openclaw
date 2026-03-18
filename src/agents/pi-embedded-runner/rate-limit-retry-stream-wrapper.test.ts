@@ -201,6 +201,22 @@ describe("createRateLimitRetryStreamWrapper", () => {
     expect((thrown as { headers: unknown }).headers).toBe(headers);
   });
 
+  it("preserves abort reason when sleep is interrupted (sessions_yield)", async () => {
+    const controller = new AbortController();
+    const error = make429Error();
+    // Simulate: sleep starts, then abort fires mid-sleep
+    sleepWithAbortMock.mockImplementationOnce(async () => {
+      controller.abort("sessions_yield");
+      throw new Error("aborted", { cause: new DOMException("signal is aborted", "AbortError") });
+    });
+    const inner = makeStreamFn([() => Promise.reject(error) as unknown as ReturnType<StreamFn>]);
+    const wrapped = createRateLimitRetryStreamWrapper(inner, controller.signal);
+    const thrown = await Promise.resolve(wrapped(model, context, {})).catch((e: unknown) => e);
+    expect(thrown).toBeInstanceOf(Error);
+    // The run loop checks err.cause === "sessions_yield" for yield detection
+    expect((thrown as Error).cause).toBe("sessions_yield");
+  });
+
   it("does not retry when abort signal is already aborted", async () => {
     const controller = new AbortController();
     controller.abort();

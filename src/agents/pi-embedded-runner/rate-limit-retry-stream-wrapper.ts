@@ -133,7 +133,17 @@ export function createRateLimitRetryStreamWrapper(
         // so an unreasonably large header cannot block indefinitely.
         const delayMs =
           retryAfterMs != null ? Math.min(retryAfterMs, MAX_RETRY_AFTER_MS) : backoffMs;
-        await sleepWithAbort(delayMs, abortSignal);
+        try {
+          await sleepWithAbort(delayMs, abortSignal);
+        } catch (sleepErr) {
+          // Preserve the abort reason (e.g. "sessions_yield") so the run loop
+          // can detect yield aborts via `err.cause === "sessions_yield"`.
+          // sleepWithAbort wraps the AbortError, losing signal.reason as cause.
+          if (abortSignal?.aborted) {
+            throw new Error("aborted", { cause: sleepErr });
+          }
+          throw sleepErr;
+        }
         return attempt(retryCount + 1);
       }
     };
