@@ -181,7 +181,8 @@ bundledChannelRuntimeSetters.setTelegramRuntime({
   channel: {
     telegram: {
       messageActions: {
-        describeMessageTool: telegramDescribeMessageToolMock,
+        listActions: telegramListActionsMock,
+        getCapabilities: telegramGetCapabilitiesMock,
       },
     },
   },
@@ -191,7 +192,8 @@ bundledChannelRuntimeSetters.setDiscordRuntime({
   channel: {
     discord: {
       messageActions: {
-        describeMessageTool: discordDescribeMessageToolMock,
+        listActions: discordListActionsMock,
+        getCapabilities: discordGetCapabilitiesMock,
       },
     },
   },
@@ -392,11 +394,10 @@ export const actionContractRegistry: ActionsContractEntry[] = [
         expectedActions: ["send", "poll", "react"],
         expectedCapabilities: ["interactive", "buttons"],
         beforeTest: () => {
-          telegramDescribeMessageToolMock.mockReset();
-          telegramDescribeMessageToolMock.mockReturnValue({
-            actions: ["send", "poll", "react"],
-            capabilities: ["interactive", "buttons"],
-          });
+          telegramListActionsMock.mockReset();
+          telegramGetCapabilitiesMock.mockReset();
+          telegramListActionsMock.mockReturnValue(["send", "poll", "react"]);
+          telegramGetCapabilitiesMock.mockReturnValue(["interactive", "buttons"]);
         },
       },
     ],
@@ -411,11 +412,10 @@ export const actionContractRegistry: ActionsContractEntry[] = [
         expectedActions: ["send", "react", "poll"],
         expectedCapabilities: ["interactive", "components"],
         beforeTest: () => {
-          discordDescribeMessageToolMock.mockReset();
-          discordDescribeMessageToolMock.mockReturnValue({
-            actions: ["send", "react", "poll"],
-            capabilities: ["interactive", "components"],
-          });
+          discordListActionsMock.mockReset();
+          discordGetCapabilitiesMock.mockReset();
+          discordListActionsMock.mockReturnValue(["send", "react", "poll"]);
+          discordGetCapabilitiesMock.mockReturnValue(["interactive", "components"]);
         },
       },
     ],
