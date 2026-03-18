@@ -162,6 +162,43 @@ describe("buildSessionEntry", () => {
     expect(entry!.content).toContain("Also, who is attending?");
   });
 
+  it("preserves inline mentions of directive tags mid-text (not leading)", async () => {
+    // When a user discusses directive tags inline (e.g. troubleshooting docs),
+    // those mentions should NOT be stripped — only leading control-tag positions are removed.
+    const userContent =
+      "The [[reply_to_current]] tag is used for replies. You can also use [[reply_to:msg-123]].";
+    const jsonlLines = [makeUserMessageLine(userContent)];
+    const filePath = path.join(tmpDir, "inline-tags.jsonl");
+    await fs.writeFile(filePath, jsonlLines.join("\n"));
+
+    const entry = await buildSessionEntry(filePath);
+    expect(entry).not.toBeNull();
+
+    // Mid-text mentions should be preserved for searchability
+    expect(entry!.content).toContain("[[reply_to_current]]");
+    expect(entry!.content).toContain("[[reply_to:msg-123]]");
+    expect(entry!.content).toContain("The [[reply_to_current]] tag is used for replies");
+  });
+
+  it("strips leading directive tags but preserves inline ones in same text", async () => {
+    // Leading tag should be stripped, but inline mention later in text should remain
+    const userContent =
+      "[[reply_to_current]] Regarding the [[reply_to_current]] directive, how does it work?";
+    const jsonlLines = [makeUserMessageLine(userContent)];
+    const filePath = path.join(tmpDir, "mixed-tags.jsonl");
+    await fs.writeFile(filePath, jsonlLines.join("\n"));
+
+    const entry = await buildSessionEntry(filePath);
+    expect(entry).not.toBeNull();
+
+    // The leading tag is stripped, but the inline one remains
+    expect(entry!.content).toContain("[[reply_to_current]]");
+    expect(entry!.content).toContain("Regarding the [[reply_to_current]] directive");
+    // Should not start with the tag
+    const userLine = entry!.content.split("\n")[0];
+    expect(userLine).toMatch(/^User: Regarding/);
+  });
+
   it("preserves normal message content without modification", async () => {
     // Plain user and assistant messages with no injected metadata
     const jsonlLines = [

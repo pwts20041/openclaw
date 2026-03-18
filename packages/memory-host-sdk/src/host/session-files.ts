@@ -4,8 +4,15 @@ import { stripInboundMetadata } from "../../../../src/auto-reply/reply/strip-inb
 import { resolveSessionTranscriptsDirForAgent } from "../../../../src/config/sessions/paths.js";
 import { redactSensitiveText } from "../../../../src/logging/redact.js";
 import { createSubsystemLogger } from "../../../../src/logging/subsystem.js";
-import { stripInlineDirectiveTagsForDisplay } from "../../../../src/utils/directive-tags.js";
 import { hashText } from "./internal.js";
+
+/**
+ * Matches one or more leading directive tags (audio/reply) at the very start of text,
+ * optionally preceded by whitespace.  Inline mentions pass through unchanged so they
+ * remain searchable in the memory index.
+ */
+const LEADING_DIRECTIVE_TAGS_RE =
+  /^(\s*\[\[\s*(?:audio_as_voice|reply_to_current|reply_to\s*:\s*[^\]\n]+)\s*\]\]\s*)+/i;
 
 const log = createSubsystemLogger("memory");
 
@@ -57,7 +64,10 @@ function stripRawContentMeta(raw: string, role: "user" | "assistant"): string {
   if (!afterMeta.includes("[[")) {
     return afterMeta;
   }
-  return stripInlineDirectiveTagsForDisplay(afterMeta).text;
+  // Only strip directive tags at leading control-tag positions (start of text).
+  // Inline mid-text mentions (e.g. discussing [[reply_to_current]] in docs)
+  // are left intact so they remain searchable in the memory index.
+  return afterMeta.replace(LEADING_DIRECTIVE_TAGS_RE, "");
 }
 
 export function extractSessionText(content: unknown): string | null {
