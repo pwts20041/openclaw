@@ -181,8 +181,7 @@ bundledChannelRuntimeSetters.setTelegramRuntime({
   channel: {
     telegram: {
       messageActions: {
-        listActions: telegramListActionsMock,
-        getCapabilities: telegramGetCapabilitiesMock,
+        describeMessageTool: telegramDescribeMessageToolMock,
       },
     },
   },
@@ -192,8 +191,7 @@ bundledChannelRuntimeSetters.setDiscordRuntime({
   channel: {
     discord: {
       messageActions: {
-        listActions: discordListActionsMock,
-        getCapabilities: discordGetCapabilitiesMock,
+        describeMessageTool: discordDescribeMessageToolMock,
       },
     },
   },
@@ -394,10 +392,11 @@ export const actionContractRegistry: ActionsContractEntry[] = [
         expectedActions: ["send", "poll", "react"],
         expectedCapabilities: ["interactive", "buttons"],
         beforeTest: () => {
-          telegramListActionsMock.mockReset();
-          telegramGetCapabilitiesMock.mockReset();
-          telegramListActionsMock.mockReturnValue(["send", "poll", "react"]);
-          telegramGetCapabilitiesMock.mockReturnValue(["interactive", "buttons"]);
+          telegramDescribeMessageToolMock.mockReset();
+          telegramDescribeMessageToolMock.mockReturnValue({
+            actions: ["send", "poll", "react"],
+            capabilities: ["interactive", "buttons"],
+          });
         },
       },
     ],
@@ -412,10 +411,11 @@ export const actionContractRegistry: ActionsContractEntry[] = [
         expectedActions: ["send", "react", "poll"],
         expectedCapabilities: ["interactive", "components"],
         beforeTest: () => {
-          discordListActionsMock.mockReset();
-          discordGetCapabilitiesMock.mockReset();
-          discordListActionsMock.mockReturnValue(["send", "react", "poll"]);
-          discordGetCapabilitiesMock.mockReturnValue(["interactive", "components"]);
+          discordDescribeMessageToolMock.mockReset();
+          discordDescribeMessageToolMock.mockReturnValue({
+            actions: ["send", "react", "poll"],
+            capabilities: ["interactive", "components"],
+          });
         },
       },
     ],
