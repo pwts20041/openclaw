@@ -3,9 +3,13 @@ import type { Context, Model } from "@mariozechner/pi-ai";
 import { createAssistantMessageEventStream } from "@mariozechner/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// Mock sleepWithAbort so tests don't wait real delays.
-const { sleepWithAbortMock } = vi.hoisted(() => ({
+// Mock sleepWithAbort so tests don't wait real delays, and log.warn for observability checks.
+const { sleepWithAbortMock, logWarnMock } = vi.hoisted(() => ({
   sleepWithAbortMock: vi.fn(async (_ms: number, _signal?: AbortSignal) => {}),
+  logWarnMock: vi.fn(),
+}));
+vi.mock("./logger.js", () => ({
+  log: { warn: (...args: unknown[]) => logWarnMock(...args) },
 }));
 vi.mock("../../infra/backoff.js", () => ({
   computeBackoff: (
@@ -43,6 +47,7 @@ describe("createRateLimitRetryStreamWrapper", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     sleepWithAbortMock.mockClear();
+    logWarnMock.mockClear();
   });
 
   it("passes through on success without retrying", async () => {
@@ -215,6 +220,59 @@ describe("createRateLimitRetryStreamWrapper", () => {
     expect(thrown).toBeInstanceOf(Error);
     // The run loop checks err.cause === "sessions_yield" for yield detection
     expect((thrown as Error).cause).toBe("sessions_yield");
+  });
+
+  it("reads Retry-After from Title-Case plain object key", async () => {
+    const inner = makeStreamFn([
+      () =>
+        Promise.reject(
+          make429Error({ headers: { "Retry-After": "6" } }),
+        ) as unknown as ReturnType<StreamFn>,
+      () => createAssistantMessageEventStream(),
+    ]);
+    const wrapped = createRateLimitRetryStreamWrapper(inner);
+    await wrapped(model, context, {});
+    expect(sleepWithAbortMock).toHaveBeenCalledWith(6_000, undefined);
+  });
+
+  it("reads Retry-After from uppercase plain object key", async () => {
+    const inner = makeStreamFn([
+      () =>
+        Promise.reject(
+          make429Error({ headers: { "RETRY-AFTER": "4" } }),
+        ) as unknown as ReturnType<StreamFn>,
+      () => createAssistantMessageEventStream(),
+    ]);
+    const wrapped = createRateLimitRetryStreamWrapper(inner);
+    await wrapped(model, context, {});
+    expect(sleepWithAbortMock).toHaveBeenCalledWith(4_000, undefined);
+  });
+
+  it("floors Retry-After: 0 at backoffMs to avoid tight retry loops", async () => {
+    const inner = makeStreamFn([
+      () =>
+        Promise.reject(
+          make429Error({ headers: { "retry-after": "0" } }),
+        ) as unknown as ReturnType<StreamFn>,
+      () => createAssistantMessageEventStream(),
+    ]);
+    const wrapped = createRateLimitRetryStreamWrapper(inner);
+    await wrapped(model, context, {});
+    // backoffMs for attempt 1 = initialMs * factor^0 = 1000 (plus jitter, but min is 1000)
+    const [delayMs] = sleepWithAbortMock.mock.calls[0] as [number];
+    expect(delayMs).toBeGreaterThanOrEqual(1_000);
+  });
+
+  it("logs a warning on each retry and on exhaustion", async () => {
+    const error = make429Error();
+    const reject = () => Promise.reject(error) as unknown as ReturnType<StreamFn>;
+    const inner = makeStreamFn([reject, reject, reject, reject]);
+    const wrapped = createRateLimitRetryStreamWrapper(inner);
+    await expect(wrapped(model, context, {})).rejects.toBe(error);
+    // 3 retry warnings + 1 exhaustion warning
+    expect(logWarnMock).toHaveBeenCalledTimes(4);
+    expect(logWarnMock.mock.calls[0][0]).toMatch(/retry 1\/3/);
+    expect(logWarnMock.mock.calls[3][0]).toMatch(/exhausted 3\/3/);
   });
 
   it("does not retry when abort signal is already aborted", async () => {
