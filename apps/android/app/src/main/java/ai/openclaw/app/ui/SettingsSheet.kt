@@ -247,7 +247,7 @@ fun SettingsSheet(viewModel: MainViewModel) {
     remember {
       mutableStateOf(
         ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
-          PackageManager.PERMISSION_GRANTED &&
+          PackageManager.PERMISSION_GRANTED ||
           ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
           PackageManager.PERMISSION_GRANTED,
       )
@@ -256,7 +256,12 @@ fun SettingsSheet(viewModel: MainViewModel) {
     rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { perms ->
       val sendOk = perms[Manifest.permission.SEND_SMS] == true
       val readOk = perms[Manifest.permission.READ_SMS] == true
-      smsPermissionGranted = sendOk && readOk
+      smsPermissionGranted =
+        sendOk || readOk ||
+          ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
+            PackageManager.PERMISSION_GRANTED ||
+          ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
+            PackageManager.PERMISSION_GRANTED
       viewModel.refreshGatewayConnection()
     }
 
@@ -291,8 +296,6 @@ fun SettingsSheet(viewModel: MainViewModel) {
               PackageManager.PERMISSION_GRANTED
           smsPermissionGranted =
             ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
-              PackageManager.PERMISSION_GRANTED &&
-              ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
               PackageManager.PERMISSION_GRANTED
         }
       }
@@ -838,5 +841,5 @@ private fun isNotificationListenerEnabled(context: Context): Boolean {
 private fun hasMotionCapabilities(context: Context): Boolean {
   val sensorManager = context.getSystemService(SensorManager::class.java) ?: return false
   return sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null ||
-          sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) != null
+    sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) != null
 }
