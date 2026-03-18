@@ -3,21 +3,20 @@ package ai.openclaw.app.node
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.database.Cursor
-import android.net.Uri
 import android.provider.ContactsContract
 import android.provider.Telephony
 import android.telephony.SmsManager as AndroidSmsManager
 import androidx.core.content.ContextCompat
+import ai.openclaw.app.PermissionRequester
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.Serializable
-import ai.openclaw.app.PermissionRequester
 
 /**
  * Sends SMS messages via the Android SMS API.
@@ -39,7 +38,7 @@ class SmsManager(private val context: Context) {
     )
 
     /**
-     * Represents a single SMS message
+     * Represents a single SMS message.
      */
     @Serializable
     data class SmsMessage(
@@ -162,22 +161,23 @@ class SmsManager(private val context: Context) {
             val offset = ((obj["offset"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0)
                 .coerceAtLeast(0)
 
-            // Validate time range
             if (startTime != null && endTime != null && startTime > endTime) {
                 return QueryParseResult.Error("INVALID_REQUEST: startTime must be less than or equal to endTime")
             }
 
-            return QueryParseResult.Ok(QueryParams(
-                startTime = startTime,
-                endTime = endTime,
-                contactName = contactName,
-                phoneNumber = phoneNumber,
-                keyword = keyword,
-                type = type,
-                isRead = isRead,
-                limit = limit,
-                offset = offset,
-            ))
+            return QueryParseResult.Ok(
+                QueryParams(
+                    startTime = startTime,
+                    endTime = endTime,
+                    contactName = contactName,
+                    phoneNumber = phoneNumber,
+                    keyword = keyword,
+                    type = type,
+                    isRead = isRead,
+                    limit = limit,
+                    offset = offset,
+                )
+            )
         }
 
         private fun normalizePhoneNumber(phone: String): String {
@@ -220,7 +220,7 @@ class SmsManager(private val context: Context) {
             val payload = mutableMapOf<String, JsonElement>(
                 "ok" to JsonPrimitive(ok),
                 "count" to JsonPrimitive(messages.size),
-                "messages" to messagesElement
+                "messages" to messagesElement,
             )
             if (!ok && error != null) {
                 payload["error"] = JsonPrimitive(error)
@@ -254,7 +254,7 @@ class SmsManager(private val context: Context) {
         return hasSmsPermission() && hasTelephonyFeature()
     }
 
-    fun canReadSms(): Boolean {
+    fun canSearchSms(): Boolean {
         return hasReadSmsPermission() && hasTelephonyFeature()
     }
 
@@ -302,19 +302,19 @@ class SmsManager(private val context: Context) {
             val plan = buildSendPlan(params.message) { smsManager.divideMessage(it) }
             if (plan.useMultipart) {
                 smsManager.sendMultipartTextMessage(
-                    params.to,     // destination
-                    null,          // service center (null = default)
-                    ArrayList(plan.parts),    // message parts
-                    null,          // sent intents
-                    null,          // delivery intents
+                    params.to,
+                    null,
+                    ArrayList(plan.parts),
+                    null,
+                    null,
                 )
             } else {
                 smsManager.sendTextMessage(
-                    params.to,     // destination
-                    null,          // service center (null = default)
-                    params.message,// message
-                    null,          // sent intent
-                    null,          // delivery intent
+                    params.to,
+                    null,
+                    params.message,
+                    null,
+                    null,
                 )
             }
 
@@ -330,6 +330,87 @@ class SmsManager(private val context: Context) {
                 error = "SMS_SEND_FAILED: ${e.message ?: "unknown error"}",
                 to = params.to,
                 message = params.message,
+            )
+        }
+    }
+
+    /**
+     * Search SMS messages with the specified parameters.
+     */
+    suspend fun search(paramsJson: String?): SearchResult = withContext(Dispatchers.IO) {
+        if (!hasTelephonyFeature()) {
+            return@withContext SearchResult(
+                ok = false,
+                messages = emptyList(),
+                error = "SMS_UNAVAILABLE: telephony not available",
+                payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = "SMS_UNAVAILABLE: telephony not available")
+            )
+        }
+
+        if (!ensureReadSmsPermission()) {
+            return@withContext SearchResult(
+                ok = false,
+                messages = emptyList(),
+                error = "SMS_PERMISSION_REQUIRED: grant READ_SMS permission",
+                payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = "SMS_PERMISSION_REQUIRED: grant READ_SMS permission")
+            )
+        }
+
+        val parseResult = parseQueryParams(paramsJson, json)
+        if (parseResult is QueryParseResult.Error) {
+            return@withContext SearchResult(
+                ok = false,
+                messages = emptyList(),
+                error = parseResult.error,
+                payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = parseResult.error)
+            )
+        }
+        val params = (parseResult as QueryParseResult.Ok).params
+
+        return@withContext try {
+            val phoneNumbers = if (!params.contactName.isNullOrEmpty()) {
+                if (!ensureReadContactsPermission()) {
+                    return@withContext SearchResult(
+                        ok = false,
+                        messages = emptyList(),
+                        error = "CONTACTS_PERMISSION_REQUIRED: grant READ_CONTACTS permission",
+                        payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = "CONTACTS_PERMISSION_REQUIRED: grant READ_CONTACTS permission")
+                    )
+                }
+                getPhoneNumbersFromContactName(params.contactName)
+            } else {
+                emptyList()
+            }
+
+            if (!params.contactName.isNullOrEmpty() && phoneNumbers.isEmpty()) {
+                return@withContext SearchResult(
+                    ok = true,
+                    messages = emptyList(),
+                    error = null,
+                    payloadJson = buildQueryPayloadJson(json, ok = true, messages = emptyList())
+                )
+            }
+
+            val messages = querySmsMessages(params, phoneNumbers)
+            SearchResult(
+                ok = true,
+                messages = messages,
+                error = null,
+                payloadJson = buildQueryPayloadJson(json, ok = true, messages = messages)
+            )
+        } catch (e: SecurityException) {
+            SearchResult(
+                ok = false,
+                messages = emptyList(),
+                error = "SMS_PERMISSION_REQUIRED: ${e.message}",
+                payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = "SMS_PERMISSION_REQUIRED: ${e.message}")
+            )
+        } catch (e: Throwable) {
+            SearchResult(
+                ok = false,
+                messages = emptyList(),
+                error = "SMS_QUERY_FAILED: ${e.message ?: "unknown error"}",
+                payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = "SMS_QUERY_FAILED: ${e.message ?: "unknown error"}")
             )
         }
     }
@@ -375,94 +456,6 @@ class SmsManager(private val context: Context) {
         )
     }
 
-    /**
-     * search SMS messages with the specified parameters.
-     *
-     * @param paramsJson JSON with optional fields:
-     *   - startTime (Long): Start time in milliseconds
-     *   - endTime (Long): End time in milliseconds
-     *   - contactName (String): Contact name to search
-     *   - phoneNumber (String): Phone number to search (supports partial matching)
-     *   - keyword (String): Keyword to search in message body
-     *   - type (Int): SMS type (1=Inbox, 2=Sent, 3=Draft, etc.)
-     *   - isRead (Boolean): Read status
-     *   - limit (Int): Number of records to return (default: 25, range: 1-200)
-     *   - offset (Int): Number of records to skip (default: 0)
-     * @return SearchResult containing the list of SMS messages or an error
-     */
-    suspend fun search(paramsJson: String?): SearchResult = withContext(Dispatchers.IO) {
-        if (!hasTelephonyFeature()) {
-            return@withContext SearchResult(
-                ok = false,
-                messages = emptyList(),
-                error = "SMS_UNAVAILABLE: telephony not available",
-                payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = "SMS_UNAVAILABLE: telephony not available")
-            )
-        }
-
-        if (!ensureReadSmsPermission()) {
-            return@withContext SearchResult(
-                ok = false,
-                messages = emptyList(),
-                error = "SMS_PERMISSION_REQUIRED: grant READ_SMS permission",
-                payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = "SMS_PERMISSION_REQUIRED: grant READ_SMS permission")
-            )
-        }
-
-        val parseResult = parseQueryParams(paramsJson, json)
-        if (parseResult is QueryParseResult.Error) {
-            return@withContext SearchResult(
-                ok = false,
-                messages = emptyList(),
-                error = parseResult.error,
-                payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = parseResult.error)
-            )
-        }
-        val params = (parseResult as QueryParseResult.Ok).params
-
-        return@withContext try {
-            // Get phone numbers from contact name if provided
-            val phoneNumbers = if (!params.contactName.isNullOrEmpty()) {
-                if (!ensureReadContactsPermission()) {
-                    return@withContext SearchResult(
-                        ok = false,
-                        messages = emptyList(),
-                        error = "CONTACTS_PERMISSION_REQUIRED: grant READ_CONTACTS permission",
-                        payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = "CONTACTS_PERMISSION_REQUIRED: grant READ_CONTACTS permission")
-                    )
-                }
-                getPhoneNumbersFromContactName(params.contactName)
-            } else {
-                emptyList()
-            }
-
-            val messages = querySmsMessages(params, phoneNumbers)
-            SearchResult(
-                ok = true,
-                messages = messages,
-                error = null,
-                payloadJson = buildQueryPayloadJson(json, ok = true, messages = messages)
-            )
-        } catch (e: SecurityException) {
-            SearchResult(
-                ok = false,
-                messages = emptyList(),
-                error = "SMS_PERMISSION_REQUIRED: ${e.message}",
-                payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = "SMS_PERMISSION_REQUIRED: ${e.message}")
-            )
-        } catch (e: Throwable) {
-            SearchResult(
-                ok = false,
-                messages = emptyList(),
-                error = "SMS_QUERY_FAILED: ${e.message ?: "unknown error"}",
-                payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = "SMS_QUERY_FAILED: ${e.message ?: "unknown error"}")
-            )
-        }
-    }
-
-    /**
-     * Get all phone numbers associated with a contact name
-     */
     private fun getPhoneNumbersFromContactName(contactName: String): List<String> {
         val phoneNumbers = mutableListOf<String>()
         val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?"
@@ -489,17 +482,12 @@ class SmsManager(private val context: Context) {
         return phoneNumbers
     }
 
-    /**
-     * Query SMS messages based on the provided parameters
-     */
     private fun querySmsMessages(params: QueryParams, phoneNumbers: List<String>): List<SmsMessage> {
         val messages = mutableListOf<SmsMessage>()
 
-        // Build selection and selectionArgs
         val selections = mutableListOf<String>()
         val selectionArgs = mutableListOf<String>()
 
-        // Time range
         if (params.startTime != null) {
             selections.add("${Telephony.Sms.DATE} >= ?")
             selectionArgs.add(params.startTime.toString())
@@ -509,7 +497,6 @@ class SmsManager(private val context: Context) {
             selectionArgs.add(params.endTime.toString())
         }
 
-        // Phone numbers (from contact name or direct phone number)
         val allPhoneNumbers = if (!params.phoneNumber.isNullOrEmpty()) {
             phoneNumbers + normalizePhoneNumber(params.phoneNumber)
         } else {
@@ -526,19 +513,16 @@ class SmsManager(private val context: Context) {
             }
         }
 
-        // Keyword in body
         if (!params.keyword.isNullOrEmpty()) {
             selections.add("${Telephony.Sms.BODY} LIKE ?")
             selectionArgs.add("%${params.keyword}%")
         }
 
-        // Type
         if (params.type != null) {
             selections.add("${Telephony.Sms.TYPE} = ?")
             selectionArgs.add(params.type.toString())
         }
 
-        // Read status
         if (params.isRead != null) {
             selections.add("${Telephony.Sms.READ} = ?")
             selectionArgs.add(if (params.isRead) "1" else "0")
@@ -556,7 +540,6 @@ class SmsManager(private val context: Context) {
             null
         }
 
-        // Query SMS with SQL-level LIMIT and OFFSET to avoid loading all matching rows
         val sortOrder = "${Telephony.Sms.DATE} DESC LIMIT ${params.limit} OFFSET ${params.offset}"
         val cursor = context.contentResolver.query(
             Telephony.Sms.CONTENT_URI,
@@ -570,7 +553,7 @@ class SmsManager(private val context: Context) {
                 Telephony.Sms.READ,
                 Telephony.Sms.TYPE,
                 Telephony.Sms.BODY,
-                Telephony.Sms.STATUS
+                Telephony.Sms.STATUS,
             ),
             selection,
             selectionArgsArray,
@@ -601,7 +584,7 @@ class SmsManager(private val context: Context) {
                     read = it.getInt(readIndex) == 1,
                     type = it.getInt(typeIndex),
                     body = it.getString(bodyIndex),
-                    status = it.getInt(statusIndex)
+                    status = it.getInt(statusIndex),
                 )
                 messages.add(message)
                 count++
