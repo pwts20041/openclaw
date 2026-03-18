@@ -120,7 +120,8 @@ export const mockedLog: {
   isEnabled: vi.fn(() => false),
 };
 
-export const mockedClassifyFailoverReason = vi.fn(() => null);
+export const mockedClassifyFailoverReason = vi.fn<(raw: string) => string | null>(() => null);
+export const mockedIsFailoverErrorMessage = vi.fn<(raw: string) => boolean>(() => false);
 export const mockedExtractObservedOverflowTokenCount = vi.fn((msg?: string) => {
   const match = msg?.match(/prompt is too long:\s*([\d,]+)\s+tokens\s*>\s*[\d,]+\s+maximum/i);
   return match?.[1] ? Number(match[1].replaceAll(",", "")) : undefined;
@@ -208,6 +209,8 @@ export function resetRunOverflowCompactionHarnessMocks(): void {
 
   mockedClassifyFailoverReason.mockReset();
   mockedClassifyFailoverReason.mockReturnValue(null);
+  mockedIsFailoverErrorMessage.mockReset();
+  mockedIsFailoverErrorMessage.mockReturnValue(false);
   mockedExtractObservedOverflowTokenCount.mockReset();
   mockedExtractObservedOverflowTokenCount.mockImplementation((msg?: string) => {
     const match = msg?.match(/prompt is too long:\s*([\d,]+)\s+tokens\s*>\s*[\d,]+\s+maximum/i);
@@ -294,7 +297,7 @@ export async function loadRunOverflowCompactionHarness(): Promise<{
     isCompactionFailureError: mockedIsCompactionFailureError,
     isLikelyContextOverflowError: mockedIsLikelyContextOverflowError,
     isFailoverAssistantError: vi.fn(() => false),
-    isFailoverErrorMessage: vi.fn(() => false),
+    isFailoverErrorMessage: mockedIsFailoverErrorMessage,
     parseImageSizeError: vi.fn(() => null),
     parseImageDimensionError: vi.fn(() => null),
     isRateLimitAssistantError: vi.fn(() => false),

@@ -75,6 +75,10 @@ import { createFailoverDecisionLogger } from "./run/failover-observation.js";
 import type { RunEmbeddedPiAgentParams } from "./run/params.js";
 import { buildEmbeddedRunPayloads } from "./run/payloads.js";
 import {
+  buildApiErrorNotice,
+  resolveEffectiveToolOnlyTurnSafetyConfig,
+} from "./tool-only-turn-safety.js";
+import {
   truncateOversizedToolResultsInSession,
   sessionLikelyHasOversizedToolResults,
 } from "./tool-result-truncation.js";
@@ -129,6 +133,20 @@ type UsageAccumulator = {
   lastCacheWrite: number;
   lastInput: number;
 };
+
+type UserVisibleReplyAttempt = {
+  assistantTexts: string[];
+  didSendViaMessagingTool: boolean;
+  didSendDeterministicApprovalPrompt?: boolean;
+};
+
+function attemptSentUserVisibleReply(attempt: UserVisibleReplyAttempt): boolean {
+  return (
+    attempt.assistantTexts.length > 0 ||
+    attempt.didSendViaMessagingTool ||
+    attempt.didSendDeterministicApprovalPrompt === true
+  );
+}
 
 const createUsageAccumulator = (): UsageAccumulator => ({
   input: 0,
@@ -286,6 +304,19 @@ export async function runEmbeddedPiAgent(
   return enqueueSession(() =>
     enqueueGlobal(async () => {
       const started = Date.now();
+      let hasUserVisibleReply = false;
+      const emitPartialReply = params.onPartialReply
+        ? (...args: Parameters<NonNullable<RunEmbeddedPiAgentParams["onPartialReply"]>>) => {
+            hasUserVisibleReply = true;
+            return params.onPartialReply?.(...args);
+          }
+        : undefined;
+      const emitBlockReply = params.onBlockReply
+        ? (...args: Parameters<NonNullable<RunEmbeddedPiAgentParams["onBlockReply"]>>) => {
+            hasUserVisibleReply = true;
+            return params.onBlockReply?.(...args);
+          }
+        : undefined;
       const workspaceResolution = resolveRunWorkspaceDir({
         workspaceDir: params.workspaceDir,
         sessionKey: params.sessionKey,
@@ -881,6 +912,41 @@ export async function runEmbeddedPiAgent(
       // repeated initialization/connection overhead per attempt.
       ensureContextEnginesInitialized();
       const contextEngine = await resolveContextEngine(params.config);
+      const toolOnlySafetyConfig = resolveEffectiveToolOnlyTurnSafetyConfig({
+        config: params.config,
+        sessionKey: params.sessionKey,
+        agentId: params.agentId,
+      });
+      // Track whether we've already notified the user about an API error in
+      // this run to avoid spamming multiple notices across retries.
+      let apiErrorNotified = false;
+      /**
+       * If the agent hasn't produced any text reply yet and the config
+       * allows it, emit a brief notice to the user about the API error
+       * so they know the system is still working on their request.
+       */
+      const maybeNotifyUserOfApiError = (errorSummary: string) => {
+        if (apiErrorNotified) {
+          return;
+        }
+        if (!emitBlockReply) {
+          return;
+        }
+        // Only notify when the run hasn't already produced a user-visible reply.
+        if (hasUserVisibleReply) {
+          return;
+        }
+        const notice = buildApiErrorNotice(errorSummary, toolOnlySafetyConfig);
+        if (!notice) {
+          return;
+        }
+        apiErrorNotified = true;
+        void Promise.resolve()
+          .then(() => emitBlockReply({ text: notice }))
+          .catch((err) => {
+            log.warn(`API error user notification failed: ${String(err)}`);
+          });
+      };
       try {
         let authRetryPending = false;
         // Hoisted so the retry-limit error path can use the most recent API total.
@@ -984,9 +1050,9 @@ export async function runEmbeddedPiAgent(
             abortSignal: params.abortSignal,
             shouldEmitToolResult: params.shouldEmitToolResult,
             shouldEmitToolOutput: params.shouldEmitToolOutput,
-            onPartialReply: params.onPartialReply,
+            onPartialReply: emitPartialReply,
             onAssistantMessageStart: params.onAssistantMessageStart,
-            onBlockReply: params.onBlockReply,
+            onBlockReply: emitBlockReply,
             onBlockReplyFlush: params.onBlockReplyFlush,
             blockReplyBreak: params.blockReplyBreak,
             blockReplyChunking: params.blockReplyChunking,
@@ -1012,6 +1078,7 @@ export async function runEmbeddedPiAgent(
             sessionIdUsed,
             lastAssistant,
           } = attempt;
+          hasUserVisibleReply ||= attemptSentUserVisibleReply(attempt);
           bootstrapPromptWarningSignaturesSeen =
             attempt.bootstrapPromptWarningSignaturesSeen ??
             (attempt.bootstrapPromptWarningSignature
@@ -1417,6 +1484,7 @@ export async function runEmbeddedPiAgent(
               promptFailoverReason !== "timeout" &&
               (await advanceAuthProfile())
             ) {
+              maybeNotifyUserOfApiError(promptFailoverReason ?? "service_error");
               logPromptFailoverDecision("rotate_profile");
               await maybeBackoffBeforeOverloadFailover(promptFailoverReason);
               continue;
@@ -1437,6 +1505,7 @@ export async function runEmbeddedPiAgent(
             // rate-limit, auth, or billing failures.
             if (fallbackConfigured && promptFailoverFailure) {
               const status = resolveFailoverStatus(promptFailoverReason ?? "unknown");
+              maybeNotifyUserOfApiError(promptFailoverReason ?? "service_error");
               logPromptFailoverDecision("fallback_model", { status });
               await maybeBackoffBeforeOverloadFailover(promptFailoverReason);
               throw (
@@ -1549,12 +1618,14 @@ export async function runEmbeddedPiAgent(
 
             const rotated = await advanceAuthProfile();
             if (rotated) {
+              maybeNotifyUserOfApiError(assistantFailoverReason ?? "service_error");
               logAssistantFailoverDecision("rotate_profile");
               await maybeBackoffBeforeOverloadFailover(assistantFailoverReason);
               continue;
             }
 
             if (fallbackConfigured) {
+              maybeNotifyUserOfApiError(assistantFailoverReason ?? "service_error");
               await maybeBackoffBeforeOverloadFailover(assistantFailoverReason);
               // Prefer formatted error message (user-friendly) over raw errorMessage
               const message =

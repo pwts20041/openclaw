@@ -271,6 +271,7 @@ async function emitToolResultOutput(params: {
         }),
       );
       ctx.state.deterministicApprovalPromptSent = true;
+      ctx.state.visibleOutputEmittedThisTurn = true;
     } catch {
       // ignore delivery failures
     }
@@ -292,6 +293,7 @@ async function emitToolResultOutput(params: {
         }),
       );
       ctx.state.deterministicApprovalPromptSent = true;
+      ctx.state.visibleOutputEmittedThisTurn = true;
     } catch {
       // ignore delivery failures
     }
@@ -302,6 +304,7 @@ async function emitToolResultOutput(params: {
     const outputText = extractToolResultText(sanitizedResult);
     if (outputText) {
       ctx.emitToolOutput(toolName, meta, outputText);
+      ctx.state.visibleOutputEmittedThisTurn = true;
     }
     if (!hasStructuredMedia) {
       return;
@@ -320,6 +323,7 @@ async function emitToolResultOutput(params: {
   if (mediaUrls.length === 0) {
     return;
   }
+  ctx.state.visibleOutputEmittedThisTurn = true;
   queuePendingToolMedia(ctx, {
     mediaUrls,
     ...(mediaReply.audioAsVoice ? { audioAsVoice: true } : {}),
