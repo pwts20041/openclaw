@@ -1,5 +1,6 @@
 package ai.openclaw.app.node
 
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -62,6 +63,73 @@ class SmsManagerTest {
   }
 
   @Test
+  fun parseQueryParamsDefaultsWhenPayloadEmpty() {
+    val result = SmsManager.parseQueryParams(null, json)
+    assertTrue(result is SmsManager.QueryParseResult.Ok)
+    val ok = result as SmsManager.QueryParseResult.Ok
+    assertEquals(25, ok.params.limit)
+    assertEquals(0, ok.params.offset)
+    assertEquals(null, ok.params.startTime)
+    assertEquals(null, ok.params.endTime)
+  }
+
+  @Test
+  fun parseQueryParamsRejectsInvalidJson() {
+    val result = SmsManager.parseQueryParams("not-json", json)
+    assertTrue(result is SmsManager.QueryParseResult.Error)
+    val error = result as SmsManager.QueryParseResult.Error
+    assertEquals("INVALID_REQUEST: expected JSON object", error.error)
+  }
+
+  @Test
+  fun parseQueryParamsRejectsInvertedTimeRange() {
+    val result = SmsManager.parseQueryParams("{\"startTime\":200,\"endTime\":100}", json)
+    assertTrue(result is SmsManager.QueryParseResult.Error)
+    val error = result as SmsManager.QueryParseResult.Error
+    assertEquals("INVALID_REQUEST: startTime must be less than or equal to endTime", error.error)
+  }
+
+  @Test
+  fun parseQueryParamsClampsLimitAndOffset() {
+    val result = SmsManager.parseQueryParams("{\"limit\":999,\"offset\":-5}", json)
+    assertTrue(result is SmsManager.QueryParseResult.Ok)
+    val ok = result as SmsManager.QueryParseResult.Ok
+    assertEquals(200, ok.params.limit)
+    assertEquals(0, ok.params.offset)
+  }
+
+  @Test
+  fun parseQueryParamsParsesAllSupportedFields() {
+    val result = SmsManager.parseQueryParams(
+      """
+      {
+        "startTime": 100,
+        "endTime": 200,
+        "contactName": " Leah ",
+        "phoneNumber": " +1555 ",
+        "keyword": " ping ",
+        "type": 1,
+        "isRead": true,
+        "limit": 10,
+        "offset": 2
+      }
+      """.trimIndent(),
+      json,
+    )
+    assertTrue(result is SmsManager.QueryParseResult.Ok)
+    val ok = result as SmsManager.QueryParseResult.Ok
+    assertEquals(100L, ok.params.startTime)
+    assertEquals(200L, ok.params.endTime)
+    assertEquals("Leah", ok.params.contactName)
+    assertEquals("+1555", ok.params.phoneNumber)
+    assertEquals("ping", ok.params.keyword)
+    assertEquals(1, ok.params.type)
+    assertEquals(true, ok.params.isRead)
+    assertEquals(10, ok.params.limit)
+    assertEquals(2, ok.params.offset)
+  }
+
+  @Test
   fun buildPayloadJsonEscapesFields() {
     val payload = SmsManager.buildPayloadJson(
       json = json,
@@ -73,6 +141,48 @@ class SmsManagerTest {
     assertEquals("false", parsed["ok"]?.jsonPrimitive?.content)
     assertEquals("+1\"23", parsed["to"]?.jsonPrimitive?.content)
     assertEquals("SMS_SEND_FAILED: \"nope\"", parsed["error"]?.jsonPrimitive?.content)
+  }
+
+  @Test
+  fun buildQueryPayloadJsonIncludesCountAndMessages() {
+    val payload = SmsManager.buildQueryPayloadJson(
+      json = json,
+      ok = true,
+      messages = listOf(
+        SmsManager.SmsMessage(
+          id = 1L,
+          threadId = 2L,
+          address = "+1555",
+          person = null,
+          date = 123L,
+          dateSent = 124L,
+          read = true,
+          type = 1,
+          body = "hello",
+          status = 0,
+        )
+      ),
+    )
+    val parsed = json.parseToJsonElement(payload).jsonObject
+    assertEquals("true", parsed["ok"]?.jsonPrimitive?.content)
+    assertEquals(1, parsed["count"]?.jsonPrimitive?.content?.toInt())
+    val messages = parsed["messages"]?.jsonArray
+    assertEquals(1, messages?.size)
+    assertEquals("hello", messages?.get(0)?.jsonObject?.get("body")?.jsonPrimitive?.content)
+  }
+
+  @Test
+  fun buildQueryPayloadJsonIncludesErrorOnFailure() {
+    val payload = SmsManager.buildQueryPayloadJson(
+      json = json,
+      ok = false,
+      messages = emptyList(),
+      error = "SMS_QUERY_FAILED: nope",
+    )
+    val parsed = json.parseToJsonElement(payload).jsonObject
+    assertEquals("false", parsed["ok"]?.jsonPrimitive?.content)
+    assertEquals(0, parsed["count"]?.jsonPrimitive?.content?.toInt())
+    assertEquals("SMS_QUERY_FAILED: nope", parsed["error"]?.jsonPrimitive?.content)
   }
 
   @Test

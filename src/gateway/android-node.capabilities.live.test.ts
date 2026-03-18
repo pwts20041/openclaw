@@ -213,6 +213,12 @@ const COMMAND_PROFILES: Record<string, CommandProfile> = {
     outcome: "error",
     allowedErrorCodes: ["INVALID_REQUEST"],
   },
+  "sms.search": {
+    buildParams: () => ({}),
+    timeoutMs: 20_000,
+    outcome: "error",
+    allowedErrorCodes: ["INVALID_REQUEST"],
+  },
   "debug.logs": {
     buildParams: () => ({}),
     timeoutMs: 20_000,
