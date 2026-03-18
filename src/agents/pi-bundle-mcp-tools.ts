@@ -2,6 +2,7 @@ import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { McpsSigningTransport, McpsConfig } from "mcps-openclaw";
 import type { OpenClawConfig } from "../config/config.js";
 import { logDebug, logWarn } from "../logger.js";
 import { loadEmbeddedPiMcpConfig } from "./embedded-pi-mcp.js";
@@ -20,6 +21,7 @@ type BundleMcpSession = {
   serverName: string;
   client: Client;
   transport: StdioClientTransport;
+  activeTransport?: { close: () => Promise<void> };
   detachStderr?: () => void;
 };
 
@@ -116,7 +118,11 @@ function attachStderrLogging(serverName: string, transport: StdioClientTransport
 async function disposeSession(session: BundleMcpSession) {
   session.detachStderr?.();
   await session.client.close().catch(() => {});
-  await session.transport.close().catch(() => {});
+  if (session.activeTransport) {
+    await session.activeTransport.close().catch(() => {});
+  } else {
+    await session.transport.close().catch(() => {});
+  }
 }
 
 export async function createBundleMcpToolRuntime(params: {
@@ -158,6 +164,14 @@ export async function createBundleMcpToolRuntime(params: {
         cwd: launchConfig.cwd,
         stderr: "pipe",
       });
+
+      // Wrap with MCPS signing if configured
+      const mcpsOpts = McpsConfig.fromServerConfig(rawServer, serverName);
+      const activeTransport = mcpsOpts ? new McpsSigningTransport(transport, mcpsOpts) : transport;
+      if (mcpsOpts) {
+        logDebug(`bundle-mcp: MCPS signing enabled for "${serverName}"`);
+      }
+
       const client = new Client(
         {
           name: "openclaw-bundle-mcp",
@@ -169,11 +183,12 @@ export async function createBundleMcpToolRuntime(params: {
         serverName,
         client,
         transport,
+        activeTransport: mcpsOpts ? (activeTransport as { close: () => Promise<void> }) : undefined,
         detachStderr: attachStderrLogging(serverName, transport),
       };
 
       try {
-        await client.connect(transport);
+        await client.connect(activeTransport);
         const listedTools = await listAllTools(client);
         sessions.push(session);
         for (const tool of listedTools) {
