@@ -16,6 +16,10 @@
       {
         "file": "extensions/imessage/src/monitor.shutdown.unhandled-rejection.test.ts",
         "reason": "Touches process-level unhandledRejection listeners."
+      },
+      {
+        "file": "src/agents/sandbox/context.timeout.test.ts",
+        "reason": "Uses vi.useFakeTimers() with advanceTimersByTimeAsync; keep isolated to avoid fake-timer state leaking."
       }
     ],
     "singletonIsolated": [

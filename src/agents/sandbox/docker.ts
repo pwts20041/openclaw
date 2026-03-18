@@ -225,9 +225,14 @@ export async function readDockerContainerEnvVar(
   return null;
 }
 
-export async function readDockerPort(containerName: string, port: number) {
+export async function readDockerPort(
+  containerName: string,
+  port: number,
+  abortSignal?: AbortSignal,
+) {
   const result = await execDocker(["port", containerName, `${port}/tcp`], {
     allowFailure: true,
+    signal: abortSignal,
   });
   if (result.code !== 0) {
     return null;
@@ -271,9 +276,10 @@ export async function ensureDockerImage(image: string, abortSignal?: AbortSignal
   throw new Error(`Sandbox image not found: ${image}. Build or pull it first.`);
 }
 
-export async function dockerContainerState(name: string) {
+export async function dockerContainerState(name: string, abortSignal?: AbortSignal) {
   const result = await execDocker(["inspect", "-f", "{{.State.Running}}", name], {
     allowFailure: true,
+    signal: abortSignal,
   });
   if (result.code !== 0) {
     return { exists: false, running: false };

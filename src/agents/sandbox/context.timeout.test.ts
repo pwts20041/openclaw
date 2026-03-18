@@ -10,10 +10,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 
-// Make maybePruneSandboxes hang forever to simulate a stuck Docker daemon.
+// Make maybePruneSandboxes controllable per-test (default: hang forever).
+let pruneResolve: (() => void) | undefined;
 vi.mock("./prune.js", () => ({
   maybePruneSandboxes: vi.fn(
-    () => new Promise<void>(() => undefined /* intentionally never settles */),
+    () =>
+      new Promise<void>((resolve) => {
+        pruneResolve = resolve;
+      }),
   ),
 }));
 
@@ -41,6 +45,7 @@ const cfg: OpenClawConfig = {
 };
 
 afterEach(() => {
+  pruneResolve = undefined;
   vi.useRealTimers();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
@@ -119,5 +124,55 @@ describe("resolveSandboxContext – timeout guard", () => {
     // Confirm the inner work did start (prune was called) so we know the
     // abort check matters for future await boundaries.
     expect(maybePruneSandboxes).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts the init signal even on the success path so detached inner work stops", async () => {
+    // This tests that resolveSandboxContext's .finally() aborts the controller
+    // when init completes normally. If it did not, any detached raceAbort
+    // listeners or pending Docker child processes from the "losing" side of
+    // Promise.race would linger until process exit.
+    //
+    // We let maybePruneSandboxes succeed, but the next step
+    // (ensureSandboxWorkspaceLayout -> resolveUserPath) will throw because
+    // there is no real workspace. That error propagates through the race and
+    // triggers the .finally() abort on the non-timeout path.
+    vi.useFakeTimers();
+
+    let capturedSignal: AbortSignal | undefined;
+    const RealAbortController = globalThis.AbortController;
+    vi.stubGlobal(
+      "AbortController",
+      class extends RealAbortController {
+        constructor() {
+          super();
+          if (!capturedSignal) {
+            capturedSignal = this.signal;
+          }
+        }
+      },
+    );
+
+    // Let prune resolve immediately so the inner work continues past raceAbort.
+    const promise = resolveSandboxContext({
+      config: cfg,
+      sessionKey: "agent:worker:success-abort-test",
+      workspaceDir: "/tmp/openclaw-success-abort-test",
+    });
+
+    // Resolve the hung prune so the inner work advances past raceAbort.
+    pruneResolve?.();
+
+    // The inner work will fail at a later step (no real backend/workspace),
+    // but the .finally() should still abort the controller.
+    try {
+      await promise;
+    } catch {
+      // Expected — the init flow will fail without real Docker/workspace.
+    }
+
+    expect(capturedSignal).toBeDefined();
+    // The signal must be aborted even though no timeout fired — the .finally()
+    // handler aborts the controller to clean up detached inner work.
+    expect(capturedSignal?.aborted).toBe(true);
   });
 });

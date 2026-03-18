@@ -153,12 +153,14 @@ export async function resolveSandboxContext(params: {
     resolveSandboxContextInner(resolved, params, controller.signal),
     timeoutPromise,
   ]).finally(() => {
-    // Only clear the timer — do NOT abort the controller here.
-    // The signal is captured by onEnsureAttachTarget in ensureSandboxBrowser
-    // for future attach/restart paths; aborting it on success would
-    // permanently pre-abort those operations and break browser recovery.
-    // The controller is only aborted by the timeout handler on failure.
     clearTimeout(timer);
+    // Abort the controller on the success path too so any detached inner work
+    // (from the losing side of the race) is cancelled promptly. This is safe
+    // because onEnsureAttachTarget creates its own AbortController per attach
+    // attempt and does not capture the init-phase signal.
+    if (!controller.signal.aborted) {
+      controller.abort();
+    }
   });
 }
 

@@ -21,6 +21,7 @@ export async function createDockerSandboxBackend(
     workspaceDir: params.workspaceDir,
     agentWorkspaceDir: params.agentWorkspaceDir,
     cfg: params.cfg,
+    abortSignal: params.abortSignal,
   });
   return createDockerSandboxBackendHandle({
     containerName,

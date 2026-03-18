@@ -166,7 +166,7 @@ export async function ensureSandboxBrowser(params: {
   const slug = params.cfg.scope === "shared" ? "shared" : slugifySessionKey(params.scopeKey);
   const name = `${params.cfg.browser.containerPrefix}${slug}`;
   const containerName = name.slice(0, 63);
-  const state = await dockerContainerState(containerName);
+  const state = await dockerContainerState(containerName, params.abortSignal);
   const browserImage = params.cfg.browser.image ?? DEFAULT_SANDBOX_BROWSER_IMAGE;
   const cdpSourceRange = params.cfg.browser.cdpSourceRange?.trim() || undefined;
   const browserDockerCfg = resolveSandboxBrowserDockerCreateConfig({
@@ -298,13 +298,17 @@ export async function ensureSandboxBrowser(params: {
     await execDocker(["start", containerName], { signal: params.abortSignal });
   }
 
-  const mappedCdp = await readDockerPort(containerName, params.cfg.browser.cdpPort);
+  const mappedCdp = await readDockerPort(
+    containerName,
+    params.cfg.browser.cdpPort,
+    params.abortSignal,
+  );
   if (!mappedCdp) {
     throw new Error(`Failed to resolve CDP port mapping for ${containerName}.`);
   }
 
   const mappedNoVnc = noVncEnabled
-    ? await readDockerPort(containerName, params.cfg.browser.noVncPort)
+    ? await readDockerPort(containerName, params.cfg.browser.noVncPort, params.abortSignal)
     : null;
   if (noVncEnabled && !noVncPassword) {
     noVncPassword =
