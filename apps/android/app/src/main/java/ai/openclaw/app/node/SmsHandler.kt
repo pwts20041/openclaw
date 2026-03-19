@@ -22,9 +22,15 @@ class SmsHandler(
   }
 
   private fun errorResult(error: String?, defaultCode: String): GatewaySession.InvokeResult {
-    val message = error ?: defaultCode
-    val idx = message.indexOf(':')
-    val code = if (idx > 0) message.substring(0, idx).trim() else defaultCode
+    val rawMessage = error ?: defaultCode
+    val idx = rawMessage.indexOf(':')
+    val code = if (idx > 0) rawMessage.substring(0, idx).trim() else defaultCode
+    val message =
+      if (idx > 0 && code == rawMessage.substring(0, idx).trim()) {
+        rawMessage.substring(idx + 1).trim().ifEmpty { rawMessage }
+      } else {
+        rawMessage
+      }
     return GatewaySession.InvokeResult.error(code = code, message = message)
   }
 
