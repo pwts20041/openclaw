@@ -175,7 +175,7 @@ class DeviceHandler(
             buildJsonObject {
               val smsSendGranted = hasPermission(Manifest.permission.SEND_SMS)
               val smsReadGranted = hasPermission(Manifest.permission.READ_SMS)
-              put("status", JsonPrimitive(if (canSendSms && (smsSendGranted || smsReadGranted)) "granted" else "denied"))
+              put("status", JsonPrimitive(if (canSendSms && (smsSendGranted && smsReadGranted)) "granted" else "denied"))
               put("promptable", JsonPrimitive(canSendSms && !(smsSendGranted && smsReadGranted)))
               put(
                 "capabilities",
