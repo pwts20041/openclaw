@@ -216,8 +216,12 @@ const COMMAND_PROFILES: Record<string, CommandProfile> = {
   "sms.search": {
     buildParams: () => ({}),
     timeoutMs: 20_000,
-    outcome: "error",
-    allowedErrorCodes: ["INVALID_REQUEST"],
+    outcome: "success",
+    onSuccess: (payload) => {
+      const obj = assertObjectPayload("sms.search", payload);
+      expect(typeof obj.count === "number" || typeof obj.count === "string").toBe(true);
+      expect(Array.isArray(obj.messages)).toBe(true);
+    },
   },
   "debug.logs": {
     buildParams: () => ({}),
