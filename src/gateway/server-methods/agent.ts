@@ -34,7 +34,7 @@ import {
   normalizeMessageChannel,
 } from "../../utils/message-channel.js";
 import { resolveAssistantIdentity } from "../assistant-identity.js";
-import { parseMessageWithAttachments } from "../chat-attachments.js";
+import { parseMessageWithAttachments, resolveInboundMediaMaxBytes } from "../chat-attachments.js";
 import { resolveAssistantAvatarUrl } from "../control-ui-shared.js";
 import { ADMIN_SCOPE } from "../method-scopes.js";
 import { GATEWAY_CLIENT_CAPS, hasGatewayClientCap } from "../protocol/client-info.js";
@@ -316,7 +316,7 @@ export const agentHandlers: GatewayRequestHandlers = {
     if (normalizedAttachments.length > 0) {
       try {
         const parsed = await parseMessageWithAttachments(message, normalizedAttachments, {
-          maxBytes: 5_000_000,
+          maxBytes: resolveInboundMediaMaxBytes(cfg),
           log: context.logGateway,
         });
         message = parsed.message.trim();
