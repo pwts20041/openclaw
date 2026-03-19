@@ -369,8 +369,10 @@ class SmsManager(private val context: Context) {
 
         return@withContext try {
             val phoneNumbers = if (!params.contactName.isNullOrEmpty()) {
-                if (!ensureReadContactsPermission()) {
-                    if (params.phoneNumber.isNullOrEmpty()) {
+                if (hasReadContactsPermission()) {
+                    getPhoneNumbersFromContactName(params.contactName)
+                } else if (params.phoneNumber.isNullOrEmpty()) {
+                    if (!ensureReadContactsPermission()) {
                         return@withContext SearchResult(
                             ok = false,
                             messages = emptyList(),
@@ -378,9 +380,9 @@ class SmsManager(private val context: Context) {
                             payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = "CONTACTS_PERMISSION_REQUIRED: grant READ_CONTACTS permission")
                         )
                     }
-                    emptyList()
-                } else {
                     getPhoneNumbersFromContactName(params.contactName)
+                } else {
+                    emptyList()
                 }
             } else {
                 emptyList()
