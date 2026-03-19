@@ -283,6 +283,22 @@ class SmsManagerTest {
   }
 
   @Test
+  fun parseQueryParamsIncludeMmsDefaultsFalse() {
+    val result = SmsManager.parseQueryParams("{}", json)
+    assertTrue(result is SmsManager.QueryParseResult.Ok)
+    val ok = result as SmsManager.QueryParseResult.Ok
+    assertFalse(ok.params.includeMms)
+  }
+
+  @Test
+  fun parseQueryParamsParsesIncludeMmsTrue() {
+    val result = SmsManager.parseQueryParams("{\"includeMms\":true}", json)
+    assertTrue(result is SmsManager.QueryParseResult.Ok)
+    val ok = result as SmsManager.QueryParseResult.Ok
+    assertTrue(ok.params.includeMms)
+  }
+
+  @Test
   fun toByPhoneLookupNumberStripsFormattingToDigits() {
     assertEquals("12107588120", SmsManager.toByPhoneLookupNumber("+1 (210) 758-8120"))
   }

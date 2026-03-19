@@ -84,6 +84,7 @@ class SmsManager(private val context: Context) {
         val keyword: String? = null,
         val type: Int? = null,
         val isRead: Boolean? = null,
+        val includeMms: Boolean = false,
         val limit: Int = DEFAULT_SMS_LIMIT,
         val offset: Int = 0,
     )
@@ -160,6 +161,7 @@ class SmsManager(private val context: Context) {
             val keyword = (obj["keyword"] as? JsonPrimitive)?.content?.trim()
             val type = (obj["type"] as? JsonPrimitive)?.content?.toIntOrNull()
             val isRead = (obj["isRead"] as? JsonPrimitive)?.content?.toBooleanStrictOrNull()
+            val includeMms = (obj["includeMms"] as? JsonPrimitive)?.content?.toBooleanStrictOrNull() ?: false
             val limit = ((obj["limit"] as? JsonPrimitive)?.content?.toIntOrNull() ?: DEFAULT_SMS_LIMIT)
                 .coerceIn(1, 200)
             val offset = ((obj["offset"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0)
@@ -178,6 +180,7 @@ class SmsManager(private val context: Context) {
                     keyword = keyword,
                     type = type,
                     isRead = isRead,
+                    includeMms = includeMms,
                     limit = limit,
                     offset = offset,
                 )
@@ -518,9 +521,9 @@ class SmsManager(private val context: Context) {
             phoneNumbers.distinct()
         }
 
-        // For single-target lookups, query the unified by-phone provider first.
-        // This includes MMS-backed rows that Telephony.Sms.CONTENT_URI can miss.
-        if (allPhoneNumbers.size == 1) {
+        // Unified SMS+MMS query path is opt-in to keep sms.search semantics
+        // stable by default. Use includeMms=true for by-phone provider behavior.
+        if (params.includeMms && allPhoneNumbers.size == 1) {
             val unifiedMessages = querySmsMmsMessagesByPhone(allPhoneNumbers.first(), params)
             if (unifiedMessages.isNotEmpty()) {
                 return unifiedMessages

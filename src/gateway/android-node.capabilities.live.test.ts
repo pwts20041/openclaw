@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadConfig } from "../config/config.js";
+import type { OpenClawConfig } from "../config/config.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import { parseNodeList, parsePairingList } from "../shared/node-list-parse.js";
 import type { NodeListNode } from "../shared/node-list-types.js";
@@ -275,6 +276,37 @@ function resolveGatewayConnection() {
   };
 }
 
+function isLoopbackGatewayUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+async function resolvePolicyConfigForRun(params: {
+  client: GatewayClient;
+  gatewayUrl: string;
+}): Promise<OpenClawConfig> {
+  const localCfg = loadConfig();
+  const hasUrlOverride = readString(process.env.OPENCLAW_ANDROID_GATEWAY_URL) !== null;
+  const remoteMode = hasUrlOverride || !isLoopbackGatewayUrl(params.gatewayUrl);
+
+  if (!remoteMode) {
+    return localCfg;
+  }
+
+  const raw = await params.client.request("config.get", {});
+  const cfg = asRecord(asRecord(raw).payload).config;
+  const configObj = asRecord(cfg);
+  if (Object.keys(configObj).length === 0) {
+    throw new Error("remote gateway config.get returned empty config payload");
+  }
+  return configObj;
+}
+
 async function connectGatewayClient(params: {
   url: string;
   token?: string;
@@ -467,7 +499,10 @@ describeLive("android node capability integration (preconditioned)", () => {
     const commands = readStringArray(describeObj.commands);
     expect(commands.length, "node.describe advertised no commands").toBeGreaterThan(0);
 
-    const cfg = loadConfig();
+    const cfg = await resolvePolicyConfigForRun({
+      client,
+      gatewayUrl: url,
+    });
     const allowlist = resolveNodeCommandAllowlist(cfg, {
       platform: target.platform,
       deviceFamily: target.deviceFamily,
