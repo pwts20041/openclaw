@@ -181,14 +181,14 @@ describe("shared attachment validation", () => {
 });
 
 describe("resolveInboundMediaMaxBytes", () => {
-  it("returns 5 MB when config is undefined", () => {
-    expect(resolveInboundMediaMaxBytes(undefined)).toBe(5 * 1024 * 1024);
+  it("returns 5_000_000 when config is undefined", () => {
+    expect(resolveInboundMediaMaxBytes(undefined)).toBe(5_000_000);
   });
 
-  it("returns 5 MB when agents.defaults.mediaMaxMb is not set", () => {
-    expect(resolveInboundMediaMaxBytes({})).toBe(5 * 1024 * 1024);
-    expect(resolveInboundMediaMaxBytes({ agents: {} })).toBe(5 * 1024 * 1024);
-    expect(resolveInboundMediaMaxBytes({ agents: { defaults: {} } })).toBe(5 * 1024 * 1024);
+  it("returns 5_000_000 when agents.defaults.mediaMaxMb is not set", () => {
+    expect(resolveInboundMediaMaxBytes({})).toBe(5_000_000);
+    expect(resolveInboundMediaMaxBytes({ agents: {} })).toBe(5_000_000);
+    expect(resolveInboundMediaMaxBytes({ agents: { defaults: {} } })).toBe(5_000_000);
   });
 
   it("converts configured MB to bytes", () => {

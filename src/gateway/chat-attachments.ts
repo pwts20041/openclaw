@@ -2,17 +2,17 @@ import type { OpenClawConfig } from "../config/types.js";
 import { estimateBase64DecodedBytes } from "../media/base64.js";
 import { sniffMimeFromBase64 } from "../media/sniff-mime-from-base64.js";
 
-const DEFAULT_INBOUND_MEDIA_MAX_MB = 5;
+const DEFAULT_INBOUND_MEDIA_MAX_BYTES = 5_000_000;
 
 /**
  * Resolve the inbound media size limit from config (`agents.defaults.mediaMaxMb`),
- * falling back to 5 MB when unset.
+ * falling back to 5 000 000 bytes when unset.
  */
 export function resolveInboundMediaMaxBytes(
   cfg: Pick<OpenClawConfig, "agents"> | undefined,
 ): number {
-  const mb = cfg?.agents?.defaults?.mediaMaxMb ?? DEFAULT_INBOUND_MEDIA_MAX_MB;
-  return mb * 1024 * 1024;
+  const mb = cfg?.agents?.defaults?.mediaMaxMb;
+  return mb !== undefined ? mb * 1024 * 1024 : DEFAULT_INBOUND_MEDIA_MAX_BYTES;
 }
 
 export type ChatAttachment = {
@@ -113,7 +113,7 @@ export async function parseMessageWithAttachments(
   attachments: ChatAttachment[] | undefined,
   opts?: { maxBytes?: number; log?: AttachmentLog },
 ): Promise<ParsedMessageWithImages> {
-  const maxBytes = opts?.maxBytes ?? DEFAULT_INBOUND_MEDIA_MAX_MB * 1024 * 1024;
+  const maxBytes = opts?.maxBytes ?? DEFAULT_INBOUND_MEDIA_MAX_BYTES;
   const log = opts?.log;
   if (!attachments || attachments.length === 0) {
     return { message, images: [] };
