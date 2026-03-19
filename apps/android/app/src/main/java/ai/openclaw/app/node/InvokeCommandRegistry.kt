@@ -219,7 +219,7 @@ object InvokeCommandRegistry {
           NodeCapabilityAvailability.Always -> true
           NodeCapabilityAvailability.CameraEnabled -> flags.cameraEnabled
           NodeCapabilityAvailability.LocationEnabled -> flags.locationEnabled
-          NodeCapabilityAvailability.SmsAvailable -> flags.smsAvailable
+          NodeCapabilityAvailability.SmsAvailable -> flags.smsAvailable || flags.smsSearchAvailable
           NodeCapabilityAvailability.VoiceWakeEnabled -> flags.voiceWakeEnabled
           NodeCapabilityAvailability.MotionAvailable -> flags.motionActivityAvailable || flags.motionPedometerAvailable
         }
