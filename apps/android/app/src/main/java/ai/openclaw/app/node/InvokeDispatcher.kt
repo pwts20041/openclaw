@@ -32,8 +32,8 @@ class InvokeDispatcher(
   private val isForeground: () -> Boolean,
   private val cameraEnabled: () -> Boolean,
   private val locationEnabled: () -> Boolean,
-  private val sendSmsAvailable: () -> Boolean,
-  private val readSmsAvailable: () -> Boolean,
+  private val smsAvailable: () -> Boolean,
+  private val smsSearchAvailable: () -> Boolean,
   private val debugBuild: () -> Boolean,
   private val refreshNodeCanvasCapability: suspend () -> Boolean,
   private val onCanvasA2uiPush: () -> Unit,
@@ -258,8 +258,8 @@ class InvokeDispatcher(
             message = "PEDOMETER_UNAVAILABLE: step counter not available",
           )
         }
-      InvokeCommandAvailability.SendSmsAvailable ->
-        if (sendSmsAvailable()) {
+      InvokeCommandAvailability.SmsAvailable ->
+        if (smsAvailable()) {
           null
         } else {
           GatewaySession.InvokeResult.error(
@@ -267,13 +267,13 @@ class InvokeDispatcher(
             message = "SMS_UNAVAILABLE: SMS not available on this device",
           )
         }
-      InvokeCommandAvailability.ReadSmsAvailable ->
-        if (readSmsAvailable()) {
+      InvokeCommandAvailability.SmsSearchAvailable ->
+        if (smsSearchAvailable()) {
           null
         } else {
           GatewaySession.InvokeResult.error(
             code = "SMS_UNAVAILABLE",
-            message = "SMS_UNAVAILABLE: SMS not available on this device",
+            message = "SMS_UNAVAILABLE: SMS search not available on this device",
           )
         }
       InvokeCommandAvailability.DebugBuild ->
