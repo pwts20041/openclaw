@@ -247,21 +247,18 @@ fun SettingsSheet(viewModel: MainViewModel) {
     remember {
       mutableStateOf(
         ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
-          PackageManager.PERMISSION_GRANTED ||
+          PackageManager.PERMISSION_GRANTED &&
           ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
           PackageManager.PERMISSION_GRANTED,
       )
     }
   val smsPermissionLauncher =
-    rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { perms ->
-      val sendOk = perms[Manifest.permission.SEND_SMS] == true
-      val readOk = perms[Manifest.permission.READ_SMS] == true
+    rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
       smsPermissionGranted =
-        sendOk || readOk ||
-          ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
-            PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
+          PackageManager.PERMISSION_GRANTED &&
           ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
-            PackageManager.PERMISSION_GRANTED
+          PackageManager.PERMISSION_GRANTED
       viewModel.refreshGatewayConnection()
     }
 
@@ -296,7 +293,7 @@ fun SettingsSheet(viewModel: MainViewModel) {
               PackageManager.PERMISSION_GRANTED
           smsPermissionGranted =
             ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
-              PackageManager.PERMISSION_GRANTED ||
+              PackageManager.PERMISSION_GRANTED &&
               ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
               PackageManager.PERMISSION_GRANTED
         }
@@ -523,13 +520,7 @@ fun SettingsSheet(viewModel: MainViewModel) {
               trailingContent = {
                 Button(
                   onClick = {
-                    val sendGranted =
-                      ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
-                        PackageManager.PERMISSION_GRANTED
-                    val readGranted =
-                      ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
-                        PackageManager.PERMISSION_GRANTED
-                    if (sendGranted && readGranted) {
+                    if (smsPermissionGranted) {
                       openAppSettings(context)
                     } else {
                       smsPermissionLauncher.launch(arrayOf(Manifest.permission.SEND_SMS, Manifest.permission.READ_SMS))
@@ -539,12 +530,7 @@ fun SettingsSheet(viewModel: MainViewModel) {
                   shape = RoundedCornerShape(14.dp),
                 ) {
                   Text(
-                    if (
-                      ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
-                        PackageManager.PERMISSION_GRANTED &&
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
-                        PackageManager.PERMISSION_GRANTED
-                    ) {
+                    if (smsPermissionGranted) {
                       "Manage"
                     } else {
                       "Grant"
