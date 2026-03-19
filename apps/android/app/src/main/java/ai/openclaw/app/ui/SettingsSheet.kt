@@ -523,7 +523,13 @@ fun SettingsSheet(viewModel: MainViewModel) {
               trailingContent = {
                 Button(
                   onClick = {
-                    if (smsPermissionGranted) {
+                    val sendGranted =
+                      ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
+                        PackageManager.PERMISSION_GRANTED
+                    val readGranted =
+                      ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
+                        PackageManager.PERMISSION_GRANTED
+                    if (sendGranted && readGranted) {
                       openAppSettings(context)
                     } else {
                       smsPermissionLauncher.launch(arrayOf(Manifest.permission.SEND_SMS, Manifest.permission.READ_SMS))
@@ -533,7 +539,16 @@ fun SettingsSheet(viewModel: MainViewModel) {
                   shape = RoundedCornerShape(14.dp),
                 ) {
                   Text(
-                    if (smsPermissionGranted) "Manage" else "Grant",
+                    if (
+                      ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
+                        PackageManager.PERMISSION_GRANTED &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
+                        PackageManager.PERMISSION_GRANTED
+                    ) {
+                      "Manage"
+                    } else {
+                      "Grant"
+                    },
                     style = mobileCallout.copy(fontWeight = FontWeight.Bold),
                   )
                 }
