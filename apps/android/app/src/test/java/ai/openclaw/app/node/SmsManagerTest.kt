@@ -281,4 +281,19 @@ class SmsManagerTest {
     val ok = result as SmsManager.QueryParseResult.Ok
     assertEquals(true, ok.params.isRead)
   }
+
+  @Test
+  fun toByPhoneLookupNumberStripsFormattingToDigits() {
+    assertEquals("12107588120", SmsManager.toByPhoneLookupNumber("+1 (210) 758-8120"))
+  }
+
+  @Test
+  fun normalizeProviderDateMillisConvertsSecondsToMillis() {
+    assertEquals(1773944910000L, SmsManager.normalizeProviderDateMillis(1773944910L))
+  }
+
+  @Test
+  fun normalizeProviderDateMillisKeepsMillisUnchanged() {
+    assertEquals(1773944910123L, SmsManager.normalizeProviderDateMillis(1773944910123L))
+  }
 }

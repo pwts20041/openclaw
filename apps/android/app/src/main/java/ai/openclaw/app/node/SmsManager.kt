@@ -3,6 +3,7 @@ package ai.openclaw.app.node
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.provider.ContactsContract
 import android.provider.Telephony
 import android.telephony.SmsManager as AndroidSmsManager
@@ -99,6 +100,9 @@ class SmsManager(private val context: Context) {
 
     companion object {
         private const val DEFAULT_SMS_LIMIT = 25
+        private const val MMS_SMS_BY_PHONE_BASE = "content://mms-sms/messages/byphone"
+        private const val MMS_CONTENT_BASE = "content://mms"
+        private const val MMS_PART_URI = "content://mms/part"
         internal val JsonConfig = Json { ignoreUnknownKeys = true }
 
         internal fun parseParams(paramsJson: String?, json: Json = JsonConfig): ParseResult {
@@ -182,6 +186,14 @@ class SmsManager(private val context: Context) {
 
         private fun normalizePhoneNumber(phone: String): String {
             return phone.replace(Regex("""[\s\-()]"""), "")
+        }
+
+        internal fun toByPhoneLookupNumber(phone: String): String {
+            return phone.filter { it.isDigit() }
+        }
+
+        internal fun normalizeProviderDateMillis(rawDate: Long): Long {
+            return if (rawDate in 1..999_999_999_999L) rawDate * 1000L else rawDate
         }
 
         internal fun buildSendPlan(
@@ -501,9 +513,18 @@ class SmsManager(private val context: Context) {
         }
 
         val allPhoneNumbers = if (!params.phoneNumber.isNullOrEmpty()) {
-            phoneNumbers + normalizePhoneNumber(params.phoneNumber)
+            (phoneNumbers + normalizePhoneNumber(params.phoneNumber)).distinct()
         } else {
-            phoneNumbers
+            phoneNumbers.distinct()
+        }
+
+        // For single-target lookups, query the unified by-phone provider first.
+        // This includes MMS-backed rows that Telephony.Sms.CONTENT_URI can miss.
+        if (allPhoneNumbers.size == 1) {
+            val unifiedMessages = querySmsMmsMessagesByPhone(allPhoneNumbers.first(), params)
+            if (unifiedMessages.isNotEmpty()) {
+                return unifiedMessages
+            }
         }
 
         if (allPhoneNumbers.isNotEmpty()) {
@@ -596,4 +617,146 @@ class SmsManager(private val context: Context) {
 
         return messages
     }
+
+    private fun querySmsMmsMessagesByPhone(phoneNumber: String, params: QueryParams): List<SmsMessage> {
+        val lookupNumber = toByPhoneLookupNumber(phoneNumber)
+        if (lookupNumber.isBlank()) {
+            return emptyList()
+        }
+
+        val uri = Uri.parse("$MMS_SMS_BY_PHONE_BASE/${Uri.encode(lookupNumber)}")
+        val projection = arrayOf(
+            "_id",
+            "thread_id",
+            "address",
+            "date",
+            "date_sent",
+            "read",
+            "type",
+            "body",
+        )
+
+        val results = mutableListOf<SmsMessage>()
+        val cursor = context.contentResolver.query(uri, projection, null, null, "date DESC")
+        cursor?.use {
+            val idIndex = it.getColumnIndex("_id")
+            val threadIdIndex = it.getColumnIndex("thread_id")
+            val addressIndex = it.getColumnIndex("address")
+            val dateIndex = it.getColumnIndex("date")
+            val dateSentIndex = it.getColumnIndex("date_sent")
+            val readIndex = it.getColumnIndex("read")
+            val typeIndex = it.getColumnIndex("type")
+            val bodyIndex = it.getColumnIndex("body")
+
+            while (it.moveToNext()) {
+                val id = if (idIndex >= 0 && !it.isNull(idIndex)) it.getLong(idIndex) else continue
+                val rawDate = if (dateIndex >= 0 && !it.isNull(dateIndex)) it.getLong(dateIndex) else 0L
+                val dateMs = normalizeProviderDateMillis(rawDate)
+
+                if (params.startTime != null && dateMs < params.startTime) continue
+                if (params.endTime != null && dateMs > params.endTime) continue
+
+                val threadId = if (threadIdIndex >= 0 && !it.isNull(threadIdIndex)) it.getLong(threadIdIndex) else 0L
+                val address = if (addressIndex >= 0 && !it.isNull(addressIndex)) it.getString(addressIndex) else phoneNumber
+                var read = if (readIndex >= 0 && !it.isNull(readIndex)) it.getInt(readIndex) == 1 else true
+                var type = if (typeIndex >= 0 && !it.isNull(typeIndex)) it.getInt(typeIndex) else 0
+                var body = if (bodyIndex >= 0 && !it.isNull(bodyIndex)) it.getString(bodyIndex) else null
+
+                // MMS rows in by-phone cursor may carry null body/type/read.
+                if (body.isNullOrBlank() || type == 0) {
+                    body = body?.takeIf { msg -> msg.isNotBlank() } ?: getMmsTextBody(id)
+                    val mmsMeta = getMmsMeta(id)
+                    if (type == 0) {
+                        type = mmsMeta.first ?: type
+                    }
+                    if (readIndex < 0 || it.isNull(readIndex)) {
+                        read = mmsMeta.second ?: read
+                    }
+                }
+
+                val dateSentRaw = if (dateSentIndex >= 0 && !it.isNull(dateSentIndex)) it.getLong(dateSentIndex) else 0L
+                val dateSentMs = normalizeProviderDateMillis(dateSentRaw)
+
+                if (!params.keyword.isNullOrEmpty()) {
+                    val keyword = params.keyword
+                    if (body.isNullOrEmpty() || !body.contains(keyword, ignoreCase = true)) {
+                        continue
+                    }
+                }
+                if (params.type != null && type != params.type) continue
+                if (params.isRead != null && read != params.isRead) continue
+
+                results.add(
+                    SmsMessage(
+                        id = id,
+                        threadId = threadId,
+                        address = address,
+                        person = null,
+                        date = dateMs,
+                        dateSent = dateSentMs,
+                        read = read,
+                        type = type,
+                        body = body,
+                        status = -1,
+                    )
+                )
+            }
+        }
+
+        return results
+            .sortedByDescending { it.date }
+            .drop(params.offset)
+            .take(params.limit)
+    }
+
+    private fun getMmsTextBody(messageId: Long): String? {
+        val cursor = context.contentResolver.query(
+            Uri.parse(MMS_PART_URI),
+            arrayOf("text", "ct"),
+            "mid=?",
+            arrayOf(messageId.toString()),
+            null,
+        )
+
+        cursor?.use {
+            val textIndex = it.getColumnIndex("text")
+            val ctIndex = it.getColumnIndex("ct")
+            while (it.moveToNext()) {
+                val contentType = if (ctIndex >= 0 && !it.isNull(ctIndex)) it.getString(ctIndex) else null
+                if (contentType != null && contentType != "text/plain") continue
+                val text = if (textIndex >= 0 && !it.isNull(textIndex)) it.getString(textIndex) else null
+                if (!text.isNullOrBlank()) return text
+            }
+        }
+
+        return null
+    }
+
+    private fun getMmsMeta(messageId: Long): Pair<Int?, Boolean?> {
+        val cursor = context.contentResolver.query(
+            Uri.parse("$MMS_CONTENT_BASE/$messageId"),
+            arrayOf("msg_box", "read"),
+            null,
+            null,
+            null,
+        )
+
+        cursor?.use {
+            if (it.moveToFirst()) {
+                val msgBoxIndex = it.getColumnIndex("msg_box")
+                val readIndex = it.getColumnIndex("read")
+                val msgBox = if (msgBoxIndex >= 0 && !it.isNull(msgBoxIndex)) it.getInt(msgBoxIndex) else null
+                val mappedType = when (msgBox) {
+                    1 -> 1 // inbox
+                    2 -> 2 // sent
+                    else -> null
+                }
+                val read = if (readIndex >= 0 && !it.isNull(readIndex)) it.getInt(readIndex) == 1 else null
+                return mappedType to read
+            }
+        }
+
+        return null to null
+    }
 }
+
