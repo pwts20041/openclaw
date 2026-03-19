@@ -268,9 +268,14 @@ class InvokeDispatcher(
           )
         }
       InvokeCommandAvailability.SmsSearchAvailable ->
-        // Let SmsManager.search() emit precise runtime errors (e.g. SMS_PERMISSION_REQUIRED)
-        // when permissions are revoked after command advertisement but before invoke.
-        null
+        if (smsSearchAvailable()) {
+          null
+        } else {
+          GatewaySession.InvokeResult.error(
+            code = "SMS_PERMISSION_REQUIRED",
+            message = "SMS_PERMISSION_REQUIRED: grant READ_SMS permission",
+          )
+        }
       InvokeCommandAvailability.DebugBuild ->
         if (debugBuild()) {
           null
