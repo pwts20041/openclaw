@@ -64,6 +64,14 @@ function parseErrorCode(message: string): string {
   return "UNKNOWN";
 }
 
+function readGatewayErrorCode(err: unknown, fallbackMessage: string): string {
+  const byField = readString(asRecord(err).gatewayCode);
+  if (byField) {
+    return byField;
+  }
+  return parseErrorCode(fallbackMessage);
+}
+
 function assertObjectPayload(command: string, payload: unknown): Record<string, unknown> {
   const obj = asRecord(payload);
   expect(Object.keys(obj).length, `${command} payload must be a JSON object`).toBeGreaterThan(0);
@@ -381,7 +389,7 @@ async function invokeNodeCommand(params: {
     return {
       command: params.command,
       ok: false,
-      errorCode: parseErrorCode(message),
+      errorCode: readGatewayErrorCode(err, message),
       errorMessage: message,
       durationMs: Math.max(1, Date.now() - startedAt),
     };
