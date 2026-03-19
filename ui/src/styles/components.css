@@ -1297,6 +1297,134 @@
   max-width: 100%;
 }
 
+/* Mermaid diagram styles */
+.mermaid-container {
+  padding: 16px;
+  background: var(--secondary);
+  overflow-x: auto;
+  display: flex;
+  justify-content: center;
+  cursor: zoom-in;
+}
+
+.mermaid-container .mermaid {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.mermaid-container .mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-error {
+  color: var(--danger, #ef4444);
+  font-size: 13px;
+  padding: 8px;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: var(--radius-sm);
+  display: block;
+}
+
+/* Enhanced mermaid wrapper with source code */
+.mermaid-wrapper {
+  margin: 12px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--secondary);
+}
+
+.mermaid-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.mermaid-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.mermaid-copy {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.mermaid-copy:hover {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.mermaid-copy .copy-icon {
+  font-size: 14px;
+}
+
+.mermaid-source code {
+  font-size: 12px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Mermaid fullscreen viewer */
+.mermaid-fullscreen {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 9999;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  cursor: zoom-out;
+}
+
+.mermaid-fullscreen.active {
+  display: flex;
+}
+
+.mermaid-fullscreen svg {
+  max-width: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain;
+  cursor: default;
+  background: white !important;
+  border-radius: 8px;
+}
+
+.mermaid-fullscreen-hint {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: white;
+  font-size: 14px;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 8px 16px;
+  border-radius: 20px;
+  pointer-events: none;
+}
+
 :root[data-theme-mode="light"] .code-block,
 :root[data-theme-mode="light"] .list-item,
 :root[data-theme-mode="light"] .table-row,

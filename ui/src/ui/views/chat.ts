@@ -849,6 +849,8 @@ export function renderChat(props: ChatProps) {
     );
   };
 
+  // Mermaid copy is now handled globally via inline onclick in markdown.ts
+
   const chatItems = buildChatItems(props);
   const isEmpty = chatItems.length === 0 && !props.loading;
 
