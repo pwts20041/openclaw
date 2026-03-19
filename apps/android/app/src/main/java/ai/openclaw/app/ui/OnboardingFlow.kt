@@ -345,8 +345,10 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
           isPermissionGranted(context, Manifest.permission.ACTIVITY_RECOGNITION)
       PermissionToggle.Sms ->
         !smsAvailable ||
-          isPermissionGranted(context, Manifest.permission.SEND_SMS) ||
-          isPermissionGranted(context, Manifest.permission.READ_SMS)
+          (
+            isPermissionGranted(context, Manifest.permission.SEND_SMS) &&
+              isPermissionGranted(context, Manifest.permission.READ_SMS)
+            )
       PermissionToggle.CallLog -> isPermissionGranted(context, Manifest.permission.READ_CALL_LOG)
     }
 
