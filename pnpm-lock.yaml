@@ -351,8 +351,6 @@ importers:
 
   extensions/fal: {}
 
-  extensions/elevenlabs: {}
-
   extensions/feishu:
     dependencies:
       '@larksuiteoapi/node-sdk':
@@ -489,8 +487,6 @@ importers:
       node-edge-tts:
         specifier: ^1.2.10
         version: 1.2.10
-
-  extensions/microsoft: {}
 
   extensions/minimax: {}
 
