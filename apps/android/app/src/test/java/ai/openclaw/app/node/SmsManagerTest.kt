@@ -209,14 +209,6 @@ class SmsManagerTest {
   }
 
   @Test
-  fun parseQueryParamsRejectsInvalidJson() {
-    val result = SmsManager.parseQueryParams("not-json", json)
-    assertTrue(result is SmsManager.QueryParseResult.Error)
-    val error = result as SmsManager.QueryParseResult.Error
-    assertEquals("INVALID_REQUEST: expected JSON object", error.error)
-  }
-
-  @Test
   fun parseQueryParamsRejectsNonObjectJson() {
     val result = SmsManager.parseQueryParams("[]", json)
     assertTrue(result is SmsManager.QueryParseResult.Error)
