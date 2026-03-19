@@ -1,5 +1,11 @@
 # X 回复记录
 
+## 2026-03-19
+
+- 回复了 @stitchbygoogle 的帖子（浏览 390万，1.4万赞）Stitch by Google 新版发布：点评 DESIGN.md 是解决 AI 设计工具上下文持久化的聪明方案，认同 Voice mode 方向
+- 回复了 @GoJun315 的帖子（浏览 8.5万，692赞）Paperclip 一人企业：分享 3 agent 协作的实操教训——没有共享上下文的 agent 协作是假的，关注状态同步问题
+- 回复了 @jake*vibes* 的帖子（浏览 3630，14赞）NemoClaw model lock-in 讨论：以实际用户身份确认 model 切换只需一行配置，但认同 defaults=product 的观点，指出 NemoClaw 核心价值在 sandbox+guardrails
+
 ## 2026-03-18
 
 - 回复了 @runes_leo 的帖子（浏览 3.6万，202 赞）Slate 技术报告 / AI coding agent 架构分析：分享 OpenClaw 多 agent 管线中 subagent 信息损耗的实操体感，介绍 workaround（共享 workspace 文件做手动 episode sharing），认同 Knowledge Overhang 命名
