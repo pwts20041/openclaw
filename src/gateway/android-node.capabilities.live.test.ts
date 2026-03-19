@@ -8,6 +8,7 @@ import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-cha
 import { buildGatewayConnectionDetails } from "./call.js";
 import { GatewayClient } from "./client.js";
 import { resolveGatewayCredentialsFromConfig } from "./credentials.js";
+import { resolveNodeCommandAllowlist } from "./node-command-policy.js";
 
 const LIVE = isTruthyEnvValue(process.env.LIVE) || isTruthyEnvValue(process.env.OPENCLAW_LIVE_TEST);
 const LIVE_ANDROID_NODE = isTruthyEnvValue(process.env.OPENCLAW_LIVE_ANDROID_NODE);
@@ -465,10 +466,19 @@ describeLive("android node capability integration (preconditioned)", () => {
     const describeObj = asRecord(describeRaw);
     const commands = readStringArray(describeObj.commands);
     expect(commands.length, "node.describe advertised no commands").toBeGreaterThan(0);
-    commandsToRun = commands.filter((command) => !SKIPPED_INTERACTIVE_COMMANDS.has(command));
+
+    const cfg = loadConfig();
+    const allowlist = resolveNodeCommandAllowlist(cfg, {
+      platform: target.platform,
+      deviceFamily: target.deviceFamily,
+    });
+
+    commandsToRun = commands.filter(
+      (command) => allowlist.has(command) && !SKIPPED_INTERACTIVE_COMMANDS.has(command),
+    );
     expect(
       commandsToRun.length,
-      "node.describe advertised only interactive commands (nothing runnable in CI/dev integration mode)",
+      "node.describe advertised no non-interactive allowlisted commands (check gateway.nodes allowCommands/denyCommands)",
     ).toBeGreaterThan(0);
 
     const missingProfiles = commandsToRun.filter((command) => !COMMAND_PROFILES[command]);
