@@ -268,14 +268,9 @@ class InvokeDispatcher(
           )
         }
       InvokeCommandAvailability.SmsSearchAvailable ->
-        if (smsSearchAvailable()) {
-          null
-        } else {
-          GatewaySession.InvokeResult.error(
-            code = "SMS_UNAVAILABLE",
-            message = "SMS_UNAVAILABLE: SMS search not available on this device",
-          )
-        }
+        // Let SmsManager.search() emit precise runtime errors (e.g. SMS_PERMISSION_REQUIRED)
+        // when permissions are revoked after command advertisement but before invoke.
+        null
       InvokeCommandAvailability.DebugBuild ->
         if (debugBuild()) {
           null
