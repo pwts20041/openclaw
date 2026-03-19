@@ -382,7 +382,7 @@ class SmsManager(private val context: Context) {
                 emptyList()
             }
 
-            if (!params.contactName.isNullOrEmpty() && phoneNumbers.isEmpty()) {
+            if (!params.contactName.isNullOrEmpty() && phoneNumbers.isEmpty() && params.phoneNumber.isNullOrEmpty()) {
                 return@withContext SearchResult(
                     ok = true,
                     messages = emptyList(),
