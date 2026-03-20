@@ -180,11 +180,6 @@ class DeviceHandler(
             permissionStateJson(
               granted = smsEnabled && hasPermission(Manifest.permission.SEND_SMS) && canSendSms,
               promptableWhenDenied = smsEnabled && canSendSms,
-              capabilities =
-                buildJsonObject {
-                  put("send", JsonPrimitive(smsEnabled && canSendSms && smsSendGranted))
-                  put("read", JsonPrimitive(smsEnabled && canSendSms && smsReadGranted))
-                },
             ),
           )
           put(
@@ -370,15 +365,10 @@ class DeviceHandler(
     }
   }
 
-  private fun permissionStateJson(
-    granted: Boolean,
-    promptableWhenDenied: Boolean,
-    capabilities: JsonObject? = null,
-  ) =
+  private fun permissionStateJson(granted: Boolean, promptableWhenDenied: Boolean) =
     buildJsonObject {
       put("status", JsonPrimitive(if (granted) "granted" else "denied"))
       put("promptable", JsonPrimitive(!granted && promptableWhenDenied))
-      capabilities?.let { put("capabilities", it) }
     }
 
   private fun hasPermission(permission: String): Boolean {
