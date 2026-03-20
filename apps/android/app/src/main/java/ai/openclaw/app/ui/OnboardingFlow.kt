@@ -1,5 +1,6 @@
 package ai.openclaw.app.ui
 
+import ai.openclaw.app.BuildConfig
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -238,8 +239,10 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
 
   val smsAvailable =
     remember(context) {
-      context.packageManager?.hasSystemFeature(PackageManager.FEATURE_TELEPHONY) == true
+      BuildConfig.OPENCLAW_ENABLE_SMS &&
+        context.packageManager?.hasSystemFeature(PackageManager.FEATURE_TELEPHONY) == true
     }
+  val callLogAvailable = BuildConfig.OPENCLAW_ENABLE_CALL_LOG
   val motionAvailable =
     remember(context) {
       hasMotionCapabilities(context)
@@ -317,7 +320,7 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
       PermissionToggle.Calendar -> enableCalendar = enabled
       PermissionToggle.Motion -> enableMotion = enabled && motionAvailable
       PermissionToggle.Sms -> enableSms = enabled && smsAvailable
-      PermissionToggle.CallLog -> enableCallLog = enabled
+      PermissionToggle.CallLog -> enableCallLog = enabled && callLogAvailable
     }
   }
 
@@ -349,7 +352,8 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             isPermissionGranted(context, Manifest.permission.SEND_SMS) &&
               isPermissionGranted(context, Manifest.permission.READ_SMS)
             )
-      PermissionToggle.CallLog -> isPermissionGranted(context, Manifest.permission.READ_CALL_LOG)
+      PermissionToggle.CallLog ->
+        !callLogAvailable || isPermissionGranted(context, Manifest.permission.READ_CALL_LOG)
     }
 
   fun setSpecialAccessToggleEnabled(toggle: SpecialAccessToggle, enabled: Boolean) {
@@ -617,6 +621,7 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
               enableSms = enableSms,
               smsAvailable = smsAvailable,
               enableCallLog = enableCallLog,
+              callLogAvailable = callLogAvailable,
               context = context,
               onDiscoveryChange = { checked ->
                 requestPermissionToggle(
@@ -1312,6 +1317,7 @@ private fun PermissionsStep(
   enableSms: Boolean,
   smsAvailable: Boolean,
   enableCallLog: Boolean,
+  callLogAvailable: Boolean,
   context: Context,
   onDiscoveryChange: (Boolean) -> Unit,
   onLocationChange: (Boolean) -> Unit,
@@ -1457,14 +1463,16 @@ private fun PermissionsStep(
         onCheckedChange = onSmsChange,
       )
     }
-    InlineDivider()
-    PermissionToggleRow(
-      title = "Call Log",
-      subtitle = "callLog.search",
-      checked = enableCallLog,
-      granted = isPermissionGranted(context, Manifest.permission.READ_CALL_LOG),
-      onCheckedChange = onCallLogChange,
-    )
+    if (callLogAvailable) {
+      InlineDivider()
+      PermissionToggleRow(
+        title = "Call Log",
+        subtitle = "callLog.search",
+        checked = enableCallLog,
+        granted = isPermissionGranted(context, Manifest.permission.READ_CALL_LOG),
+        onCheckedChange = onCallLogChange,
+      )
+    }
     Text("All settings can be changed later in Settings.", style = onboardingCalloutStyle, color = onboardingTextSecondary)
   }
 }

@@ -137,8 +137,9 @@ class NodeRuntime(
     voiceWakeMode = { VoiceWakeMode.Off },
     motionActivityAvailable = { motionHandler.isActivityAvailable() },
     motionPedometerAvailable = { motionHandler.isPedometerAvailable() },
-    sendSmsAvailable = { sms.canSendSms() },
-    readSmsAvailable = { sms.canSearchSms() },
+    sendSmsAvailable = { BuildConfig.OPENCLAW_ENABLE_SMS && sms.canSendSms() },
+    readSmsAvailable = { BuildConfig.OPENCLAW_ENABLE_SMS && sms.canReadSms() },
+    callLogAvailable = { BuildConfig.OPENCLAW_ENABLE_CALL_LOG },
     hasRecordAudioPermission = { hasRecordAudioPermission() },
     manualTls = { manualTls.value },
   )
@@ -161,8 +162,9 @@ class NodeRuntime(
     isForeground = { _isForeground.value },
     cameraEnabled = { cameraEnabled.value },
     locationEnabled = { locationMode.value != LocationMode.Off },
-    sendSmsAvailable = { sms.canSendSms() },
-    readSmsAvailable = { sms.canSearchSms() },
+    sendSmsAvailable = { BuildConfig.OPENCLAW_ENABLE_SMS && sms.canSendSms() },
+    readSmsAvailable = { BuildConfig.OPENCLAW_ENABLE_SMS && sms.canReadSms() },
+    callLogAvailable = { BuildConfig.OPENCLAW_ENABLE_CALL_LOG },
     debugBuild = { BuildConfig.DEBUG },
     refreshNodeCanvasCapability = { nodeSession.refreshNodeCanvasCapability() },
     onCanvasA2uiPush = {

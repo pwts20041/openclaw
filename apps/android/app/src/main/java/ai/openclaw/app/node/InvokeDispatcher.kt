@@ -34,6 +34,7 @@ class InvokeDispatcher(
   private val locationEnabled: () -> Boolean,
   private val sendSmsAvailable: () -> Boolean,
   private val readSmsAvailable: () -> Boolean,
+  private val callLogAvailable: () -> Boolean,
   private val debugBuild: () -> Boolean,
   private val refreshNodeCanvasCapability: suspend () -> Boolean,
   private val onCanvasA2uiPush: () -> Unit,
@@ -274,6 +275,15 @@ class InvokeDispatcher(
           GatewaySession.InvokeResult.error(
             code = "SMS_PERMISSION_REQUIRED",
             message = "SMS_PERMISSION_REQUIRED: grant READ_SMS permission",
+          )
+        }
+      InvokeCommandAvailability.CallLogAvailable ->
+        if (callLogAvailable()) {
+          null
+        } else {
+          GatewaySession.InvokeResult.error(
+            code = "CALL_LOG_DISABLED",
+            message = "CALL_LOG_DISABLED: call log capability disabled",
           )
         }
       InvokeCommandAvailability.DebugBuild ->
