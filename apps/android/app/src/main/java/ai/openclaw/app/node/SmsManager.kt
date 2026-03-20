@@ -193,7 +193,11 @@ class SmsManager(private val context: Context) {
 
         internal fun normalizePhoneNumberOrNull(phone: String?): String? {
             val normalized = phone?.let(::normalizePhoneNumber)?.trim().orEmpty()
-            return normalized.takeIf { it.isNotEmpty() }
+            if (normalized.isEmpty()) {
+                return null
+            }
+            val digits = toByPhoneLookupNumber(normalized)
+            return normalized.takeIf { digits.isNotEmpty() }
         }
 
         internal fun toByPhoneLookupNumber(phone: String): String {

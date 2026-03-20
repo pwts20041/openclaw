@@ -310,6 +310,11 @@ class SmsManagerTest {
   }
 
   @Test
+  fun normalizePhoneNumberOrNullReturnsNullForPlusOnlyInput() {
+    assertNull(SmsManager.normalizePhoneNumberOrNull(" + "))
+  }
+
+  @Test
   fun normalizePhoneNumberOrNullKeepsUsableNormalizedNumber() {
     assertEquals("+15551234567", SmsManager.normalizePhoneNumberOrNull(" +1 (555) 123-4567 "))
   }
