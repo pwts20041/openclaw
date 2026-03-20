@@ -8,6 +8,7 @@ import deepgramPlugin from "../../../extensions/deepgram/index.js";
 import deepseekPlugin from "../../../extensions/deepseek/index.js";
 import elevenLabsPlugin from "../../../extensions/elevenlabs/index.js";
 import falPlugin from "../../../extensions/fal/index.js";
+import featherlessPlugin from "../../../extensions/featherless/index.js";
 import githubCopilotPlugin from "../../../extensions/github-copilot/index.js";
 import googlePlugin from "../../../extensions/google/index.js";
 import groqPlugin from "../../../extensions/groq/index.js";
@@ -362,6 +363,7 @@ const bundledProviderPlugins = dedupePlugins([
   deepseekPlugin,
   githubCopilotPlugin,
   falPlugin,
+  featherlessPlugin,
   googlePlugin,
   huggingFacePlugin,
   kilocodePlugin,
