@@ -340,6 +340,23 @@ export async function runAgentTurnWithFallback(params: {
                 });
                 lifecycleTerminalEmitted = true;
 
+                // Emit supplementary usage event with accumulated token/cost data.
+                const agentMeta = result.meta?.agentMeta;
+                if (agentMeta?.usage) {
+                  emitAgentEvent({
+                    runId,
+                    stream: "lifecycle",
+                    data: {
+                      phase: "usage",
+                      provider: agentMeta.provider,
+                      model: agentMeta.model,
+                      usage: agentMeta.usage,
+                      lastCallUsage: agentMeta.lastCallUsage,
+                      durationMs: result.meta?.durationMs,
+                    },
+                  });
+                }
+
                 return result;
               } catch (err) {
                 emitAgentEvent({
