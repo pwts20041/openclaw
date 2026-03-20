@@ -74,7 +74,28 @@ metadata: { "openclaw": { "emoji": "🎬" } }
 
 1. 读取 `video-to-text` SKILL.md
 2. 创建项目目录：`workspace/pipeline/<project-name>/`
-3. 用 nohup 后台执行转写脚本：
+
+3. **稳定性优先策略（推荐）**：长视频默认用“分段转写”拿到可见进度与可恢复性。
+   - WhisperX HTTP server 不是流式接口：单次长请求经常会跑半天 0 产物。
+   - 分段转写（30/60min）能让产物逐段落盘，失败只重跑一段。
+
+   ```bash
+   bash {video-to-text-skillDir}/scripts/transcribe_segments.sh \
+     /path/to/video.mp4 \
+     --output-dir workspace/pipeline/<project-name>/ \
+     --output-prefix transcript \
+     --segment-minutes 30 \
+     --backend server \
+     --server-url http://127.0.0.1:9878
+   ```
+
+   产物：
+   - `outputs/transcript_segments_30m/seg_000.txt/json/srt/ass ...`
+   - `outputs/transcript_segments_30m/transcript.segments.txt`
+   - 进度：`logs/transcribe_segments_30m/status.log`
+
+4. 快速模式（短视频/已确认稳定时）也可以继续用单文件转写：
+
    ```bash
    nohup python3 {video-to-text-skillDir}/scripts/transcribe.py \
      /path/to/video.mp4 \
@@ -83,10 +104,11 @@ metadata: { "openclaw": { "emoji": "🎬" } }
      --diarize \
      > /tmp/pipeline-transcribe.log 2>&1 &
    ```
-4. 等待完成（用 process poll 或检查输出文件）
-5. 产出：`transcript.txt` + `transcript.json`
 
-**⚠️ 这是最耗时的阶段**，30 分钟视频大约需要 10-20 分钟转写。后续阶段都很快。
+5. 等待完成（用 process poll 或检查输出文件）
+6. 产出：`transcript.txt` + `transcript.json`（或分段产物）
+
+**⚠️ 这是最耗时的阶段**，后续阶段都更快。对长音频/直播回放，优先保证“能持续产出”，而不是追求一次性跑完。
 
 ### Stage 2: 观点提炼（insight-extractor）
 
@@ -107,11 +129,23 @@ metadata: { "openclaw": { "emoji": "🎬" } }
 
 1. 读取 `video-clipper` SKILL.md
 2. 基于 `insights.md` 的观点 + `transcript.json` 的时间戳定位切片边界
-3. 执行四阶段切片流程：
-   - 用 `batch-clip-v4.sh` 批量切片（去静音 + 去口吃 + crossfade）
-   - 用 `batch-postcheck.sh` 二次质检
-   - 必要时用 `iterate-until-clean.py` 迭代修复
-4. 产出：`clips/01-xxx.mp4`, `clips/02-xxx.mp4`, ...
+3. **生成 `clips.list` 文件**（每行: `开始时间|结束时间|名称`）
+4. **一键执行 `run-full-clipper.sh`**（Phase 3→3.5→4→4.5→5 全部串联）：
+   ```bash
+   nohup bash workspace/scripts/run-full-clipper.sh \
+     /path/to/video.mp4 \
+     clips.list \
+     workspace/pipeline/<project>/clips/ \
+     http://127.0.0.1:9876 \
+     > /tmp/full-clipper.log 2>&1 &
+   ```
+5. 产出（每条切片）：
+   - `<名称>.mp4` — 精修视频（去静音+去口吃+质检）
+   - `<名称>.srt` — 软字幕
+   - `<名称>.ass` — 样式字幕
+   - `<名称>-sub.mp4` — 硬字幕版
+
+**⚠️ 不要手动拆分流程给子 agent。`run-full-clipper.sh` 一条命令搞定。**
 
 **优化：** 优先切 insights 中标记为「金句」和「争议点」的片段——这些做短视频最有传播力。
 
@@ -197,5 +231,6 @@ metadata: { "openclaw": { "emoji": "🎬" } }
 - 文件名含中文要建英文 symlink
 - 切片依赖 transcript.json 的 word_segments，不是 transcript.txt
 - 文章生成依赖 insights.md，不能跳过 Stage 2 直接到 Stage 4
+- **macOS /bin/bash=3.2 没有 `mapfile`**：写批处理脚本读列表时用 `while IFS= read -r line; do ...; done < file`
 - 所有产出存 `workspace/pipeline/<project-name>/`，不用 /tmp/
 - 用完浏览器后必须 `browser stop`

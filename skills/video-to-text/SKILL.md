@@ -13,24 +13,54 @@ description: 视频/音频转文字稿。从视频文件中提取音频，用 wh
 
 ## 快速执行
 
-对于简单的转写任务，直接运行脚本：
+对于简单的转写任务，直接运行脚本（**优先用 workspace 已配好的 whisperx venv**，避免系统 Python 缺依赖）：
 
 ```bash
-nohup python3 {skillDir}/scripts/transcribe.py /path/to/video.mp4 \
+# 推荐：用 workspace/scripts/.venv-whisperx/
+nohup /Users/geyunfei/dev/openclaw/workspace/scripts/.venv-whisperx/bin/python \
+  {skillDir}/scripts/transcribe.py /path/to/video.mp4 \
   --output-dir /path/to/output \
   --output-name transcript \
   --diarize \
   > /tmp/transcribe.log 2>&1 &
+
+# 备选：系统 python3（前提是已 pip install whisperx）
+# nohup python3 {skillDir}/scripts/transcribe.py ...
+
+# 如本机 whisperx Python 依赖不稳定，强制走本地 WhisperX HTTP Server：
+#   --backend server --server-url http://127.0.0.1:9876
 ```
 
 **必须用 `nohup` 后台执行**——长音频（>30 min）转写时间可达数十分钟到数小时，exec session 会超时。
+
+## 稳定性模式：分段转写（推荐用于直播回放/长音频）
+
+WhisperX HTTP server 的转写接口是“一次提交，算完再返回”（非流式），长音频很容易遇到：网络波动、read timeout、服务端卡死等问题，导致跑半天 0 产物。
+
+解决办法是把音频切成 30/60 分钟一段，逐段转写，产物边跑边落盘，失败也能从某一段续跑。
+
+```bash
+bash {skillDir}/scripts/transcribe_segments.sh \
+  /path/to/video.mp4 \
+  --output-dir workspace/pipeline/<project-name>/ \
+  --output-prefix transcript \
+  --segment-minutes 30 \
+  --backend server \
+  --server-url http://127.0.0.1:9878
+```
+
+参考说明：`references/segmented-transcription.md`
 
 ## 完整流程
 
 ### Step 1: 预处理
 
 1. 确认输入文件存在，获取时长：`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 <file>`
-2. 若文件名含 CJK 字符，创建 symlink 避免编码问题：`ln -sf "<原路径>" /tmp/input-video.mp4`
+2. 若文件名含 CJK 字符，创建 symlink 避免编码问题（**不要放 /tmp，放到工作目录**，避免后续 pipeline 找不到）：
+   ```bash
+   mkdir -p workspace/pipeline/<project-name>/
+   ln -sf "<原路径>" workspace/pipeline/<project-name>/input.mp4
+   ```
 3. 脚本会自动判断：音频文件直接转写，视频文件先提取音频为 16kHz mono WAV
 
 ### Step 2: 转写
@@ -62,10 +92,12 @@ EOF
 
 ### Step 4: 输出
 
-脚本生成两个文件：
+脚本生成 4 个文件（全部在 `--output-dir` 目录下）：
 
 - **`<name>.txt`**: 人类可读文稿，按说话人分段，带 `[MM:SS]` 时间戳
 - **`<name>.json`**: 完整 whisperX 输出，含 word-level 时间戳
+- **`<name>.srt`**: 软字幕（SRT，通用平台兼容）
+- **`<name>.ass`**: 软字幕（ASS，后续硬字幕/重点放大更好用）
 
 ### 存档
 
