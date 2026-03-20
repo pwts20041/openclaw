@@ -323,6 +323,9 @@ except Exception:
 
   log "  检出 $merged_count 个候选，复扫通过 $approved_count 个（engine=$review_engine），应用跳切..."
 
+  # 统计本轮实际通过的 skip 数
+  skip_count="$approved_count"
+
   # Step 5: llm-skip-apply-v3（segment+concat 跳切，防漂移）
   REFINED="$OUTDIR/.${name}.refined.mp4"
   python3 "$SCRIPT_DIR/llm-skip-apply-v3.py" "$CLIP" "$AI_APPROVED" --pad 0.02 --out "$REFINED" 2>/dev/null
