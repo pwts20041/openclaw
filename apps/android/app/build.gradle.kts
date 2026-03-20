@@ -65,8 +65,8 @@ android {
         applicationId = "ai.openclaw.app"
         minSdk = 31
         targetSdk = 36
-        versionCode = 2026031400
-        versionName = "2026.3.14"
+        versionCode = 2026032000
+        versionName = "2026.3.20"
         buildConfigField("boolean", "OPENCLAW_ENABLE_SMS", "true")
         buildConfigField("boolean", "OPENCLAW_ENABLE_CALL_LOG", "true")
         ndk {

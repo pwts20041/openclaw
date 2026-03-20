@@ -18,6 +18,7 @@ import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import ai.openclaw.app.gateway.GatewaySession
 import java.util.Locale
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -176,17 +177,15 @@ class DeviceHandler(
           )
           put(
             "sms",
-            buildJsonObject {
-              put("status", JsonPrimitive(if (smsEnabled && canSendSms && smsSendGranted && smsReadGranted) "granted" else "denied"))
-              put("promptable", JsonPrimitive(smsEnabled && canSendSms && !(smsSendGranted && smsReadGranted)))
-              put(
-                "capabilities",
+            permissionStateJson(
+              granted = smsEnabled && canSendSms && smsSendGranted && smsReadGranted,
+              promptableWhenDenied = smsEnabled && canSendSms,
+              capabilities =
                 buildJsonObject {
                   put("send", JsonPrimitive(smsEnabled && canSendSms && smsSendGranted))
                   put("read", JsonPrimitive(smsEnabled && canSendSms && smsReadGranted))
                 },
-              )
-            },
+            ),
           )
           put(
             "notificationListener",
@@ -371,10 +370,15 @@ class DeviceHandler(
     }
   }
 
-  private fun permissionStateJson(granted: Boolean, promptableWhenDenied: Boolean) =
+  private fun permissionStateJson(
+    granted: Boolean,
+    promptableWhenDenied: Boolean,
+    capabilities: JsonObject? = null,
+  ) =
     buildJsonObject {
       put("status", JsonPrimitive(if (granted) "granted" else "denied"))
       put("promptable", JsonPrimitive(!granted && promptableWhenDenied))
+      capabilities?.let { put("capabilities", it) }
     }
 
   private fun hasPermission(permission: String): Boolean {

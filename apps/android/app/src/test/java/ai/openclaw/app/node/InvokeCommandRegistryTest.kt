@@ -177,27 +177,17 @@ class InvokeCommandRegistryTest {
   }
 
   @Test
-  fun advertisedCapabilities_includeCallLogOnlyWhenAvailable() {
-    val withoutCallLog = InvokeCommandRegistry.advertisedCapabilities(defaultFlags())
-    val withCallLog =
-      InvokeCommandRegistry.advertisedCapabilities(
-        defaultFlags(callLogAvailable = true),
-      )
+  fun advertisedCommands_excludesCallLogWhenUnavailable() {
+    val commands = InvokeCommandRegistry.advertisedCommands(defaultFlags(callLogAvailable = false))
 
-    assertFalse(withoutCallLog.contains(OpenClawCapability.CallLog.rawValue))
-    assertTrue(withCallLog.contains(OpenClawCapability.CallLog.rawValue))
+    assertFalse(commands.contains(OpenClawCallLogCommand.Search.rawValue))
   }
 
   @Test
-  fun advertisedCommands_includeCallLogOnlyWhenAvailable() {
-    val withoutCallLog = InvokeCommandRegistry.advertisedCommands(defaultFlags())
-    val withCallLog =
-      InvokeCommandRegistry.advertisedCommands(
-        defaultFlags(callLogAvailable = true),
-      )
+  fun advertisedCapabilities_excludesCallLogWhenUnavailable() {
+    val capabilities = InvokeCommandRegistry.advertisedCapabilities(defaultFlags(callLogAvailable = false))
 
-    assertFalse(withoutCallLog.contains(OpenClawCallLogCommand.Search.rawValue))
-    assertTrue(withCallLog.contains(OpenClawCallLogCommand.Search.rawValue))
+    assertFalse(capabilities.contains(OpenClawCapability.CallLog.rawValue))
   }
 
   private fun defaultFlags(
