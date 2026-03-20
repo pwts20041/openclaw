@@ -204,6 +204,14 @@ class SmsManager(private val context: Context) {
             return if (rawDate in 1..999_999_999_999L) rawDate * 1000L else rawDate
         }
 
+        internal fun shouldCollectByPhoneMatch(matchedRows: Int, offset: Int): Boolean {
+            return matchedRows > offset
+        }
+
+        internal fun isByPhonePageComplete(collectedRows: Int, limit: Int): Boolean {
+            return collectedRows >= limit
+        }
+
         internal fun buildSendPlan(
             message: String,
             divider: (String) -> List<String>,
@@ -646,6 +654,7 @@ class SmsManager(private val context: Context) {
         )
 
         val results = mutableListOf<SmsMessage>()
+        var matchedRows = 0
         val cursor = context.contentResolver.query(uri, projection, null, null, "date DESC")
         cursor?.use {
             val idIndex = it.getColumnIndex("_id")
@@ -695,6 +704,11 @@ class SmsManager(private val context: Context) {
                 if (params.type != null && type != params.type) continue
                 if (params.isRead != null && read != params.isRead) continue
 
+                matchedRows += 1
+                if (!shouldCollectByPhoneMatch(matchedRows, params.offset)) {
+                    continue
+                }
+
                 results.add(
                     SmsMessage(
                         id = id,
@@ -709,13 +723,14 @@ class SmsManager(private val context: Context) {
                         status = -1,
                     )
                 )
+
+                if (isByPhonePageComplete(results.size, params.limit)) {
+                    break
+                }
             }
         }
 
         return results
-            .sortedByDescending { it.date }
-            .drop(params.offset)
-            .take(params.limit)
     }
 
     private fun getMmsTextBody(messageId: Long): String? {

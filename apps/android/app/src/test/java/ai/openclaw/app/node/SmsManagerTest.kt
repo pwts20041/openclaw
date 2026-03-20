@@ -315,6 +315,18 @@ class SmsManagerTest {
   }
 
   @Test
+  fun shouldCollectByPhoneMatchHonorsOffsetWindow() {
+    assertFalse(SmsManager.shouldCollectByPhoneMatch(matchedRows = 1, offset = 1))
+    assertTrue(SmsManager.shouldCollectByPhoneMatch(matchedRows = 2, offset = 1))
+  }
+
+  @Test
+  fun isByPhonePageCompleteHonorsLimit() {
+    assertFalse(SmsManager.isByPhonePageComplete(collectedRows = 2, limit = 3))
+    assertTrue(SmsManager.isByPhonePageComplete(collectedRows = 3, limit = 3))
+  }
+
+  @Test
   fun normalizeProviderDateMillisConvertsSecondsToMillis() {
     assertEquals(1773944910000L, SmsManager.normalizeProviderDateMillis(1773944910L))
   }
