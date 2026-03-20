@@ -191,6 +191,7 @@ export async function runDiscordGatewayLifecycle(params: {
       // false during reconnect handling after this debug line is emitted.
       if (gateway?.isConnected) {
         resetHelloStallCounter();
+        reconnectStallWatchdog.disarm();
       }
       if (!reconnectStallWatchdog.isArmed()) {
         reconnectStallWatchdog.arm(at);
