@@ -137,6 +137,7 @@ export const bluebubblesPlugin: ChannelPlugin<ResolvedBlueBubblesAccount> = {
       enabled: account.enabled,
       configured: account.configured,
       baseUrl: account.baseUrl,
+      mode: "webhook",
     }),
   },
   actions: bluebubblesMessageActions,
