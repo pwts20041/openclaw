@@ -135,6 +135,12 @@ def group_words_to_cues(words: list[dict[str, Any]], max_chars=16, max_dur=5.5, 
         ww = normalize_word(w.get("word", ""))
         if not ww:
             continue
+
+        # WhisperX occasionally returns words without timestamps (start/end=None)
+        # for fillers like "呃". We must skip them; otherwise subtitle generation crashes.
+        if w.get("start") is None or w.get("end") is None:
+            continue
+
         s = float(w.get("start", 0.0))
         e = float(w.get("end", s))
 
