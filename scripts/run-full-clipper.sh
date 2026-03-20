@@ -41,7 +41,7 @@ for cmd in ffmpeg ffprobe python3; do
 done
 
 for script in smart-silence.py stutter-skip-gen.py drag-skip-gen.py skip-merge.py \
-              stutter-verify-ai.py llm-skip-apply.py fix-av-sync.py clip-subtitles.py clip-postcheck.py; do
+              stutter-verify-ai-v3.py llm-skip-apply.py fix-av-sync.py clip-subtitles.py clip-postcheck.py; do
   [ -f "$SCRIPT_DIR/$script" ] || { echo "❌ 缺少 $SCRIPT_DIR/$script"; exit 1; }
 done
 
