@@ -288,9 +288,16 @@ function isLoopbackGatewayUrl(url: string): boolean {
 
 function extractRemoteConfigGetPayload(raw: unknown): OpenClawConfig {
   const rawObj = asRecord(raw);
-  const direct = asRecord(rawObj.config);
-  if (Object.keys(direct).length > 0) {
-    return direct;
+  const hasWrappedConfig = Object.prototype.hasOwnProperty.call(rawObj, "config");
+  const hasLegacyPayload = Object.prototype.hasOwnProperty.call(rawObj, "payload");
+
+  if (!hasWrappedConfig && !hasLegacyPayload && Object.keys(rawObj).length > 0) {
+    return rawObj;
+  }
+
+  const wrapped = asRecord(rawObj.config);
+  if (Object.keys(wrapped).length > 0) {
+    return wrapped;
   }
 
   const legacyNested = asRecord(asRecord(rawObj.payload).config);
@@ -318,9 +325,14 @@ async function resolvePolicyConfigForRun(params: {
 }
 
 describe("extractRemoteConfigGetPayload", () => {
-  it("reads direct payload shape from GatewayClient.request", () => {
-    const cfg = extractRemoteConfigGetPayload({ config: { gateway: { bind: "127.0.0.1" } } });
+  it("reads direct config snapshot payload from GatewayClient.request", () => {
+    const cfg = extractRemoteConfigGetPayload({ gateway: { bind: "127.0.0.1" } });
     expect(asRecord(cfg.gateway).bind).toBe("127.0.0.1");
+  });
+
+  it("supports wrapped config payload fallback", () => {
+    const cfg = extractRemoteConfigGetPayload({ config: { gateway: { bind: "127.0.0.2" } } });
+    expect(asRecord(cfg.gateway).bind).toBe("127.0.0.2");
   });
 
   it("supports legacy nested payload fallback", () => {
