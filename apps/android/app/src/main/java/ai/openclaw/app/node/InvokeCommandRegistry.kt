@@ -18,8 +18,8 @@ import ai.openclaw.app.protocol.OpenClawSystemCommand
 data class NodeRuntimeFlags(
   val cameraEnabled: Boolean,
   val locationEnabled: Boolean,
-  val smsAvailable: Boolean,
-  val smsSearchAvailable: Boolean,
+  val sendSmsAvailable: Boolean,
+  val readSmsAvailable: Boolean,
   val voiceWakeEnabled: Boolean,
   val motionActivityAvailable: Boolean,
   val motionPedometerAvailable: Boolean,
@@ -30,8 +30,8 @@ enum class InvokeCommandAvailability {
   Always,
   CameraEnabled,
   LocationEnabled,
-  SmsAvailable,
-  SmsSearchAvailable,
+  SendSmsAvailable,
+  ReadSmsAvailable,
   MotionActivityAvailable,
   MotionPedometerAvailable,
   DebugBuild,
@@ -189,11 +189,11 @@ object InvokeCommandRegistry {
       ),
       InvokeCommandSpec(
         name = OpenClawSmsCommand.Send.rawValue,
-        availability = InvokeCommandAvailability.SmsAvailable,
+        availability = InvokeCommandAvailability.SendSmsAvailable,
       ),
       InvokeCommandSpec(
         name = OpenClawSmsCommand.Search.rawValue,
-        availability = InvokeCommandAvailability.SmsSearchAvailable,
+        availability = InvokeCommandAvailability.ReadSmsAvailable,
       ),
       InvokeCommandSpec(
         name = OpenClawCallLogCommand.Search.rawValue,
@@ -219,7 +219,7 @@ object InvokeCommandRegistry {
           NodeCapabilityAvailability.Always -> true
           NodeCapabilityAvailability.CameraEnabled -> flags.cameraEnabled
           NodeCapabilityAvailability.LocationEnabled -> flags.locationEnabled
-          NodeCapabilityAvailability.SmsAvailable -> flags.smsAvailable || flags.smsSearchAvailable
+          NodeCapabilityAvailability.SmsAvailable -> flags.sendSmsAvailable || flags.readSmsAvailable
           NodeCapabilityAvailability.VoiceWakeEnabled -> flags.voiceWakeEnabled
           NodeCapabilityAvailability.MotionAvailable -> flags.motionActivityAvailable || flags.motionPedometerAvailable
         }
@@ -234,8 +234,8 @@ object InvokeCommandRegistry {
           InvokeCommandAvailability.Always -> true
           InvokeCommandAvailability.CameraEnabled -> flags.cameraEnabled
           InvokeCommandAvailability.LocationEnabled -> flags.locationEnabled
-          InvokeCommandAvailability.SmsAvailable -> flags.smsAvailable
-          InvokeCommandAvailability.SmsSearchAvailable -> flags.smsSearchAvailable
+          InvokeCommandAvailability.SendSmsAvailable -> flags.sendSmsAvailable
+          InvokeCommandAvailability.ReadSmsAvailable -> flags.readSmsAvailable
           InvokeCommandAvailability.MotionActivityAvailable -> flags.motionActivityAvailable
           InvokeCommandAvailability.MotionPedometerAvailable -> flags.motionPedometerAvailable
           InvokeCommandAvailability.DebugBuild -> flags.debugBuild

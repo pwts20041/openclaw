@@ -137,8 +137,8 @@ class NodeRuntime(
     voiceWakeMode = { VoiceWakeMode.Off },
     motionActivityAvailable = { motionHandler.isActivityAvailable() },
     motionPedometerAvailable = { motionHandler.isPedometerAvailable() },
-    smsAvailable = { sms.canSendSms() },
-    smsSearchAvailable = { sms.canSearchSms() },
+    sendSmsAvailable = { sms.canSendSms() },
+    readSmsAvailable = { sms.canSearchSms() },
     hasRecordAudioPermission = { hasRecordAudioPermission() },
     manualTls = { manualTls.value },
   )
@@ -161,8 +161,8 @@ class NodeRuntime(
     isForeground = { _isForeground.value },
     cameraEnabled = { cameraEnabled.value },
     locationEnabled = { locationMode.value != LocationMode.Off },
-    smsAvailable = { sms.canSendSms() },
-    smsSearchAvailable = { sms.canSearchSms() },
+    sendSmsAvailable = { sms.canSendSms() },
+    readSmsAvailable = { sms.canSearchSms() },
     debugBuild = { BuildConfig.DEBUG },
     refreshNodeCanvasCapability = { nodeSession.refreshNodeCanvasCapability() },
     onCanvasA2uiPush = {
