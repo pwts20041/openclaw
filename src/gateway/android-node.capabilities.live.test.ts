@@ -286,6 +286,21 @@ function isLoopbackGatewayUrl(url: string): boolean {
   }
 }
 
+function extractRemoteConfigGetPayload(raw: unknown): OpenClawConfig {
+  const rawObj = asRecord(raw);
+  const direct = asRecord(rawObj.config);
+  if (Object.keys(direct).length > 0) {
+    return direct;
+  }
+
+  const legacyNested = asRecord(asRecord(rawObj.payload).config);
+  if (Object.keys(legacyNested).length > 0) {
+    return legacyNested;
+  }
+
+  throw new Error("remote gateway config.get returned empty config payload");
+}
+
 async function resolvePolicyConfigForRun(params: {
   client: GatewayClient;
   gatewayUrl: string;
@@ -299,13 +314,28 @@ async function resolvePolicyConfigForRun(params: {
   }
 
   const raw = await params.client.request("config.get", {});
-  const cfg = asRecord(asRecord(raw).payload).config;
-  const configObj = asRecord(cfg);
-  if (Object.keys(configObj).length === 0) {
-    throw new Error("remote gateway config.get returned empty config payload");
-  }
-  return configObj;
+  return extractRemoteConfigGetPayload(raw);
 }
+
+describe("extractRemoteConfigGetPayload", () => {
+  it("reads direct payload shape from GatewayClient.request", () => {
+    const cfg = extractRemoteConfigGetPayload({ config: { gateway: { bind: "127.0.0.1" } } });
+    expect(asRecord(cfg.gateway).bind).toBe("127.0.0.1");
+  });
+
+  it("supports legacy nested payload fallback", () => {
+    const cfg = extractRemoteConfigGetPayload({
+      payload: { config: { gateway: { bind: "::1" } } },
+    });
+    expect(asRecord(cfg.gateway).bind).toBe("::1");
+  });
+
+  it("throws when no usable config payload exists", () => {
+    expect(() => extractRemoteConfigGetPayload({ payload: {} })).toThrow(
+      "remote gateway config.get returned empty config payload",
+    );
+  });
+});
 
 async function connectGatewayClient(params: {
   url: string;
