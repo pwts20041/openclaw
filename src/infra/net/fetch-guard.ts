@@ -1,7 +1,7 @@
 import { EnvHttpProxyAgent, type Dispatcher } from "undici";
 import { logWarn } from "../../logger.js";
 import { bindAbortRelay } from "../../utils/fetch-timeout.js";
-import { hasProxyEnvConfigured } from "./proxy-env.js";
+import { hasEnvHttpProxyConfigured, hasProxyEnvConfigured } from "./proxy-env.js";
 import {
   closeDispatcher,
   createPinnedDispatcher,
@@ -198,7 +198,21 @@ export async function fetchWithSsrFGuard(params: GuardedFetchOptions): Promise<G
       if (canUseTrustedEnvProxy) {
         dispatcher = new EnvHttpProxyAgent();
       } else if (params.pinDns !== false) {
-        dispatcher = createPinnedDispatcher(pinned, params.dispatcherPolicy, params.policy);
+        // When an HTTP proxy is configured and the caller hasn't already chosen
+        // a dispatcher mode (explicit-proxy, direct fallback, etc.), route through
+        // the pinned dispatcher's env-proxy mode. This preserves DNS-pinning while
+        // routing through the proxy — fixing environments where direct connections
+        // are blocked (sandboxes, corporate networks, Docker with network isolation).
+        const protocol = parsedUrl.protocol === "http:" ? "http" : "https";
+        const useEnvProxy =
+          hasEnvHttpProxyConfigured(protocol) &&
+          !params.dispatcherPolicy?.mode &&
+          !params.policy?.allowPrivateNetwork &&
+          !params.policy?.dangerouslyAllowPrivateNetwork;
+        const dispatcherPolicy: PinnedDispatcherPolicy | undefined = useEnvProxy
+          ? Object.assign({}, params.dispatcherPolicy, { mode: "env-proxy" as const })
+          : params.dispatcherPolicy;
+        dispatcher = createPinnedDispatcher(pinned, dispatcherPolicy, params.policy);
       }
 
       const init: RequestInit & { dispatcher?: Dispatcher } = {
