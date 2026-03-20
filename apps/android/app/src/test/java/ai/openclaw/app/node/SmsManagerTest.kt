@@ -5,6 +5,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -301,6 +302,16 @@ class SmsManagerTest {
   @Test
   fun toByPhoneLookupNumberStripsFormattingToDigits() {
     assertEquals("12107588120", SmsManager.toByPhoneLookupNumber("+1 (210) 758-8120"))
+  }
+
+  @Test
+  fun normalizePhoneNumberOrNullReturnsNullForFormattingOnlyInput() {
+    assertNull(SmsManager.normalizePhoneNumberOrNull("() -   "))
+  }
+
+  @Test
+  fun normalizePhoneNumberOrNullKeepsUsableNormalizedNumber() {
+    assertEquals("+15551234567", SmsManager.normalizePhoneNumberOrNull(" +1 (555) 123-4567 "))
   }
 
   @Test

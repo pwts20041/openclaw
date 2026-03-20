@@ -191,6 +191,11 @@ class SmsManager(private val context: Context) {
             return phone.replace(Regex("""[\s\-()]"""), "")
         }
 
+        internal fun normalizePhoneNumberOrNull(phone: String?): String? {
+            val normalized = phone?.let(::normalizePhoneNumber)?.trim().orEmpty()
+            return normalized.takeIf { it.isNotEmpty() }
+        }
+
         internal fun toByPhoneLookupNumber(phone: String): String {
             return phone.filter { it.isDigit() }
         }
@@ -380,7 +385,8 @@ class SmsManager(private val context: Context) {
                 payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = parseResult.error)
             )
         }
-        val params = (parseResult as QueryParseResult.Ok).params
+        val parsedParams = (parseResult as QueryParseResult.Ok).params
+        val params = parsedParams.copy(phoneNumber = normalizePhoneNumberOrNull(parsedParams.phoneNumber))
 
         return@withContext try {
             val phoneNumbers = if (!params.contactName.isNullOrEmpty()) {
