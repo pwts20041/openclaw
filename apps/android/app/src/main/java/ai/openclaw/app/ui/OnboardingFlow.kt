@@ -1,6 +1,5 @@
 package ai.openclaw.app.ui
 
-import ai.openclaw.app.BuildConfig
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -94,6 +93,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import ai.openclaw.app.BuildConfig
 import ai.openclaw.app.LocationMode
 import ai.openclaw.app.MainViewModel
 import ai.openclaw.app.node.DeviceNotificationListenerService
@@ -242,7 +242,7 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
       BuildConfig.OPENCLAW_ENABLE_SMS &&
         context.packageManager?.hasSystemFeature(PackageManager.FEATURE_TELEPHONY) == true
     }
-  val callLogAvailable = BuildConfig.OPENCLAW_ENABLE_CALL_LOG
+  val callLogAvailable = remember { BuildConfig.OPENCLAW_ENABLE_CALL_LOG }
   val motionAvailable =
     remember(context) {
       hasMotionCapabilities(context)
@@ -294,15 +294,13 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     rememberSaveable {
       mutableStateOf(
         smsAvailable &&
-          (
-            isPermissionGranted(context, Manifest.permission.SEND_SMS) &&
-              isPermissionGranted(context, Manifest.permission.READ_SMS)
-          ),
+                isPermissionGranted(context, Manifest.permission.SEND_SMS) &&
+                isPermissionGranted(context, Manifest.permission.READ_SMS)
       )
     }
   var enableCallLog by
     rememberSaveable {
-      mutableStateOf(isPermissionGranted(context, Manifest.permission.READ_CALL_LOG))
+      mutableStateOf(callLogAvailable && isPermissionGranted(context, Manifest.permission.READ_CALL_LOG))
     }
 
   var pendingPermissionToggle by remember { mutableStateOf<PermissionToggle?>(null) }
@@ -348,10 +346,8 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
           isPermissionGranted(context, Manifest.permission.ACTIVITY_RECOGNITION)
       PermissionToggle.Sms ->
         !smsAvailable ||
-          (
-            isPermissionGranted(context, Manifest.permission.SEND_SMS) &&
-              isPermissionGranted(context, Manifest.permission.READ_SMS)
-            )
+                (isPermissionGranted(context, Manifest.permission.SEND_SMS) &&
+                        isPermissionGranted(context, Manifest.permission.READ_SMS))
       PermissionToggle.CallLog ->
         !callLogAvailable || isPermissionGranted(context, Manifest.permission.READ_CALL_LOG)
     }
@@ -377,6 +373,7 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
       enableSms,
       enableCallLog,
       smsAvailable,
+      callLogAvailable,
       motionAvailable,
     ) {
       val enabled = mutableListOf<String>()
@@ -391,7 +388,7 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
       if (enableCalendar) enabled += "Calendar"
       if (enableMotion && motionAvailable) enabled += "Motion"
       if (smsAvailable && enableSms) enabled += "SMS"
-      if (enableCallLog) enabled += "Call Log"
+      if (callLogAvailable && enableCallLog) enabled += "Call Log"
       if (enabled.isEmpty()) "None selected" else enabled.joinToString(", ")
     }
 
@@ -620,8 +617,8 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
               motionPermissionRequired = motionPermissionRequired,
               enableSms = enableSms,
               smsAvailable = smsAvailable,
-              enableCallLog = enableCallLog,
               callLogAvailable = callLogAvailable,
+              enableCallLog = enableCallLog,
               context = context,
               onDiscoveryChange = { checked ->
                 requestPermissionToggle(
@@ -720,11 +717,15 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 }
               },
               onCallLogChange = { checked ->
-                requestPermissionToggle(
-                  PermissionToggle.CallLog,
-                  checked,
-                  listOf(Manifest.permission.READ_CALL_LOG),
-                )
+                if (!callLogAvailable) {
+                  setPermissionToggleEnabled(PermissionToggle.CallLog, false)
+                } else {
+                  requestPermissionToggle(
+                    PermissionToggle.CallLog,
+                    checked,
+                    listOf(Manifest.permission.READ_CALL_LOG),
+                  )
+                }
               },
             )
           OnboardingStep.FinalCheck ->
@@ -1316,8 +1317,8 @@ private fun PermissionsStep(
   motionPermissionRequired: Boolean,
   enableSms: Boolean,
   smsAvailable: Boolean,
-  enableCallLog: Boolean,
   callLogAvailable: Boolean,
+  enableCallLog: Boolean,
   context: Context,
   onDiscoveryChange: (Boolean) -> Unit,
   onLocationChange: (Boolean) -> Unit,
@@ -1459,7 +1460,7 @@ private fun PermissionsStep(
         checked = enableSms,
         granted =
           isPermissionGranted(context, Manifest.permission.SEND_SMS) &&
-            isPermissionGranted(context, Manifest.permission.READ_SMS),
+                  isPermissionGranted(context, Manifest.permission.READ_SMS),
         onCheckedChange = onSmsChange,
       )
     }
