@@ -38,6 +38,7 @@ describe("loadOpenClawPlugins", () => {
       "extensions",
       pluginId,
     );
+    const stateDir = makeTempDir();
     const gitSourceDir = path.join(gitExtensionRoot, "src");
     mkdirSafe(gitSourceDir);
 
@@ -103,12 +104,12 @@ if (runtimeProbe !== "function") {
         NODE_ENV: "production",
         VITEST: undefined,
         OPENCLAW_BUNDLED_PLUGINS_DIR: "/nonexistent/bundled/plugins",
+        OPENCLAW_HOME: undefined,
+        OPENCLAW_STATE_DIR: stateDir,
       },
       () =>
         loadOpenClawPlugins({
           cache: false,
-          activate: false,
-          mode: "validate",
           workspaceDir: gitExtensionRoot,
           config: {
             plugins: {
