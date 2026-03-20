@@ -200,6 +200,10 @@ class SmsManager(private val context: Context) {
             return normalized.takeIf { digits.isNotEmpty() }
         }
 
+        internal fun sanitizeContactPhoneNumberOrNull(phone: String?): String? {
+            return normalizePhoneNumberOrNull(phone)
+        }
+
         internal fun toByPhoneLookupNumber(phone: String): String {
             return phone.filter { it.isDigit() }
         }
@@ -530,9 +534,7 @@ class SmsManager(private val context: Context) {
             val numberIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
             while (it.moveToNext()) {
                 val number = it.getString(numberIndex)
-                if (!number.isNullOrBlank()) {
-                    phoneNumbers.add(normalizePhoneNumber(number))
-                }
+                sanitizeContactPhoneNumberOrNull(number)?.let(phoneNumbers::add)
             }
         }
 

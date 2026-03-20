@@ -334,6 +334,21 @@ class SmsManagerTest {
   }
 
   @Test
+  fun sanitizeContactPhoneNumberOrNullDropsFormattingOnlyInput() {
+    assertNull(SmsManager.sanitizeContactPhoneNumberOrNull(" () -   "))
+  }
+
+  @Test
+  fun sanitizeContactPhoneNumberOrNullDropsPlusOnlyInput() {
+    assertNull(SmsManager.sanitizeContactPhoneNumberOrNull(" + "))
+  }
+
+  @Test
+  fun sanitizeContactPhoneNumberOrNullKeepsUsableNormalizedNumber() {
+    assertEquals("+15551234567", SmsManager.sanitizeContactPhoneNumberOrNull(" +1 (555) 123-4567 "))
+  }
+
+  @Test
   fun shouldCollectByPhoneMatchHonorsOffsetWindow() {
     assertFalse(SmsManager.shouldCollectByPhoneMatch(matchedRows = 1, offset = 1))
     assertTrue(SmsManager.shouldCollectByPhoneMatch(matchedRows = 2, offset = 1))
