@@ -178,7 +178,7 @@ class DeviceHandler(
           put(
             "sms",
             permissionStateJson(
-              granted = smsEnabled && canSendSms && smsSendGranted && smsReadGranted,
+              granted = smsEnabled && hasPermission(Manifest.permission.SEND_SMS) && canSendSms,
               promptableWhenDenied = smsEnabled && canSendSms,
               capabilities =
                 buildJsonObject {
