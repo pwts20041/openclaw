@@ -12,6 +12,20 @@ import org.junit.Test
 class SmsManagerTest {
   private val json = SmsManager.JsonConfig
 
+  private fun smsMessage(id: Long, date: Long): SmsManager.SmsMessage =
+    SmsManager.SmsMessage(
+      id = id,
+      threadId = 1L,
+      address = "+15551234567",
+      person = null,
+      date = date,
+      dateSent = date,
+      read = true,
+      type = 1,
+      body = "msg-$id",
+      status = 0,
+    )
+
   @Test
   fun parseParamsRejectsEmptyPayload() {
     val result = SmsManager.parseParams("", json)
@@ -329,6 +343,26 @@ class SmsManagerTest {
   fun isByPhonePageCompleteHonorsLimit() {
     assertFalse(SmsManager.isByPhonePageComplete(collectedRows = 2, limit = 3))
     assertTrue(SmsManager.isByPhonePageComplete(collectedRows = 3, limit = 3))
+  }
+
+  @Test
+  fun upsertTopDateCandidatesKeepsDescendingOrderAndBounds() {
+    val candidates = mutableListOf<SmsManager.SmsMessage>()
+    val max = 2
+
+    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1L, date = 1700L), max)
+    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 2L, date = 2000L), max)
+    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 3L, date = 1500L), max)
+
+    assertEquals(listOf(2L, 1L), candidates.map { it.id })
+    assertEquals(listOf(2000L, 1700L), candidates.map { it.date })
+  }
+
+  @Test
+  fun upsertTopDateCandidatesNoOpWhenMaxIsZero() {
+    val candidates = mutableListOf<SmsManager.SmsMessage>()
+    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1L, date = 2000L), 0)
+    assertTrue(candidates.isEmpty())
   }
 
   @Test

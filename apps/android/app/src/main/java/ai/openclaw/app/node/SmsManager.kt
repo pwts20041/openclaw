@@ -216,6 +216,27 @@ class SmsManager(private val context: Context) {
             return collectedRows >= limit
         }
 
+        internal fun upsertTopDateCandidates(
+            candidates: MutableList<SmsMessage>,
+            message: SmsMessage,
+            maxCandidates: Int,
+        ) {
+            if (maxCandidates <= 0) {
+                return
+            }
+
+            val insertAt = candidates.indexOfFirst { existing -> message.date > existing.date }
+            if (insertAt >= 0) {
+                candidates.add(insertAt, message)
+            } else {
+                candidates.add(message)
+            }
+
+            if (candidates.size > maxCandidates) {
+                candidates.removeAt(candidates.lastIndex)
+            }
+        }
+
         internal fun buildSendPlan(
             message: String,
             divider: (String) -> List<String>,
@@ -657,8 +678,12 @@ class SmsManager(private val context: Context) {
             "body",
         )
 
-        val results = mutableListOf<SmsMessage>()
-        var matchedRows = 0
+        val maxCandidates = params.offset + params.limit
+        if (maxCandidates <= 0) {
+            return emptyList()
+        }
+
+        val topCandidates = mutableListOf<SmsMessage>()
         val cursor = context.contentResolver.query(uri, projection, null, null, "date DESC")
         cursor?.use {
             val idIndex = it.getColumnIndex("_id")
@@ -708,33 +733,25 @@ class SmsManager(private val context: Context) {
                 if (params.type != null && type != params.type) continue
                 if (params.isRead != null && read != params.isRead) continue
 
-                matchedRows += 1
-                if (!shouldCollectByPhoneMatch(matchedRows, params.offset)) {
-                    continue
-                }
-
-                results.add(
-                    SmsMessage(
-                        id = id,
-                        threadId = threadId,
-                        address = address,
-                        person = null,
-                        date = dateMs,
-                        dateSent = dateSentMs,
-                        read = read,
-                        type = type,
-                        body = body,
-                        status = -1,
-                    )
+                val message = SmsMessage(
+                    id = id,
+                    threadId = threadId,
+                    address = address,
+                    person = null,
+                    date = dateMs,
+                    dateSent = dateSentMs,
+                    read = read,
+                    type = type,
+                    body = body,
+                    status = -1,
                 )
-
-                if (isByPhonePageComplete(results.size, params.limit)) {
-                    break
-                }
+                upsertTopDateCandidates(topCandidates, message, maxCandidates)
             }
         }
 
-        return results
+        return topCandidates
+            .drop(params.offset)
+            .take(params.limit)
     }
 
     private fun getMmsTextBody(messageId: Long): String? {
