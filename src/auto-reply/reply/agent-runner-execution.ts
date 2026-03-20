@@ -564,6 +564,26 @@ export async function runAgentTurnWithFallback(params: {
               bootstrapPromptWarningSignaturesSeen = resolveBootstrapWarningSignaturesSeen(
                 result.meta?.systemPromptReport,
               );
+              // Emit supplementary usage event with accumulated token/cost data.
+              // The pi-embedded subscribe handler emits lifecycle start/end but does
+              // not have access to agentMeta; emit a separate usage event now that
+              // the run result is available.
+              const agentMeta = result.meta?.agentMeta;
+              if (agentMeta?.usage) {
+                emitAgentEvent({
+                  runId,
+                  stream: "lifecycle",
+                  data: {
+                    phase: "usage",
+                    provider: agentMeta.provider,
+                    model: agentMeta.model,
+                    usage: agentMeta.usage,
+                    lastCallUsage: agentMeta.lastCallUsage,
+                    durationMs: result.meta?.durationMs,
+                  },
+                });
+              }
+
               const resultCompactionCount = Math.max(
                 0,
                 result.meta?.agentMeta?.compactionCount ?? 0,

@@ -13,7 +13,7 @@ import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import type { TypingMode } from "../../config/types.js";
 import { logVerbose } from "../../globals.js";
-import { registerAgentRunContext } from "../../infra/agent-events.js";
+import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
 import { defaultRuntime } from "../../runtime.js";
 import { isInternalMessageChannel } from "../../utils/message-channel.js";
 import { stripHeartbeatToken } from "../heartbeat.js";
@@ -252,6 +252,24 @@ export function createFollowupRunner(params: {
               bootstrapPromptWarningSignaturesSeen = resolveBootstrapWarningSignaturesSeen(
                 result.meta?.systemPromptReport,
               );
+
+              // Emit supplementary usage event with accumulated token/cost data.
+              const agentMeta = result.meta?.agentMeta;
+              if (agentMeta?.usage) {
+                emitAgentEvent({
+                  runId,
+                  stream: "lifecycle",
+                  data: {
+                    phase: "usage",
+                    provider: agentMeta.provider,
+                    model: agentMeta.model,
+                    usage: agentMeta.usage,
+                    lastCallUsage: agentMeta.lastCallUsage,
+                    durationMs: result.meta?.durationMs,
+                  },
+                });
+              }
+
               const resultCompactionCount = Math.max(
                 0,
                 result.meta?.agentMeta?.compactionCount ?? 0,
