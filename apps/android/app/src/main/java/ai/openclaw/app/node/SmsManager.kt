@@ -950,11 +950,7 @@ class SmsManager(private val context: Context) {
             }
         }
 
-        return if (useConversationReview) {
-            pageByPhoneCandidates(topCandidates.map { it.second }, params)
-        } else {
-            pageByPhoneCandidates(materializedCandidates.values, params)
-        }
+        return pageByPhoneCandidates(topCandidates.map { it.second }, params)
     }
 
     private fun getMmsTextBody(messageId: Long): String? {
