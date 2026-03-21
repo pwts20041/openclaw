@@ -282,15 +282,6 @@ class InvokeDispatcher(
           null
         } else {
           GatewaySession.InvokeResult.error(
-            code = "CALL_LOG_DISABLED",
-            message = "CALL_LOG_DISABLED: call log capability disabled",
-          )
-        }
-      InvokeCommandAvailability.CallLogAvailable ->
-        if (callLogAvailable()) {
-          null
-        } else {
-          GatewaySession.InvokeResult.error(
             code = "CALL_LOG_UNAVAILABLE",
             message = "CALL_LOG_UNAVAILABLE: call log not available on this build",
           )
