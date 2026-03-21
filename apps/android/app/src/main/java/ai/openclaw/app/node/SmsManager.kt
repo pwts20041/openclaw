@@ -237,6 +237,14 @@ class SmsManager(private val context: Context) {
             return collectedRows >= limit
         }
 
+        internal fun compareByPhoneCandidateOrder(left: SmsMessage, right: SmsMessage): Int {
+            return when {
+                left.date != right.date -> right.date.compareTo(left.date)
+                left.id != right.id -> right.id.compareTo(left.id)
+                else -> 0
+            }
+        }
+
         internal fun upsertTopDateCandidates(
             candidates: MutableList<SmsMessage>,
             message: SmsMessage,
@@ -246,14 +254,11 @@ class SmsManager(private val context: Context) {
                 return
             }
 
-            val insertAt = candidates.indexOfFirst { existing -> message.date > existing.date }
-            if (insertAt >= 0) {
-                candidates.add(insertAt, message)
-            } else {
-                candidates.add(message)
-            }
+            candidates.removeAll { existing -> existing.id == message.id }
+            candidates.add(message)
+            candidates.sortWith(::compareByPhoneCandidateOrder)
 
-            if (candidates.size > maxCandidates) {
+            while (candidates.size > maxCandidates) {
                 candidates.removeAt(candidates.lastIndex)
             }
         }

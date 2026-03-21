@@ -369,6 +369,18 @@ class SmsManagerTest {
   }
 
   @Test
+  fun compareByPhoneCandidateOrderUsesDateThenIdDescending() {
+    val newer = smsMessage(id = 1L, date = 2000L)
+    val older = smsMessage(id = 2L, date = 1000L)
+    val sameDateHigherId = smsMessage(id = 9L, date = 1500L)
+    val sameDateLowerId = smsMessage(id = 3L, date = 1500L)
+
+    assertTrue(SmsManager.compareByPhoneCandidateOrder(newer, older) < 0)
+    assertTrue(SmsManager.compareByPhoneCandidateOrder(sameDateHigherId, sameDateLowerId) < 0)
+    assertTrue(SmsManager.compareByPhoneCandidateOrder(sameDateLowerId, sameDateHigherId) > 0)
+  }
+
+  @Test
   fun upsertTopDateCandidatesKeepsDescendingOrderAndBounds() {
     val candidates = mutableListOf<SmsManager.SmsMessage>()
     val max = 2
@@ -379,6 +391,25 @@ class SmsManagerTest {
 
     assertEquals(listOf(2L, 1L), candidates.map { it.id })
     assertEquals(listOf(2000L, 1700L), candidates.map { it.date })
+  }
+
+  @Test
+  fun upsertTopDateCandidatesDedupesByIdAndKeepsBestOrdering() {
+    val candidates = mutableListOf<SmsManager.SmsMessage>()
+    val max = 5
+
+    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1987L, date = 1773950752506L), max)
+    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1986L, date = 1773899354039L), max)
+    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1985L, date = 1773872989602L), max)
+    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1981L, date = 1773790733566L), max)
+    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1976L, date = 1773784153770L), max)
+
+    // duplicate id seen later in stream should replace the old candidate rather than duplicate rows
+    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1986L, date = 1773899354039L), max)
+
+    assertEquals(5, candidates.size)
+    assertEquals(1, candidates.count { it.id == 1986L })
+    assertEquals(listOf(1987L, 1986L, 1985L, 1981L, 1976L), candidates.map { it.id })
   }
 
   @Test
