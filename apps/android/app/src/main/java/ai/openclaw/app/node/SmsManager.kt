@@ -230,8 +230,18 @@ class SmsManager(private val context: Context) {
             }
         }
 
+        internal fun hasSqlLikeWildcard(value: String): Boolean {
+            return value.contains('%') || value.contains('_')
+        }
+
         internal fun isExplicitPhoneInputInvalid(rawPhone: String?, normalizedPhone: String?): Boolean {
-            return !rawPhone.isNullOrBlank() && normalizedPhone == null
+            if (rawPhone.isNullOrBlank()) {
+                return false
+            }
+            if (normalizedPhone == null) {
+                return true
+            }
+            return hasSqlLikeWildcard(normalizedPhone)
         }
 
         internal fun shouldUseConversationReviewByPhoneMode(params: QueryParams): Boolean {
@@ -553,7 +563,12 @@ class SmsManager(private val context: Context) {
         val parsedParams = (parseResult as QueryParseResult.Ok).params
         val normalizedPhoneNumber = normalizePhoneNumberOrNull(parsedParams.phoneNumber)
         if (isExplicitPhoneInputInvalid(parsedParams.phoneNumber, normalizedPhoneNumber)) {
-            val error = "INVALID_REQUEST: phoneNumber must contain at least one digit"
+            val error =
+                if (!parsedParams.phoneNumber.isNullOrBlank() && normalizedPhoneNumber != null && hasSqlLikeWildcard(normalizedPhoneNumber)) {
+                    "INVALID_REQUEST: phoneNumber must not contain SQL LIKE wildcard characters"
+                } else {
+                    "INVALID_REQUEST: phoneNumber must contain at least one digit"
+                }
             return@withContext SearchResult(
                 ok = false,
                 messages = emptyList(),

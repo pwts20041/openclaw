@@ -513,6 +513,19 @@ class SmsManagerTest {
   }
 
   @Test
+  fun hasSqlLikeWildcardDetectsPercentAndUnderscore() {
+    assertTrue(SmsManager.hasSqlLikeWildcard("+1555%1234"))
+    assertTrue(SmsManager.hasSqlLikeWildcard("+1555_1234"))
+    assertFalse(SmsManager.hasSqlLikeWildcard("+15551234"))
+  }
+
+  @Test
+  fun isExplicitPhoneInputInvalidRejectsLikeWildcardPhoneFilter() {
+    assertTrue(SmsManager.isExplicitPhoneInputInvalid("+1555%1234", "+1555%1234"))
+    assertTrue(SmsManager.isExplicitPhoneInputInvalid("+1555_1234", "+1555_1234"))
+  }
+
+  @Test
   fun isExplicitPhoneInputInvalidFalseWhenPhoneWasOmitted() {
     assertFalse(SmsManager.isExplicitPhoneInputInvalid(null, null))
     assertFalse(SmsManager.isExplicitPhoneInputInvalid("   ", null))
