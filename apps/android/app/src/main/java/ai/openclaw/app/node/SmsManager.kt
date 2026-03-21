@@ -752,6 +752,9 @@ class SmsManager(private val context: Context) {
                     status = -1,
                 )
                 upsertTopDateCandidates(topCandidates, message, maxCandidates)
+                if (isByPhonePageComplete(topCandidates.size, maxCandidates)) {
+                    break
+                }
             }
         }
 
