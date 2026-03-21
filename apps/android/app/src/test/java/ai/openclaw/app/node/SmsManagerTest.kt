@@ -314,6 +314,14 @@ class SmsManagerTest {
   }
 
   @Test
+  fun parseQueryParamsParsesConversationReviewTrue() {
+    val result = SmsManager.parseQueryParams("{\"conversationReview\":true}", json)
+    assertTrue(result is SmsManager.QueryParseResult.Ok)
+    val ok = result as SmsManager.QueryParseResult.Ok
+    assertTrue(ok.params.conversationReview)
+  }
+
+  @Test
   fun toByPhoneLookupNumberStripsFormattingToDigits() {
     assertEquals("12107588120", SmsManager.toByPhoneLookupNumber("+1 (210) 758-8120"))
   }
@@ -405,7 +413,7 @@ class SmsManagerTest {
   @Test
   fun shouldUseConversationReviewByPhoneModeOnlyForMixedByPhoneReviewPulls() {
     val active =
-      SmsManager.SearchParams(
+      SmsManager.QueryParams(
         limit = 5,
         offset = 0,
         isRead = null,
@@ -430,7 +438,7 @@ class SmsManagerTest {
   @Test
   fun effectiveSearchParamsRaisesConversationReviewLimitFloor() {
     val params =
-      SmsManager.SearchParams(
+      SmsManager.QueryParams(
         limit = 5,
         offset = 0,
         isRead = null,

@@ -85,6 +85,7 @@ class SmsManager(private val context: Context) {
         val type: Int? = null,
         val isRead: Boolean? = null,
         val includeMms: Boolean = false,
+        val conversationReview: Boolean = false,
         val limit: Int = DEFAULT_SMS_LIMIT,
         val offset: Int = 0,
     )
@@ -162,6 +163,7 @@ class SmsManager(private val context: Context) {
             val type = (obj["type"] as? JsonPrimitive)?.content?.toIntOrNull()
             val isRead = (obj["isRead"] as? JsonPrimitive)?.content?.toBooleanStrictOrNull()
             val includeMms = (obj["includeMms"] as? JsonPrimitive)?.content?.toBooleanStrictOrNull() ?: false
+            val conversationReview = (obj["conversationReview"] as? JsonPrimitive)?.content?.toBooleanStrictOrNull() ?: false
             val limit = ((obj["limit"] as? JsonPrimitive)?.content?.toIntOrNull() ?: DEFAULT_SMS_LIMIT)
                 .coerceIn(1, 200)
             val offset = ((obj["offset"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0)
@@ -181,6 +183,7 @@ class SmsManager(private val context: Context) {
                     type = type,
                     isRead = isRead,
                     includeMms = includeMms,
+                    conversationReview = conversationReview,
                     limit = limit,
                     offset = offset,
                 )
@@ -208,11 +211,11 @@ class SmsManager(private val context: Context) {
             return !rawPhone.isNullOrBlank() && normalizedPhone == null
         }
 
-        internal fun shouldUseConversationReviewByPhoneMode(params: SearchParams): Boolean {
+        internal fun shouldUseConversationReviewByPhoneMode(params: QueryParams): Boolean {
             return params.conversationReview && params.includeMms && !params.phoneNumber.isNullOrEmpty()
         }
 
-        internal fun effectiveSearchParams(params: SearchParams): SearchParams {
+        internal fun effectiveSearchParams(params: QueryParams): QueryParams {
             if (!shouldUseConversationReviewByPhoneMode(params)) return params
             val reviewLimit = maxOf(params.limit, 25)
             return params.copy(limit = reviewLimit)
@@ -451,7 +454,7 @@ class SmsManager(private val context: Context) {
                 payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = error)
             )
         }
-        val params = parsedParams.copy(phoneNumber = normalizedPhoneNumber)
+        val params = effectiveSearchParams(parsedParams.copy(phoneNumber = normalizedPhoneNumber))
 
         return@withContext try {
             val phoneNumbers = if (!params.contactName.isNullOrEmpty()) {
@@ -776,7 +779,7 @@ class SmsManager(private val context: Context) {
                     status = -1,
                 )
                 upsertTopDateCandidates(topCandidates, message, maxCandidates)
-                if (isByPhonePageComplete(topCandidates.size, maxCandidates)) {
+                if (!shouldUseConversationReviewByPhoneMode(params) && isByPhonePageComplete(topCandidates.size, maxCandidates)) {
                     break
                 }
             }
