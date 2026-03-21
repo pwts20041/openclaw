@@ -1101,6 +1101,7 @@
                       "tools/brave-search",
                       "tools/firecrawl",
                       "tools/perplexity-search",
+                      "tools/searxng",
                       "tools/tavily"
                     ]
                   }

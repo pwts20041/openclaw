@@ -142,6 +142,42 @@ describe("web search provider config", () => {
 
     expect(res.ok).toBe(true);
   });
+
+  it("accepts searxng provider selection", () => {
+    const res = validateConfigObject({
+      tools: {
+        web: {
+          search: {
+            enabled: true,
+            provider: "searxng",
+          },
+        },
+      },
+    });
+
+    expect(res.ok).toBe(true);
+  });
+
+  it("silently drops searxng scoped config from tools.web.search (use plugin config instead)", () => {
+    const res = validateConfigObject({
+      tools: {
+        web: {
+          search: {
+            provider: "searxng",
+            searxng: {
+              baseUrl: "http://searxng:8181",
+            },
+          },
+        },
+      },
+    });
+
+    // searxng is not a legacy provider — the normalization layer strips unknown
+    // scoped keys before schema validation, so the config is accepted but the
+    // searxng block is silently dropped. Config belongs in
+    // plugins.entries.searxng.config.webSearch.baseUrl.
+    expect(res.ok).toBe(true);
+  });
 });
 
 describe("talk.voiceAliases", () => {
