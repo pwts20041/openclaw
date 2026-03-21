@@ -368,8 +368,17 @@ troubleshooting.
     web: {
       search: {
         provider: "searxng",
-        searxng: {
-          baseUrl: "http://localhost:8888",
+      },
+    },
+  },
+  plugins: {
+    entries: {
+      searxng: {
+        config: {
+          webSearch: {
+            // Use https:// for remote instances.
+            baseUrl: "http://localhost:8888",
+          },
         },
       },
     },
@@ -394,7 +403,7 @@ Search the web using your configured provider.
   - **Grok**: `XAI_API_KEY` or `plugins.entries.xai.config.webSearch.apiKey`
   - **Kimi**: `KIMI_API_KEY`, `MOONSHOT_API_KEY`, or `plugins.entries.moonshot.config.webSearch.apiKey`
   - **Perplexity**: `PERPLEXITY_API_KEY`, `OPENROUTER_API_KEY`, or `plugins.entries.perplexity.config.webSearch.apiKey`
-  - **SearXNG**: No API key required — just set `tools.web.search.searxng.baseUrl` or `SEARXNG_BASE_URL`
+  - **SearXNG**: No API key required — just set `plugins.entries.searxng.config.webSearch.baseUrl` or `SEARXNG_BASE_URL`
   - **Tavily**: `TAVILY_API_KEY` or `plugins.entries.tavily.config.webSearch.apiKey`
 - All provider key fields above support SecretRef objects.
 

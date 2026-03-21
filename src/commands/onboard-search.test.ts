@@ -237,6 +237,16 @@ describe("setupSearch", () => {
     expect(result.plugins?.entries?.tavily?.enabled).toBe(true);
   });
 
+  it("sets provider for searxng without prompting for API key", async () => {
+    const cfg: OpenClawConfig = {};
+    const { prompter } = createPrompter({ selectValue: "searxng" });
+    const result = await setupSearch(cfg, runtime, prompter);
+    expect(result.tools?.web?.search?.provider).toBe("searxng");
+    expect(result.tools?.web?.search?.enabled).toBe(true);
+    expect(result.plugins?.entries?.searxng?.enabled).toBe(true);
+    expect(prompter.text).not.toHaveBeenCalled();
+  });
+
   it("shows missing-key note when no key is provided and no env var", async () => {
     const original = process.env.BRAVE_API_KEY;
     delete process.env.BRAVE_API_KEY;
@@ -555,9 +565,9 @@ describe("setupSearch", () => {
     expect(pluginWebSearchApiKey(result, "brave")).toBe("BSA-plain");
   });
 
-  it("exports all 7 providers in SEARCH_PROVIDER_OPTIONS", () => {
+  it("exports all 8 providers in SEARCH_PROVIDER_OPTIONS", () => {
     const values = SEARCH_PROVIDER_OPTIONS.map((e) => e.id);
-    expect(SEARCH_PROVIDER_OPTIONS).toHaveLength(7);
+    expect(SEARCH_PROVIDER_OPTIONS).toHaveLength(8);
     expect(values).toEqual([
       "brave",
       "gemini",
@@ -566,6 +576,7 @@ describe("setupSearch", () => {
       "perplexity",
       "firecrawl",
       "tavily",
+      "searxng",
     ]);
   });
 });
