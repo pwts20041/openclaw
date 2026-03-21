@@ -12,7 +12,13 @@ import org.junit.Test
 class SmsManagerTest {
   private val json = SmsManager.JsonConfig
 
-  private fun smsMessage(id: Long, date: Long): SmsManager.SmsMessage =
+  private fun smsMessage(
+    id: Long,
+    date: Long,
+    status: Int = 0,
+    body: String? = "msg-$id",
+    transportType: String? = null,
+  ): SmsManager.SmsMessage =
     SmsManager.SmsMessage(
       id = id,
       threadId = 1L,
@@ -22,8 +28,9 @@ class SmsManagerTest {
       dateSent = date,
       read = true,
       type = 1,
-      body = "msg-$id",
-      status = 0,
+      body = body,
+      status = status,
+      transportType = transportType,
     )
 
   @Test
@@ -648,23 +655,31 @@ class SmsManagerTest {
   }
 
   @Test
-  fun buildQueryMetadataMarksIncludedWhenMixedQueryYieldsMmsLikeRow() {
-    val params = SmsManager.QueryParams(includeMms = true, phoneNumber = "+15551234567")
-    val mmsLikeMessage =
-      SmsManager.SmsMessage(
-        id = 7L,
-        threadId = 1L,
-        address = "+15551234567",
-        person = null,
-        date = 1000L,
-        dateSent = 1000L,
-        read = true,
-        type = 1,
-        body = null,
-        status = -1,
-      )
+  fun isMmsTransportRowTrueOnlyForMmsTransport() {
+    assertTrue(SmsManager.isMmsTransportRow(smsMessage(id = 1L, date = 1000L, transportType = "mms")))
+    assertFalse(SmsManager.isMmsTransportRow(smsMessage(id = 2L, date = 1000L, transportType = "sms")))
+    assertFalse(SmsManager.isMmsTransportRow(smsMessage(id = 3L, date = 1000L, transportType = null)))
+  }
 
-    val metadata = SmsManager.buildQueryMetadata(params, listOf("+15551234567"), listOf(mmsLikeMessage))
+  @Test
+  fun buildQueryMetadataDoesNotTreatSmsStatusSentinelAsMmsInclusion() {
+    val params = SmsManager.QueryParams(includeMms = true, phoneNumber = "+15551234567")
+    val smsLikeMessage = smsMessage(id = 7L, date = 1000L, status = -1, transportType = "sms")
+
+    val metadata = SmsManager.buildQueryMetadata(params, listOf("15551234567"), listOf(smsLikeMessage))
+
+    assertTrue(metadata.mmsRequested)
+    assertTrue(metadata.mmsEligible)
+    assertTrue(metadata.mmsAttempted)
+    assertFalse(metadata.mmsIncluded)
+  }
+
+  @Test
+  fun buildQueryMetadataMarksIncludedWhenMixedQueryYieldsMmsTransportRow() {
+    val params = SmsManager.QueryParams(includeMms = true, phoneNumber = "+15551234567")
+    val mmsTransportMessage = smsMessage(id = 7L, date = 1000L, status = 0, body = null, transportType = "mms")
+
+    val metadata = SmsManager.buildQueryMetadata(params, listOf("15551234567"), listOf(mmsTransportMessage))
 
     assertTrue(metadata.mmsRequested)
     assertTrue(metadata.mmsEligible)

@@ -53,6 +53,7 @@ class SmsManager(private val context: Context) {
         val type: Int,
         val body: String?,
         val status: Int,
+        val transportType: String? = null,
     )
 
     data class SearchResult(
@@ -275,6 +276,10 @@ class SmsManager(private val context: Context) {
             return "INVALID_REQUEST: includeMms offset+limit exceeds supported window ($MAX_MIXED_BY_PHONE_CANDIDATE_WINDOW)"
         }
 
+        internal fun isMmsTransportRow(message: SmsMessage): Boolean {
+            return message.transportType.equals("mms", ignoreCase = true)
+        }
+
         internal fun buildQueryMetadata(
             params: QueryParams,
             allPhoneNumbers: List<String>,
@@ -283,7 +288,7 @@ class SmsManager(private val context: Context) {
             val mmsRequested = params.includeMms
             val mmsEligible = mmsRequested && allPhoneNumbers.size == 1
             val mmsAttempted = mmsEligible
-            val mmsIncluded = mmsAttempted && messages.any { message -> message.body.isNullOrBlank() || message.status == -1 }
+            val mmsIncluded = mmsAttempted && messages.any(::isMmsTransportRow)
             return QueryMetadata(
                 mmsRequested = mmsRequested,
                 mmsEligible = mmsEligible,
@@ -899,7 +904,8 @@ class SmsManager(private val context: Context) {
                     read = read,
                     type = type,
                     body = body,
-                    status = -1,
+                    status = if (transportType.equals("mms", ignoreCase = true)) -1 else 0,
+                    transportType = transportType,
                 )
                 val identityKey = buildMixedRowIdentity(id, transportType)
                 if (useConversationReview) {
