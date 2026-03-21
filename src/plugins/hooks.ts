@@ -116,13 +116,24 @@ export type HookRunnerLogger = {
 };
 
 /** Default timeout for async plugin hook handlers (ms). */
-const DEFAULT_HOOK_TIMEOUT_MS = 10_000;
+const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
+
+/**
+ * Hooks that enforce security/policy gates (e.g. message moderation, tool
+ * blocking).  These must never be silently skipped on timeout because
+ * `handleHookError` would swallow the error and allow the action through
+ * (fail-open).  They run without a time limit.
+ */
+const TIMEOUT_EXEMPT_HOOKS: ReadonlySet<PluginHookName> = new Set([
+  "message_sending",
+  "before_tool_call",
+]);
 
 export type HookRunnerOptions = {
   logger?: HookRunnerLogger;
   /** If true, errors in hooks will be caught and logged instead of thrown */
   catchErrors?: boolean;
-  /** Per-handler timeout for async hooks (ms). Defaults to 10 000. Set 0 to disable. */
+  /** Per-handler timeout for async hooks (ms). Defaults to 30 000. Set 0 to disable. */
   hookTimeoutMs?: number;
 };
 
@@ -200,7 +211,7 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
     hookName: PluginHookName,
     pluginId: string,
   ): Promise<T> {
-    if (!hookTimeoutMs) {
+    if (!hookTimeoutMs || TIMEOUT_EXEMPT_HOOKS.has(hookName)) {
       return fn();
     }
     return withTimeout(() => fn(), hookTimeoutMs, `${hookName} handler from ${pluginId}`);
