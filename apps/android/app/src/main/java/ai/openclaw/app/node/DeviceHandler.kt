@@ -177,10 +177,34 @@ class DeviceHandler(
           )
           put(
             "sms",
-            permissionStateJson(
-              granted = smsEnabled && hasPermission(Manifest.permission.SEND_SMS) && canSendSms,
-              promptableWhenDenied = smsEnabled && canSendSms,
-            ),
+            buildJsonObject {
+              put(
+                "status",
+                JsonPrimitive(
+                  if (smsEnabled && smsSendGranted && smsReadGranted && canSendSms) "granted" else "denied",
+                ),
+              )
+              put("promptable", JsonPrimitive(!(smsEnabled && smsSendGranted && smsReadGranted && canSendSms) && smsEnabled && canSendSms))
+              put(
+                "capabilities",
+                buildJsonObject {
+                  put(
+                    "send",
+                    permissionStateJson(
+                      granted = smsEnabled && smsSendGranted && canSendSms,
+                      promptableWhenDenied = smsEnabled && canSendSms,
+                    ),
+                  )
+                  put(
+                    "read",
+                    permissionStateJson(
+                      granted = smsEnabled && smsReadGranted && canSendSms,
+                      promptableWhenDenied = smsEnabled && canSendSms,
+                    ),
+                  )
+                },
+              )
+            },
           )
           put(
             "notificationListener",

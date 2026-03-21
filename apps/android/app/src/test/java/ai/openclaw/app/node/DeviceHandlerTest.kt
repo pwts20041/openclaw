@@ -101,6 +101,15 @@ class DeviceHandlerTest {
       val status = state.getValue("status").jsonPrimitive.content
       assertTrue(status == "granted" || status == "denied")
       state.getValue("promptable").jsonPrimitive.boolean
+      if (key == "sms") {
+        val capabilities = state.getValue("capabilities").jsonObject
+        for (capabilityKey in listOf("send", "read")) {
+          val capability = capabilities.getValue(capabilityKey).jsonObject
+          val capabilityStatus = capability.getValue("status").jsonPrimitive.content
+          assertTrue(capabilityStatus == "granted" || capabilityStatus == "denied")
+          capability.getValue("promptable").jsonPrimitive.boolean
+        }
+      }
     }
   }
 
