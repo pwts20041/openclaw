@@ -401,4 +401,50 @@ class SmsManagerTest {
     assertFalse(SmsManager.isExplicitPhoneInputInvalid(null, null))
     assertFalse(SmsManager.isExplicitPhoneInputInvalid("   ", null))
   }
+
+  @Test
+  fun shouldUseConversationReviewByPhoneModeOnlyForMixedByPhoneReviewPulls() {
+    val active =
+      SmsManager.SearchParams(
+        limit = 5,
+        offset = 0,
+        isRead = null,
+        contactName = null,
+        phoneNumber = "+12107588120",
+        keyword = null,
+        startTime = null,
+        endTime = null,
+        includeMms = true,
+        conversationReview = true,
+      )
+    val disabledByMode = active.copy(conversationReview = false)
+    val disabledByMms = active.copy(includeMms = false)
+    val disabledByPhone = active.copy(phoneNumber = null)
+
+    assertTrue(SmsManager.shouldUseConversationReviewByPhoneMode(active))
+    assertFalse(SmsManager.shouldUseConversationReviewByPhoneMode(disabledByMode))
+    assertFalse(SmsManager.shouldUseConversationReviewByPhoneMode(disabledByMms))
+    assertFalse(SmsManager.shouldUseConversationReviewByPhoneMode(disabledByPhone))
+  }
+
+  @Test
+  fun effectiveSearchParamsRaisesConversationReviewLimitFloor() {
+    val params =
+      SmsManager.SearchParams(
+        limit = 5,
+        offset = 0,
+        isRead = null,
+        contactName = null,
+        phoneNumber = "+12107588120",
+        keyword = null,
+        startTime = null,
+        endTime = null,
+        includeMms = true,
+        conversationReview = true,
+      )
+
+    assertEquals(25, SmsManager.effectiveSearchParams(params).limit)
+    assertEquals(40, SmsManager.effectiveSearchParams(params.copy(limit = 40)).limit)
+    assertEquals(5, SmsManager.effectiveSearchParams(params.copy(conversationReview = false)).limit)
+  }
 }

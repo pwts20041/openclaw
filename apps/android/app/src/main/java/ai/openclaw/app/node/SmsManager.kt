@@ -208,6 +208,16 @@ class SmsManager(private val context: Context) {
             return !rawPhone.isNullOrBlank() && normalizedPhone == null
         }
 
+        internal fun shouldUseConversationReviewByPhoneMode(params: SearchParams): Boolean {
+            return params.conversationReview && params.includeMms && !params.phoneNumber.isNullOrEmpty()
+        }
+
+        internal fun effectiveSearchParams(params: SearchParams): SearchParams {
+            if (!shouldUseConversationReviewByPhoneMode(params)) return params
+            val reviewLimit = maxOf(params.limit, 25)
+            return params.copy(limit = reviewLimit)
+        }
+
         internal fun toByPhoneLookupNumber(phone: String): String {
             return phone.filter { it.isDigit() }
         }
