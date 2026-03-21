@@ -5,6 +5,7 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import JSON5 from "json5";
 import { ensureOwnerDisplaySecret } from "../agents/owner-display.js";
+import { executeProviderPreScriptSync } from "../agents/provider-prescript.js";
 import { loadDotEnv } from "../infra/dotenv.js";
 import { resolveRequiredHomeDir } from "../infra/home-dir.js";
 import {
@@ -49,6 +50,7 @@ import { resolveConfigPath, resolveDefaultConfigCandidates, resolveStateDir } fr
 import { isBlockedObjectKey } from "./prototype-keys.js";
 import { applyConfigOverrides } from "./runtime-overrides.js";
 import type { OpenClawConfig, ConfigFileSnapshot, LegacyConfigIssue } from "./types.js";
+import type { PreScriptConfig } from "./types.models.js";
 import {
   validateConfigObjectRawWithPlugins,
   validateConfigObjectWithPlugins,
@@ -695,6 +697,43 @@ function resolveConfigIncludesForRead(
   });
 }
 
+/**
+ * Execute all provider preScripts synchronously and merge their output into
+ * `env` so that subsequent ${VAR} substitution picks up preScript-provided
+ * values (with higher priority than process.env).
+ */
+function applyProviderPreScripts(resolvedIncludes: unknown, env: NodeJS.ProcessEnv): void {
+  if (!resolvedIncludes || typeof resolvedIncludes !== "object") {
+    return;
+  }
+  const config = resolvedIncludes as Record<string, unknown>;
+  const providers = (config.models as Record<string, unknown> | undefined)?.providers;
+  if (!providers || typeof providers !== "object") {
+    return;
+  }
+  for (const [providerId, providerEntry] of Object.entries(providers as Record<string, unknown>)) {
+    if (!providerEntry || typeof providerEntry !== "object") {
+      continue;
+    }
+    const preScript = (providerEntry as Record<string, unknown>).preScript as
+      | PreScriptConfig
+      | undefined;
+    if (!preScript) {
+      continue;
+    }
+    try {
+      const result = executeProviderPreScriptSync(preScript);
+      for (const [key, value] of Object.entries(result)) {
+        env[key] = value;
+      }
+    } catch (err) {
+      console.warn(
+        `[config] preScript for provider "${providerId}" failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+}
+
 function resolveConfigForRead(
   resolvedIncludes: unknown,
   env: NodeJS.ProcessEnv,
@@ -704,11 +743,17 @@ function resolveConfigForRead(
     applyConfigEnvVars(resolvedIncludes as OpenClawConfig, env);
   }
 
+  // Run provider preScripts and merge output into an ephemeral env snapshot
+  // BEFORE ${VAR} substitution. This ensures preScript-provided values take
+  // priority during substitution without permanently mutating process.env.
+  const substitutionEnv = { ...env } as NodeJS.ProcessEnv;
+  applyProviderPreScripts(resolvedIncludes, substitutionEnv);
+
   // Collect missing env var references as warnings instead of throwing,
   // so non-critical config sections with unset vars don't crash the gateway.
   const envWarnings: EnvSubstitutionWarning[] = [];
   return {
-    resolvedConfigRaw: resolveConfigEnvVars(resolvedIncludes, env, {
+    resolvedConfigRaw: resolveConfigEnvVars(resolvedIncludes, substitutionEnv, {
       onMissing: (w) => envWarnings.push(w),
     }),
     // Capture env snapshot after substitution for write-time ${VAR} restoration.
