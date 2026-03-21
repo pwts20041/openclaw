@@ -1,1 +1,1 @@
-export { getOAuthApiKey } from "@mariozechner/pi-ai/oauth";
+export { getOAuthApiKey } from "@mariozechner/pi-ai";
