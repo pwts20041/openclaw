@@ -837,6 +837,13 @@ export function createAgentEventHandler({
       clearAgentRunContext(evt.runId);
       agentRunSeq.delete(evt.runId);
       agentRunSeq.delete(clientRunId);
+    } else if (lifecyclePhase === "usage") {
+      // Usage events may arrive after the terminal end/error event because
+      // agentMeta is only available after runEmbeddedPiAgent returns. The seq
+      // tracking at the top of this handler re-creates agentRunSeq entries;
+      // clean them up immediately to prevent a permanent leak.
+      agentRunSeq.delete(evt.runId);
+      agentRunSeq.delete(clientRunId);
     }
 
     if (

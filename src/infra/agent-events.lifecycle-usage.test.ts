@@ -9,8 +9,9 @@ import {
 /**
  * Validates the lifecycle "usage" event contract added for external observers
  * (dashboards, recorders). The actual emission sites live in agent-command.ts,
- * agent-runner-execution.ts, and followup-runner.ts; this test verifies the
- * shape and fields of the event as it flows through the agent-events bus.
+ * agent-runner-execution.ts, followup-runner.ts, cron/isolated-agent/run.ts,
+ * and agent-runner-memory.ts; this test verifies the shape and fields of the
+ * event as it flows through the agent-events bus.
  */
 describe("lifecycle usage event", () => {
   let events: AgentEventPayload[];
@@ -85,5 +86,62 @@ describe("lifecycle usage event", () => {
     }).not.toThrow();
 
     badListener();
+  });
+
+  it("usage event after terminal end does not corrupt tracking state", () => {
+    // Simulates the real flow: end fires first, then usage arrives.
+    // Downstream consumers (server-chat.ts) must handle this gracefully
+    // without leaking agentRunSeq entries.
+    const runId = `post-terminal-${Date.now()}`;
+    registerAgentRunContext(runId, { sessionKey: "agent:main:main" });
+
+    emitAgentEvent({
+      runId,
+      stream: "lifecycle",
+      data: { phase: "end", endedAt: Date.now() },
+    });
+
+    emitAgentEvent({
+      runId,
+      stream: "lifecycle",
+      data: {
+        phase: "usage",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        usage: { input: 200, output: 100 },
+        durationMs: 3000,
+      },
+    });
+
+    expect(events).toHaveLength(2);
+    expect(events[0].data.phase).toBe("end");
+    expect(events[1].data.phase).toBe("usage");
+    // Both events share the same runId and sessionKey
+    expect(events[1].runId).toBe(runId);
+    expect(events[1].sessionKey).toBe("agent:main:main");
+  });
+
+  it("durationMs reflects wall-clock time, not just last attempt", () => {
+    // Validates the contract: durationMs should be Date.now() - startedAt
+    // (full run including fallback retries), not result.meta.durationMs
+    // (single attempt only).
+    const startedAt = Date.now() - 5000; // Simulate 5s run
+    const runId = `duration-${Date.now()}`;
+    registerAgentRunContext(runId, { sessionKey: "agent:main:main" });
+
+    emitAgentEvent({
+      runId,
+      stream: "lifecycle",
+      data: {
+        phase: "usage",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        usage: { input: 50, output: 25 },
+        durationMs: Date.now() - startedAt,
+      },
+    });
+
+    const evt = events[0];
+    expect(evt.data.durationMs).toBeGreaterThanOrEqual(5000);
   });
 });

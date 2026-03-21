@@ -849,7 +849,7 @@ async function agentCommandInternal(
             model: agentMeta.model,
             usage: agentMeta.usage,
             lastCallUsage: agentMeta.lastCallUsage,
-            durationMs: result.meta.durationMs,
+            durationMs: Date.now() - startedAt,
           },
         });
       } catch {

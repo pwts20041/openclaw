@@ -37,7 +37,8 @@ import {
   setSessionRuntimeModel,
   updateSessionStore,
 } from "../../config/sessions.js";
-import { registerAgentRunContext } from "../../infra/agent-events.js";
+import type { AgentDefaultsConfig } from "../../config/types.js";
+import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
 import { logWarn } from "../../logger.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
 import {
@@ -608,6 +609,28 @@ export async function runCronIsolatedAgentTurn(params: {
     return withRunSession({ status: "error", error: "cron isolated run returned no result" });
   }
   const finalRunResult = runResult;
+
+  // Emit supplementary usage event with accumulated token/cost data.
+  const agentMeta = finalRunResult.meta?.agentMeta;
+  if (agentMeta?.usage) {
+    try {
+      emitAgentEvent({
+        runId: cronSession.sessionEntry.sessionId,
+        stream: "lifecycle",
+        data: {
+          phase: "usage",
+          provider: agentMeta.provider,
+          model: agentMeta.model,
+          usage: agentMeta.usage,
+          lastCallUsage: agentMeta.lastCallUsage,
+          durationMs: Date.now() - runStartedAt,
+        },
+      });
+    } catch {
+      // Non-fatal: usage reporting should not surface as a run error.
+    }
+  }
+
   const payloads = finalRunResult.payloads ?? [];
 
   // Update token+model fields in the session store.

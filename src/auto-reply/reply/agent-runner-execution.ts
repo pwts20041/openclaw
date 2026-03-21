@@ -355,7 +355,7 @@ export async function runAgentTurnWithFallback(params: {
                         model: agentMeta.model,
                         usage: agentMeta.usage,
                         lastCallUsage: agentMeta.lastCallUsage,
-                        durationMs: result.meta?.durationMs,
+                        durationMs: Date.now() - startedAt,
                       },
                     });
                   } catch {
@@ -365,17 +365,19 @@ export async function runAgentTurnWithFallback(params: {
 
                 return result;
               } catch (err) {
-                emitAgentEvent({
-                  runId,
-                  stream: "lifecycle",
-                  data: {
-                    phase: "error",
-                    startedAt,
-                    endedAt: Date.now(),
-                    error: String(err),
-                  },
-                });
-                lifecycleTerminalEmitted = true;
+                if (!lifecycleTerminalEmitted) {
+                  emitAgentEvent({
+                    runId,
+                    stream: "lifecycle",
+                    data: {
+                      phase: "error",
+                      startedAt,
+                      endedAt: Date.now(),
+                      error: String(err),
+                    },
+                  });
+                  lifecycleTerminalEmitted = true;
+                }
                 throw err;
               } finally {
                 // Defensive backstop: never let a CLI run complete without a terminal
