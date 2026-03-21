@@ -279,12 +279,20 @@ class SmsManager(private val context: Context) {
             return if (transportType.equals("mms", ignoreCase = true)) -1 else (smsStatus ?: 0)
         }
 
-        internal fun shouldUseConversationReviewByPhoneMode(params: QueryParams): Boolean {
-            return params.conversationReview && params.includeMms && !params.phoneNumber.isNullOrEmpty()
+        internal fun shouldUseConversationReviewByPhoneMode(
+            params: QueryParams,
+            resolvedPhoneNumbers: List<String> = emptyList(),
+        ): Boolean {
+            val hasExplicitPhoneNumber = !params.phoneNumber.isNullOrEmpty()
+            val hasSingleResolvedPhoneNumber = resolvedPhoneNumbers.size == 1
+            return params.conversationReview && params.includeMms && (hasExplicitPhoneNumber || hasSingleResolvedPhoneNumber)
         }
 
-        internal fun effectiveSearchParams(params: QueryParams): QueryParams {
-            if (!shouldUseConversationReviewByPhoneMode(params)) return params
+        internal fun effectiveSearchParams(
+            params: QueryParams,
+            resolvedPhoneNumbers: List<String> = emptyList(),
+        ): QueryParams {
+            if (!shouldUseConversationReviewByPhoneMode(params, resolvedPhoneNumbers)) return params
             val reviewLimit = maxOf(params.limit, 25)
             return params.copy(limit = reviewLimit)
         }
