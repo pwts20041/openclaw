@@ -251,6 +251,13 @@ class SmsManager(private val context: Context) {
             return if (rawDate in 1..999_999_999_999L) rawDate * 1000L else rawDate
         }
 
+        internal fun canonicalizeMixedPathPhoneFilters(phoneNumbers: List<String>): List<String> {
+            return phoneNumbers
+                .map(::toByPhoneLookupNumber)
+                .filter { it.isNotBlank() }
+                .distinct()
+        }
+
         internal fun requestedMixedByPhoneCandidateWindow(params: QueryParams): Long {
             return params.offset.toLong() + params.limit.toLong()
         }
@@ -565,13 +572,13 @@ class SmsManager(private val context: Context) {
                 emptyList()
             }
 
-            val allPhoneNumbers = if (!params.phoneNumber.isNullOrEmpty()) {
-                (phoneNumbers + params.phoneNumber).distinct()
+            val mixedPathPhoneFilters = if (!params.phoneNumber.isNullOrEmpty()) {
+                canonicalizeMixedPathPhoneFilters(phoneNumbers + params.phoneNumber)
             } else {
-                phoneNumbers.distinct()
+                canonicalizeMixedPathPhoneFilters(phoneNumbers)
             }
 
-            if (exceedsMixedByPhoneCandidateWindow(params, allPhoneNumbers)) {
+            if (exceedsMixedByPhoneCandidateWindow(params, mixedPathPhoneFilters)) {
                 val error = mixedByPhoneWindowError()
                 return@withContext SearchResult(
                     ok = false,
@@ -582,7 +589,7 @@ class SmsManager(private val context: Context) {
             }
 
             if (!params.contactName.isNullOrEmpty() && phoneNumbers.isEmpty() && params.phoneNumber.isNullOrEmpty()) {
-                val queryMetadata = buildQueryMetadata(params, allPhoneNumbers, emptyList())
+                val queryMetadata = buildQueryMetadata(params, mixedPathPhoneFilters, emptyList())
                 return@withContext SearchResult(
                     ok = true,
                     messages = emptyList(),
@@ -592,7 +599,7 @@ class SmsManager(private val context: Context) {
             }
 
             val messages = querySmsMessages(params, phoneNumbers)
-            val queryMetadata = buildQueryMetadata(params, allPhoneNumbers, messages)
+            val queryMetadata = buildQueryMetadata(params, mixedPathPhoneFilters, messages)
             SearchResult(
                 ok = true,
                 messages = messages,
@@ -702,11 +709,12 @@ class SmsManager(private val context: Context) {
         } else {
             phoneNumbers.distinct()
         }
+        val mixedPathPhoneFilters = canonicalizeMixedPathPhoneFilters(allPhoneNumbers)
 
         // Unified SMS+MMS query path is opt-in to keep sms.search semantics
         // stable by default. Use includeMms=true for by-phone provider behavior.
-        if (params.includeMms && allPhoneNumbers.size == 1) {
-            val unifiedMessages = querySmsMmsMessagesByPhone(allPhoneNumbers.first(), params)
+        if (params.includeMms && mixedPathPhoneFilters.size == 1) {
+            val unifiedMessages = querySmsMmsMessagesByPhone(mixedPathPhoneFilters.first(), params)
             if (unifiedMessages.isNotEmpty()) {
                 return unifiedMessages
             }

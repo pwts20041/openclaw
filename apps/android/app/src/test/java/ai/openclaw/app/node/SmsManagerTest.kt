@@ -558,6 +558,33 @@ class SmsManagerTest {
   }
 
   @Test
+  fun canonicalizeMixedPathPhoneFiltersDedupesEquivalentExplicitAndContactNumbers() {
+    assertEquals(
+      listOf("15551234567"),
+      SmsManager.canonicalizeMixedPathPhoneFilters(listOf("+15551234567", "15551234567")),
+    )
+  }
+
+  @Test
+  fun canonicalizeMixedPathPhoneFiltersDropsBlankByPhoneValues() {
+    assertEquals(
+      listOf("15551234567"),
+      SmsManager.canonicalizeMixedPathPhoneFilters(listOf("+15551234567", "+", "   ")),
+    )
+  }
+
+  @Test
+  fun buildQueryMetadataUsesCanonicalizedSingleMixedFilterAsEligible() {
+    val params = SmsManager.QueryParams(includeMms = true, phoneNumber = "+15551234567")
+    val canonical = SmsManager.canonicalizeMixedPathPhoneFilters(listOf("+15551234567", "15551234567"))
+
+    val metadata = SmsManager.buildQueryMetadata(params, canonical, emptyList())
+
+    assertTrue(metadata.mmsEligible)
+    assertTrue(metadata.mmsAttempted)
+  }
+
+  @Test
   fun requestedMixedByPhoneCandidateWindowAddsOffsetAndLimitSafely() {
     val params = SmsManager.QueryParams(includeMms = true, phoneNumber = "+15551234567", limit = 200, offset = 300)
     assertEquals(500L, SmsManager.requestedMixedByPhoneCandidateWindow(params))
