@@ -878,9 +878,7 @@ class SmsManager(private val context: Context) {
             return emptyList()
         }
 
-        val useConversationReview = shouldUseConversationReviewByPhoneMode(params)
         val topCandidates = mutableListOf<Pair<String, SmsMessage>>()
-        val materializedCandidates = linkedMapOf<String, SmsMessage>()
         val cursor = context.contentResolver.query(uri, projection, null, null, "date DESC")
         cursor?.use {
             val idIndex = it.getColumnIndex("_id")
@@ -948,11 +946,7 @@ class SmsManager(private val context: Context) {
                     transportType = transportType,
                 )
                 val identityKey = buildMixedRowIdentity(id, transportType)
-                if (useConversationReview) {
-                    upsertTopDateCandidates(topCandidates, identityKey, message, maxCandidates)
-                } else {
-                    materializeByPhoneCandidate(materializedCandidates, identityKey, message)
-                }
+                upsertTopDateCandidates(topCandidates, identityKey, message, maxCandidates)
             }
         }
 

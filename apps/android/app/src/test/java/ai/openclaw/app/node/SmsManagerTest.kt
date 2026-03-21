@@ -458,6 +458,24 @@ class SmsManagerTest {
   }
 
   @Test
+  fun upsertTopDateCandidatesSupportsDefaultMixedPathBoundedWindow() {
+    val params = SmsManager.QueryParams(limit = 3, offset = 2, includeMms = true, phoneNumber = "+15551234567")
+    val candidates = mutableListOf<Pair<String, SmsManager.SmsMessage>>()
+    val max = params.offset + params.limit
+
+    SmsManager.upsertTopDateCandidates(candidates, "sms:1", smsMessage(id = 1L, date = 1000L), max)
+    SmsManager.upsertTopDateCandidates(candidates, "sms:2", smsMessage(id = 2L, date = 2000L), max)
+    SmsManager.upsertTopDateCandidates(candidates, "sms:3", smsMessage(id = 3L, date = 3000L), max)
+    SmsManager.upsertTopDateCandidates(candidates, "sms:4", smsMessage(id = 4L, date = 4000L), max)
+    SmsManager.upsertTopDateCandidates(candidates, "sms:5", smsMessage(id = 5L, date = 5000L), max)
+    SmsManager.upsertTopDateCandidates(candidates, "sms:6", smsMessage(id = 6L, date = 6000L), max)
+
+    assertEquals(5, candidates.size)
+    assertEquals(listOf(6L, 5L, 4L, 3L, 2L), candidates.map { it.second.id })
+    assertEquals(listOf(4000L, 3000L, 2000L), SmsManager.pageByPhoneCandidates(candidates.map { it.second }, params).map { it.date })
+  }
+
+  @Test
   fun upsertTopDateCandidatesDedupesBySourceAwareIdentityAndKeepsBestOrdering() {
     val candidates = mutableListOf<Pair<String, SmsManager.SmsMessage>>()
     val max = 5
