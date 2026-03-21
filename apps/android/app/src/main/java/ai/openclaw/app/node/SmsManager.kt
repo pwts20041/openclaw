@@ -238,6 +238,14 @@ class SmsManager(private val context: Context) {
             return "%${escapeSqlLikeLiteral(contactName)}%"
         }
 
+        internal fun buildKeywordLikeSelection(): String {
+            return "${Telephony.Sms.BODY} LIKE ? ESCAPE '\\'"
+        }
+
+        internal fun buildKeywordLikeArg(keyword: String): String {
+            return "%${escapeSqlLikeLiteral(keyword)}%"
+        }
+
         internal fun hasSqlLikeWildcard(value: String): Boolean {
             return value.contains('%') || value.contains('_')
         }
@@ -766,8 +774,8 @@ class SmsManager(private val context: Context) {
         }
 
         if (!params.keyword.isNullOrEmpty()) {
-            selections.add("${Telephony.Sms.BODY} LIKE ?")
-            selectionArgs.add("%${params.keyword}%")
+            selections.add(buildKeywordLikeSelection())
+            selectionArgs.add(buildKeywordLikeArg(params.keyword))
         }
 
         if (params.type != null) {

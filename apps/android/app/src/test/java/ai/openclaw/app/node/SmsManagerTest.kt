@@ -408,6 +408,19 @@ class SmsManagerTest {
   }
 
   @Test
+  fun buildKeywordLikeSelectionUsesSingleBackslashEscapeLiteral() {
+    assertEquals(
+      "body LIKE ? ESCAPE '\\'",
+      SmsManager.buildKeywordLikeSelection(),
+    )
+  }
+
+  @Test
+  fun buildKeywordLikeArgEscapesWildcardsAndBackslash() {
+    assertEquals("%\\%a\\_b\\\\c%", SmsManager.buildKeywordLikeArg("%a_b\\c"))
+  }
+
+  @Test
   fun shouldCollectByPhoneMatchHonorsOffsetWindow() {
     assertFalse(SmsManager.shouldCollectByPhoneMatch(matchedRows = 1, offset = 1))
     assertTrue(SmsManager.shouldCollectByPhoneMatch(matchedRows = 2, offset = 1))
