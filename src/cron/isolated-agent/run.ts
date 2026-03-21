@@ -429,6 +429,11 @@ export async function runCronIsolatedAgentTurn(params: {
   let fallbackModel = model;
   const runStartedAt = Date.now();
   let runEndedAt = runStartedAt;
+  // Accumulate usage across interim-ack follow-up turns so the usage event
+  // reflects total resource consumption, not just the final turn.
+  let accumulatedUsage:
+    | { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
+    | undefined;
   try {
     const sessionFile = resolveSessionTranscriptPath(cronSession.sessionEntry.sessionId, agentId);
     const resolvedVerboseLevel =
@@ -551,6 +556,26 @@ export async function runCronIsolatedAgentTurn(params: {
       provider = fallbackResult.provider;
       model = fallbackResult.model;
       runEndedAt = Date.now();
+
+      // Accumulate token usage across turns (interim-ack + final).
+      const turnUsage = fallbackResult.result?.meta?.agentMeta?.usage;
+      if (turnUsage) {
+        if (accumulatedUsage) {
+          accumulatedUsage.input += turnUsage.input ?? 0;
+          accumulatedUsage.output += turnUsage.output ?? 0;
+          accumulatedUsage.cacheRead += turnUsage.cacheRead ?? 0;
+          accumulatedUsage.cacheWrite += turnUsage.cacheWrite ?? 0;
+          accumulatedUsage.total += turnUsage.total ?? 0;
+        } else {
+          accumulatedUsage = {
+            input: turnUsage.input ?? 0,
+            output: turnUsage.output ?? 0,
+            cacheRead: turnUsage.cacheRead ?? 0,
+            cacheWrite: turnUsage.cacheWrite ?? 0,
+            total: turnUsage.total ?? 0,
+          };
+        }
+      }
     };
 
     await runPrompt(commandBody);
@@ -611,18 +636,20 @@ export async function runCronIsolatedAgentTurn(params: {
   const finalRunResult = runResult;
 
   // Emit supplementary usage event with accumulated token/cost data.
+  // Uses accumulatedUsage (summed across interim-ack + final turns) so
+  // multi-turn cron runs report total resource consumption.
   const agentMeta = finalRunResult.meta?.agentMeta;
-  if (agentMeta?.usage) {
+  if (accumulatedUsage || agentMeta?.usage) {
     try {
       emitAgentEvent({
         runId: cronSession.sessionEntry.sessionId,
         stream: "lifecycle",
         data: {
           phase: "usage",
-          provider: agentMeta.provider,
-          model: agentMeta.model,
-          usage: agentMeta.usage,
-          lastCallUsage: agentMeta.lastCallUsage,
+          provider: agentMeta?.provider,
+          model: agentMeta?.model,
+          usage: accumulatedUsage ?? agentMeta?.usage,
+          lastCallUsage: agentMeta?.lastCallUsage,
           durationMs: Date.now() - runStartedAt,
         },
       });
