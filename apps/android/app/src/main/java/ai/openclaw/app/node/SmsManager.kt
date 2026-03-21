@@ -230,6 +230,14 @@ class SmsManager(private val context: Context) {
             }
         }
 
+        internal fun buildContactNameLikeSelection(): String {
+            return "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ? ESCAPE '\\'"
+        }
+
+        internal fun buildContactNameLikeArg(contactName: String): String {
+            return "%${escapeSqlLikeLiteral(contactName)}%"
+        }
+
         internal fun hasSqlLikeWildcard(value: String): Boolean {
             return value.contains('%') || value.contains('_')
         }
@@ -690,9 +698,8 @@ class SmsManager(private val context: Context) {
 
     private fun getPhoneNumbersFromContactName(contactName: String): List<String> {
         val phoneNumbers = mutableListOf<String>()
-        val escapedContactName = escapeSqlLikeLiteral(contactName)
-        val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ? ESCAPE '\\\\'"
-        val selectionArgs = arrayOf("%$escapedContactName%")
+        val selection = buildContactNameLikeSelection()
+        val selectionArgs = arrayOf(buildContactNameLikeArg(contactName))
 
         val cursor = context.contentResolver.query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
