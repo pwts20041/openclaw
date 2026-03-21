@@ -246,6 +246,21 @@ class SmsManager(private val context: Context) {
             return "%${escapeSqlLikeLiteral(keyword)}%"
         }
 
+        internal fun buildMixedByPhoneProjection(): Array<String> {
+            return arrayOf(
+                "_id",
+                "thread_id",
+                "transport_type",
+                "address",
+                "date",
+                "date_sent",
+                "read",
+                "type",
+                "body",
+                "status",
+            )
+        }
+
         internal fun hasSqlLikeWildcard(value: String): Boolean {
             return value.contains('%') || value.contains('_')
         }
@@ -861,17 +876,7 @@ class SmsManager(private val context: Context) {
         }
 
         val uri = Uri.parse("$MMS_SMS_BY_PHONE_BASE/${Uri.encode(lookupNumber)}")
-        val projection = arrayOf(
-            "_id",
-            "thread_id",
-            "transport_type",
-            "address",
-            "date",
-            "date_sent",
-            "read",
-            "type",
-            "body",
-        )
+        val projection = buildMixedByPhoneProjection()
 
         val maxCandidates = params.offset + params.limit
         if (maxCandidates <= 0) {

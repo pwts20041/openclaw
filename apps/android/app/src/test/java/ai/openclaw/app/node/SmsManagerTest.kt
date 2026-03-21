@@ -421,6 +421,11 @@ class SmsManagerTest {
   }
 
   @Test
+  fun buildMixedByPhoneProjectionIncludesStatusColumn() {
+    assertTrue(SmsManager.buildMixedByPhoneProjection().contains("status"))
+  }
+
+  @Test
   fun shouldCollectByPhoneMatchHonorsOffsetWindow() {
     assertFalse(SmsManager.shouldCollectByPhoneMatch(matchedRows = 1, offset = 1))
     assertTrue(SmsManager.shouldCollectByPhoneMatch(matchedRows = 2, offset = 1))
