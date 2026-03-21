@@ -62,6 +62,13 @@ class SmsManager(private val context: Context) {
         val payloadJson: String,
     )
 
+    internal data class QueryMetadata(
+        val mmsRequested: Boolean,
+        val mmsEligible: Boolean,
+        val mmsAttempted: Boolean,
+        val mmsIncluded: Boolean,
+    )
+
     internal data class ParsedParams(
         val to: String,
         val message: String,
@@ -229,6 +236,23 @@ class SmsManager(private val context: Context) {
             return if (rawDate in 1..999_999_999_999L) rawDate * 1000L else rawDate
         }
 
+        internal fun buildQueryMetadata(
+            params: QueryParams,
+            allPhoneNumbers: List<String>,
+            messages: List<SmsMessage>,
+        ): QueryMetadata {
+            val mmsRequested = params.includeMms
+            val mmsEligible = mmsRequested && allPhoneNumbers.size == 1
+            val mmsAttempted = mmsEligible
+            val mmsIncluded = mmsAttempted && messages.any { message -> message.body.isNullOrBlank() || message.status == -1 }
+            return QueryMetadata(
+                mmsRequested = mmsRequested,
+                mmsEligible = mmsEligible,
+                mmsAttempted = mmsAttempted,
+                mmsIncluded = mmsIncluded,
+            )
+        }
+
         internal fun shouldCollectByPhoneMatch(matchedRows: Int, offset: Int): Boolean {
             return matchedRows > offset
         }
@@ -310,6 +334,7 @@ class SmsManager(private val context: Context) {
             ok: Boolean,
             messages: List<SmsMessage>,
             error: String? = null,
+            queryMetadata: QueryMetadata? = null,
         ): String {
             val messagesArray = json.encodeToString(messages)
             val messagesElement = json.parseToJsonElement(messagesArray)
@@ -318,6 +343,12 @@ class SmsManager(private val context: Context) {
                 "count" to JsonPrimitive(messages.size),
                 "messages" to messagesElement,
             )
+            queryMetadata?.let {
+                payload["mmsRequested"] = JsonPrimitive(it.mmsRequested)
+                payload["mmsEligible"] = JsonPrimitive(it.mmsEligible)
+                payload["mmsAttempted"] = JsonPrimitive(it.mmsAttempted)
+                payload["mmsIncluded"] = JsonPrimitive(it.mmsIncluded)
+            }
             if (!ok && error != null) {
                 payload["error"] = JsonPrimitive(error)
             }
@@ -496,21 +527,29 @@ class SmsManager(private val context: Context) {
                 emptyList()
             }
 
+            val allPhoneNumbers = if (!params.phoneNumber.isNullOrEmpty()) {
+                (phoneNumbers + params.phoneNumber).distinct()
+            } else {
+                phoneNumbers.distinct()
+            }
+
             if (!params.contactName.isNullOrEmpty() && phoneNumbers.isEmpty() && params.phoneNumber.isNullOrEmpty()) {
+                val queryMetadata = buildQueryMetadata(params, allPhoneNumbers, emptyList())
                 return@withContext SearchResult(
                     ok = true,
                     messages = emptyList(),
                     error = null,
-                    payloadJson = buildQueryPayloadJson(json, ok = true, messages = emptyList())
+                    payloadJson = buildQueryPayloadJson(json, ok = true, messages = emptyList(), queryMetadata = queryMetadata)
                 )
             }
 
             val messages = querySmsMessages(params, phoneNumbers)
+            val queryMetadata = buildQueryMetadata(params, allPhoneNumbers, messages)
             SearchResult(
                 ok = true,
                 messages = messages,
                 error = null,
-                payloadJson = buildQueryPayloadJson(json, ok = true, messages = messages)
+                payloadJson = buildQueryPayloadJson(json, ok = true, messages = messages, queryMetadata = queryMetadata)
             )
         } catch (e: SecurityException) {
             SearchResult(

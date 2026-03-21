@@ -201,6 +201,27 @@ class SmsManagerTest {
   }
 
   @Test
+  fun buildQueryPayloadJsonIncludesMmsMetadataWhenProvided() {
+    val payload = SmsManager.buildQueryPayloadJson(
+      json = json,
+      ok = true,
+      messages = listOf(smsMessage(id = 1L, date = 1000L)),
+      queryMetadata =
+        SmsManager.QueryMetadata(
+          mmsRequested = true,
+          mmsEligible = true,
+          mmsAttempted = true,
+          mmsIncluded = false,
+        ),
+    )
+    val parsed = json.parseToJsonElement(payload).jsonObject
+    assertEquals("true", parsed["mmsRequested"]?.jsonPrimitive?.content)
+    assertEquals("true", parsed["mmsEligible"]?.jsonPrimitive?.content)
+    assertEquals("true", parsed["mmsAttempted"]?.jsonPrimitive?.content)
+    assertEquals("false", parsed["mmsIncluded"]?.jsonPrimitive?.content)
+  }
+
+  @Test
   fun buildSendPlanUsesMultipartWhenMultipleParts() {
     val plan = SmsManager.buildSendPlan("hello") { listOf("a", "b") }
     assertTrue(plan.useMultipart)
@@ -512,5 +533,55 @@ class SmsManagerTest {
     assertEquals(25, SmsManager.effectiveSearchParams(params).limit)
     assertEquals(40, SmsManager.effectiveSearchParams(params.copy(limit = 40)).limit)
     assertEquals(5, SmsManager.effectiveSearchParams(params.copy(conversationReview = false)).limit)
+  }
+
+  @Test
+  fun buildQueryMetadataMarksIneligibleWhenIncludeMmsNotRequested() {
+    val params = SmsManager.QueryParams(includeMms = false)
+
+    val metadata = SmsManager.buildQueryMetadata(params, emptyList(), emptyList())
+
+    assertFalse(metadata.mmsRequested)
+    assertFalse(metadata.mmsEligible)
+    assertFalse(metadata.mmsAttempted)
+    assertFalse(metadata.mmsIncluded)
+  }
+
+  @Test
+  fun buildQueryMetadataMarksEligibleAttemptedButNotIncludedForSingleNumberFallback() {
+    val params = SmsManager.QueryParams(includeMms = true, phoneNumber = "+15551234567")
+    val messages = listOf(smsMessage(id = 1L, date = 1000L))
+
+    val metadata = SmsManager.buildQueryMetadata(params, listOf("+15551234567"), messages)
+
+    assertTrue(metadata.mmsRequested)
+    assertTrue(metadata.mmsEligible)
+    assertTrue(metadata.mmsAttempted)
+    assertFalse(metadata.mmsIncluded)
+  }
+
+  @Test
+  fun buildQueryMetadataMarksIncludedWhenMixedQueryYieldsMmsLikeRow() {
+    val params = SmsManager.QueryParams(includeMms = true, phoneNumber = "+15551234567")
+    val mmsLikeMessage =
+      SmsManager.SmsMessage(
+        id = 7L,
+        threadId = 1L,
+        address = "+15551234567",
+        person = null,
+        date = 1000L,
+        dateSent = 1000L,
+        read = true,
+        type = 1,
+        body = null,
+        status = -1,
+      )
+
+    val metadata = SmsManager.buildQueryMetadata(params, listOf("+15551234567"), listOf(mmsLikeMessage))
+
+    assertTrue(metadata.mmsRequested)
+    assertTrue(metadata.mmsEligible)
+    assertTrue(metadata.mmsAttempted)
+    assertTrue(metadata.mmsIncluded)
   }
 }
