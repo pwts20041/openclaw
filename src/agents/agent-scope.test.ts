@@ -5,10 +5,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import {
   hasConfiguredModelFallbacks,
+  listAgentIds,
   resolveAgentConfig,
   resolveAgentDir,
   resolveAgentEffectiveModelPrimary,
   resolveAgentExplicitModelPrimary,
+  resolveDefaultAgentId,
   resolveFallbackAgentId,
   resolveEffectiveModelFallbacks,
   resolveAgentModelFallbacksOverride,
@@ -519,5 +521,80 @@ describe("resolveAgentIdsByWorkspacePath", () => {
       "ops",
       "main",
     ]);
+  });
+});
+
+describe("resolveDefaultAgentId with agents.defaultAgentId", () => {
+  it("returns 'main' when no config is provided", () => {
+    expect(resolveDefaultAgentId({})).toBe("main");
+  });
+
+  it("respects agents.defaultAgentId when no agents.list is configured", () => {
+    const cfg: OpenClawConfig = {
+      agents: { defaultAgentId: "maine-lobster" },
+    };
+    expect(resolveDefaultAgentId(cfg)).toBe("maine-lobster");
+  });
+
+  it("respects agents.defaultAgentId when agents.list is empty", () => {
+    const cfg: OpenClawConfig = {
+      agents: { defaultAgentId: "maine-lobster", list: [] },
+    };
+    expect(resolveDefaultAgentId(cfg)).toBe("maine-lobster");
+  });
+
+  it("agents.list default: true takes precedence over defaultAgentId", () => {
+    const cfg: OpenClawConfig = {
+      agents: {
+        defaultAgentId: "maine-lobster",
+        list: [{ id: "reef-crawler", default: true }],
+      },
+    };
+    expect(resolveDefaultAgentId(cfg)).toBe("reef-crawler");
+  });
+
+  it("normalizes the defaultAgentId value", () => {
+    const cfg: OpenClawConfig = {
+      agents: { defaultAgentId: "  Maine-Lobster  " },
+    };
+    expect(resolveDefaultAgentId(cfg)).toBe("maine-lobster");
+  });
+
+  it("listAgentIds uses defaultAgentId as fallback", () => {
+    const cfg: OpenClawConfig = {
+      agents: { defaultAgentId: "maine-lobster" },
+    };
+    expect(listAgentIds(cfg)).toEqual(["maine-lobster"]);
+  });
+
+  it("falls back to OPENCLAW_DEFAULT_AGENT_ID env var", () => {
+    const orig = process.env.OPENCLAW_DEFAULT_AGENT_ID;
+    try {
+      process.env.OPENCLAW_DEFAULT_AGENT_ID = "env-lobster";
+      expect(resolveDefaultAgentId({})).toBe("env-lobster");
+    } finally {
+      if (orig === undefined) {
+        delete process.env.OPENCLAW_DEFAULT_AGENT_ID;
+      } else {
+        process.env.OPENCLAW_DEFAULT_AGENT_ID = orig;
+      }
+    }
+  });
+
+  it("config defaultAgentId takes precedence over env var", () => {
+    const orig = process.env.OPENCLAW_DEFAULT_AGENT_ID;
+    try {
+      process.env.OPENCLAW_DEFAULT_AGENT_ID = "env-lobster";
+      const cfg: OpenClawConfig = {
+        agents: { defaultAgentId: "config-lobster" },
+      };
+      expect(resolveDefaultAgentId(cfg)).toBe("config-lobster");
+    } finally {
+      if (orig === undefined) {
+        delete process.env.OPENCLAW_DEFAULT_AGENT_ID;
+      } else {
+        process.env.OPENCLAW_DEFAULT_AGENT_ID = orig;
+      }
+    }
   });
 });
