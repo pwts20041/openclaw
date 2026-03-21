@@ -215,6 +215,20 @@ class SmsManager(private val context: Context) {
             return normalizePhoneNumberOrNull(phone)
         }
 
+        internal fun escapeSqlLikeLiteral(value: String): String {
+            return buildString(value.length) {
+                for (ch in value) {
+                    when (ch) {
+                        '\\', '%', '_' -> {
+                            append('\\')
+                            append(ch)
+                        }
+                        else -> append(ch)
+                    }
+                }
+            }
+        }
+
         internal fun isExplicitPhoneInputInvalid(rawPhone: String?, normalizedPhone: String?): Boolean {
             return !rawPhone.isNullOrBlank() && normalizedPhone == null
         }
@@ -645,8 +659,9 @@ class SmsManager(private val context: Context) {
 
     private fun getPhoneNumbersFromContactName(contactName: String): List<String> {
         val phoneNumbers = mutableListOf<String>()
-        val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?"
-        val selectionArgs = arrayOf("%$contactName%")
+        val escapedContactName = escapeSqlLikeLiteral(contactName)
+        val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ? ESCAPE '\\\\'"
+        val selectionArgs = arrayOf("%$escapedContactName%")
 
         val cursor = context.contentResolver.query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,

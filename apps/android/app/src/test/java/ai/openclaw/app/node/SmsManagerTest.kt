@@ -378,6 +378,16 @@ class SmsManagerTest {
   }
 
   @Test
+  fun escapeSqlLikeLiteralEscapesPercentUnderscoreAndBackslash() {
+    assertEquals("\\%a\\_b\\\\c", SmsManager.escapeSqlLikeLiteral("%a_b\\c"))
+  }
+
+  @Test
+  fun escapeSqlLikeLiteralLeavesOrdinaryTextUnchanged() {
+    assertEquals("Leah", SmsManager.escapeSqlLikeLiteral("Leah"))
+  }
+
+  @Test
   fun shouldCollectByPhoneMatchHonorsOffsetWindow() {
     assertFalse(SmsManager.shouldCollectByPhoneMatch(matchedRows = 1, offset = 1))
     assertTrue(SmsManager.shouldCollectByPhoneMatch(matchedRows = 2, offset = 1))
