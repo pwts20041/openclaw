@@ -92,8 +92,10 @@ USER.md
 # local tooling
 .serena/
 
-# Agent credentials and memory (NEVER COMMIT)
-/memory/
+# Agent credentials and memory
+# Note: we keep agent creds ignored, but allow committing non-secret daily memory logs.
+/memory/*
+!/memory/*.md
 .agent/*.json
 !.agent/workflows/
 /local/
