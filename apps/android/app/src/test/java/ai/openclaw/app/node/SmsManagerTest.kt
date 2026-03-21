@@ -389,4 +389,16 @@ class SmsManagerTest {
   fun normalizeProviderDateMillisKeepsMillisUnchanged() {
     assertEquals(1773944910123L, SmsManager.normalizeProviderDateMillis(1773944910123L))
   }
+
+  @Test
+  fun isExplicitPhoneInputInvalidTrueWhenCallerSuppliesOnlyFormatting() {
+    val normalized = SmsManager.normalizePhoneNumberOrNull(" + ")
+    assertTrue(SmsManager.isExplicitPhoneInputInvalid(" + ", normalized))
+  }
+
+  @Test
+  fun isExplicitPhoneInputInvalidFalseWhenPhoneWasOmitted() {
+    assertFalse(SmsManager.isExplicitPhoneInputInvalid(null, null))
+    assertFalse(SmsManager.isExplicitPhoneInputInvalid("   ", null))
+  }
 }

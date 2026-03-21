@@ -204,6 +204,10 @@ class SmsManager(private val context: Context) {
             return normalizePhoneNumberOrNull(phone)
         }
 
+        internal fun isExplicitPhoneInputInvalid(rawPhone: String?, normalizedPhone: String?): Boolean {
+            return !rawPhone.isNullOrBlank() && normalizedPhone == null
+        }
+
         internal fun toByPhoneLookupNumber(phone: String): String {
             return phone.filter { it.isDigit() }
         }
@@ -427,7 +431,17 @@ class SmsManager(private val context: Context) {
             )
         }
         val parsedParams = (parseResult as QueryParseResult.Ok).params
-        val params = parsedParams.copy(phoneNumber = normalizePhoneNumberOrNull(parsedParams.phoneNumber))
+        val normalizedPhoneNumber = normalizePhoneNumberOrNull(parsedParams.phoneNumber)
+        if (isExplicitPhoneInputInvalid(parsedParams.phoneNumber, normalizedPhoneNumber)) {
+            val error = "INVALID_REQUEST: phoneNumber must contain at least one digit"
+            return@withContext SearchResult(
+                ok = false,
+                messages = emptyList(),
+                error = error,
+                payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = error)
+            )
+        }
+        val params = parsedParams.copy(phoneNumber = normalizedPhoneNumber)
 
         return@withContext try {
             val phoneNumbers = if (!params.contactName.isNullOrEmpty()) {
