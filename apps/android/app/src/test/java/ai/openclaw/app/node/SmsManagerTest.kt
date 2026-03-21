@@ -520,6 +520,23 @@ class SmsManagerTest {
   }
 
   @Test
+  fun resolveMixedByPhoneRowStatusPreservesRealSmsStatus() {
+    assertEquals(64, SmsManager.resolveMixedByPhoneRowStatus("sms", 64))
+    assertEquals(32, SmsManager.resolveMixedByPhoneRowStatus(null, 32))
+  }
+
+  @Test
+  fun resolveMixedByPhoneRowStatusKeepsMmsOnSentinelValue() {
+    assertEquals(-1, SmsManager.resolveMixedByPhoneRowStatus("mms", 64))
+    assertEquals(-1, SmsManager.resolveMixedByPhoneRowStatus("MMS", null))
+  }
+
+  @Test
+  fun resolveMixedByPhoneRowStatusFallsBackToZeroWhenSmsStatusMissing() {
+    assertEquals(0, SmsManager.resolveMixedByPhoneRowStatus("sms", null))
+  }
+
+  @Test
   fun isExplicitPhoneInputInvalidTrueWhenCallerSuppliesOnlyFormatting() {
     val normalized = SmsManager.normalizePhoneNumberOrNull(" + ")
     assertTrue(SmsManager.isExplicitPhoneInputInvalid(" + ", normalized))

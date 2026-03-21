@@ -252,6 +252,10 @@ class SmsManager(private val context: Context) {
             return hasSqlLikeWildcard(normalizedPhone)
         }
 
+        internal fun resolveMixedByPhoneRowStatus(transportType: String?, smsStatus: Int?): Int {
+            return if (transportType.equals("mms", ignoreCase = true)) -1 else (smsStatus ?: 0)
+        }
+
         internal fun shouldUseConversationReviewByPhoneMode(params: QueryParams): Boolean {
             return params.conversationReview && params.includeMms && !params.phoneNumber.isNullOrEmpty()
         }
@@ -880,6 +884,7 @@ class SmsManager(private val context: Context) {
             val readIndex = it.getColumnIndex("read")
             val typeIndex = it.getColumnIndex("type")
             val bodyIndex = it.getColumnIndex("body")
+            val statusIndex = it.getColumnIndex("status")
 
             while (it.moveToNext()) {
                 val id = if (idIndex >= 0 && !it.isNull(idIndex)) it.getLong(idIndex) else continue
@@ -895,6 +900,7 @@ class SmsManager(private val context: Context) {
                 var read = if (readIndex >= 0 && !it.isNull(readIndex)) it.getInt(readIndex) == 1 else true
                 var type = if (typeIndex >= 0 && !it.isNull(typeIndex)) it.getInt(typeIndex) else 0
                 var body = if (bodyIndex >= 0 && !it.isNull(bodyIndex)) it.getString(bodyIndex) else null
+                val smsStatus = if (statusIndex >= 0 && !it.isNull(statusIndex)) it.getInt(statusIndex) else null
 
                 // Only MMS transport rows are allowed to hydrate from MMS storage.
                 if (shouldHydrateMmsByPhoneRow(transportType, body, type)) {
@@ -930,7 +936,7 @@ class SmsManager(private val context: Context) {
                     read = read,
                     type = type,
                     body = body,
-                    status = if (transportType.equals("mms", ignoreCase = true)) -1 else 0,
+                    status = resolveMixedByPhoneRowStatus(transportType, smsStatus),
                     transportType = transportType,
                 )
                 val identityKey = buildMixedRowIdentity(id, transportType)
@@ -999,4 +1005,3 @@ class SmsManager(private val context: Context) {
         return null to null
     }
 }
-
