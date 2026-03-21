@@ -1,4 +1,5 @@
 ---
+title: "Trusted Proxy Auth"
 summary: "Delegate gateway authentication to a trusted reverse proxy (Pomerium, Caddy, nginx + OAuth)"
 read_when:
   - Running OpenClaw behind an identity-aware proxy
@@ -34,6 +35,18 @@ Use `trusted-proxy` auth mode when:
 3. OpenClaw checks that the request came from a **trusted proxy IP** (configured in `gateway.trustedProxies`)
 4. OpenClaw extracts the user identity from the configured header
 5. If everything checks out, the request is authorized
+
+## Control UI Pairing Behavior
+
+When `gateway.auth.mode = "trusted-proxy"` is active and the request passes
+trusted-proxy checks, Control UI WebSocket sessions can connect without device
+pairing identity.
+
+Implications:
+
+- Pairing is no longer the primary gate for Control UI access in this mode.
+- Your reverse proxy auth policy and `allowUsers` become the effective access control.
+- Keep gateway ingress locked to trusted proxy IPs only (`gateway.trustedProxies` + firewall).
 
 ## Configuration
 

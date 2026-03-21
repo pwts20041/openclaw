@@ -2,6 +2,8 @@
 // prefixed to the next prompt. We intentionally avoid persistence to keep
 // events ephemeral. Events are session-scoped and require an explicit key.
 
+import { resolveGlobalMap } from "../shared/global-singleton.js";
+
 export type SystemEvent = { text: string; ts: number; contextKey?: string | null };
 
 const MAX_EVENTS = 20;
@@ -12,7 +14,9 @@ type SessionQueue = {
   lastContextKey: string | null;
 };
 
-const queues = new Map<string, SessionQueue>();
+const SYSTEM_EVENT_QUEUES_KEY = Symbol.for("openclaw.systemEvents.queues");
+
+const queues = resolveGlobalMap<string, SessionQueue>(SYSTEM_EVENT_QUEUES_KEY);
 
 type SystemEventOptions = {
   sessionKey: string;
@@ -63,12 +67,12 @@ export function enqueueSystemEvent(text: string, options: SystemEventOptions) {
     })();
   const cleaned = text.trim();
   if (!cleaned) {
-    return;
+    return false;
   }
   const normalizedContextKey = normalizeContextKey(options?.contextKey);
   entry.lastContextKey = normalizedContextKey;
   if (entry.lastText === cleaned) {
-    return;
+    return false;
   } // skip consecutive duplicates
   entry.lastText = cleaned;
   entry.queue.push({
@@ -79,6 +83,7 @@ export function enqueueSystemEvent(text: string, options: SystemEventOptions) {
   if (entry.queue.length > MAX_EVENTS) {
     entry.queue.shift();
   }
+  return true;
 }
 
 export function drainSystemEventEntries(sessionKey: string): SystemEvent[] {

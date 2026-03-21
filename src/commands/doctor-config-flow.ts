@@ -1,993 +1,355 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-import type { ZodIssue } from "zod";
-import {
-  isNumericTelegramUserId,
-  normalizeTelegramAllowFromEntry,
-} from "../channels/telegram/allow-from.js";
-import { fetchTelegramChatId } from "../channels/telegram/api.js";
+import { normalizeChatChannelId } from "../channels/registry.js";
 import { formatCliCommand } from "../cli/command-format.js";
+import { listRouteBindings } from "../config/bindings.js";
 import type { OpenClawConfig } from "../config/config.js";
-import {
-  OpenClawSchema,
-  CONFIG_PATH,
-  migrateLegacyConfig,
-  readConfigFileSnapshot,
-} from "../config/config.js";
-import { collectProviderDangerousNameMatchingScopes } from "../config/dangerous-name-matching.js";
+import { CONFIG_PATH, migrateLegacyConfig } from "../config/config.js";
+import { formatConfigIssueLines } from "../config/issue-format.js";
 import { applyPluginAutoEnable } from "../config/plugin-auto-enable.js";
 import { parseToolsBySenderTypedKey } from "../config/types.tools.js";
+import { resolveCommandResolutionFromArgv } from "../infra/exec-command-resolution.js";
 import {
   listInterpreterLikeSafeBins,
   resolveMergedSafeBinProfileFixtures,
 } from "../infra/exec-safe-bin-runtime-policy.js";
 import {
-  isDiscordMutableAllowEntry,
-  isGoogleChatMutableAllowEntry,
-  isIrcMutableAllowEntry,
-  isMSTeamsMutableAllowEntry,
-  isMattermostMutableAllowEntry,
-  isSlackMutableAllowEntry,
-} from "../security/mutable-allowlist-detectors.js";
-import { listTelegramAccountIds, resolveTelegramAccount } from "../telegram/accounts.js";
+  getTrustedSafeBinDirs,
+  isTrustedSafeBinPath,
+  normalizeTrustedSafeBinDirs,
+} from "../infra/exec-safe-bin-trust.js";
+import {
+  autoPrepareLegacyMatrixCrypto,
+  detectLegacyMatrixCrypto,
+} from "../infra/matrix-legacy-crypto.js";
+import {
+  autoMigrateLegacyMatrixState,
+  detectLegacyMatrixState,
+} from "../infra/matrix-legacy-state.js";
+import {
+  hasActionableMatrixMigration,
+  hasPendingMatrixMigration,
+  maybeCreateMatrixMigrationSnapshot,
+} from "../infra/matrix-migration-snapshot.js";
+import {
+  detectPluginInstallPathIssue,
+  formatPluginInstallPathIssue,
+} from "../infra/plugin-install-path-warnings.js";
+import {
+  formatChannelAccountsDefaultPath,
+  formatSetExplicitDefaultInstruction,
+  formatSetExplicitDefaultToConfiguredInstruction,
+} from "../routing/default-account-warnings.js";
+import {
+  DEFAULT_ACCOUNT_ID,
+  normalizeAccountId,
+  normalizeOptionalAccountId,
+} from "../routing/session-key.js";
 import { note } from "../terminal/note.js";
-import { isRecord, resolveHomeDir } from "../utils.js";
-import { normalizeLegacyConfigValues } from "./doctor-legacy-config.js";
+import {
+  formatConfigPath,
+  noteOpencodeProviderOverrides,
+  resolveConfigPathTarget,
+  stripUnknownConfigKeys,
+} from "./doctor-config-analysis.js";
+import { runDoctorConfigPreflight } from "./doctor-config-preflight.js";
+import { normalizeCompatibilityConfigValues } from "./doctor-legacy-config.js";
 import type { DoctorOptions } from "./doctor-prompter.js";
-import { autoMigrateLegacyStateDir } from "./doctor-state-migrations.js";
+import {
+  maybeRepairDiscordNumericIds,
+  scanDiscordNumericIdEntries,
+} from "./doctor/providers/discord.js";
+import {
+  collectTelegramGroupPolicyWarnings,
+  maybeRepairTelegramAllowFromUsernames,
+  scanTelegramAllowFromUsernameEntries,
+} from "./doctor/providers/telegram.js";
+import { maybeRepairAllowlistPolicyAllowFrom } from "./doctor/shared/allowlist-policy-repair.js";
+import { collectEmptyAllowlistPolicyWarningsForAccount } from "./doctor/shared/empty-allowlist-policy.js";
+import { scanMutableAllowlistEntries } from "./doctor/shared/mutable-allowlist.js";
+import { asObjectRecord } from "./doctor/shared/object.js";
+import { maybeRepairOpenPolicyAllowFrom } from "./doctor/shared/open-policy-allowfrom.js";
 
-type UnrecognizedKeysIssue = ZodIssue & {
-  code: "unrecognized_keys";
-  keys: PropertyKey[];
+function normalizeBindingChannelKey(raw?: string | null): string {
+  const normalized = normalizeChatChannelId(raw);
+  if (normalized) {
+    return normalized;
+  }
+  return (raw ?? "").trim().toLowerCase();
+}
+
+type ChannelMissingDefaultAccountContext = {
+  channelKey: string;
+  channel: Record<string, unknown>;
+  normalizedAccountIds: string[];
 };
 
-function normalizeIssuePath(path: PropertyKey[]): Array<string | number> {
-  return path.filter((part): part is string | number => typeof part !== "symbol");
-}
-
-function isUnrecognizedKeysIssue(issue: ZodIssue): issue is UnrecognizedKeysIssue {
-  return issue.code === "unrecognized_keys";
-}
-
-function formatPath(parts: Array<string | number>): string {
-  if (parts.length === 0) {
-    return "<root>";
-  }
-  let out = "";
-  for (const part of parts) {
-    if (typeof part === "number") {
-      out += `[${part}]`;
-      continue;
-    }
-    out = out ? `${out}.${part}` : part;
-  }
-  return out || "<root>";
-}
-
-function resolvePathTarget(root: unknown, path: Array<string | number>): unknown {
-  let current: unknown = root;
-  for (const part of path) {
-    if (typeof part === "number") {
-      if (!Array.isArray(current)) {
-        return null;
-      }
-      if (part < 0 || part >= current.length) {
-        return null;
-      }
-      current = current[part];
-      continue;
-    }
-    if (!current || typeof current !== "object" || Array.isArray(current)) {
-      return null;
-    }
-    const record = current as Record<string, unknown>;
-    if (!(part in record)) {
-      return null;
-    }
-    current = record[part];
-  }
-  return current;
-}
-
-function stripUnknownConfigKeys(config: OpenClawConfig): {
-  config: OpenClawConfig;
-  removed: string[];
-} {
-  const parsed = OpenClawSchema.safeParse(config);
-  if (parsed.success) {
-    return { config, removed: [] };
-  }
-
-  const next = structuredClone(config);
-  const removed: string[] = [];
-  for (const issue of parsed.error.issues) {
-    if (!isUnrecognizedKeysIssue(issue)) {
-      continue;
-    }
-    const path = normalizeIssuePath(issue.path);
-    const target = resolvePathTarget(next, path);
-    if (!target || typeof target !== "object" || Array.isArray(target)) {
-      continue;
-    }
-    const record = target as Record<string, unknown>;
-    for (const key of issue.keys) {
-      if (typeof key !== "string") {
-        continue;
-      }
-      if (!(key in record)) {
-        continue;
-      }
-      delete record[key];
-      removed.push(formatPath([...path, key]));
-    }
-  }
-
-  return { config: next, removed };
-}
-
-function noteOpencodeProviderOverrides(cfg: OpenClawConfig) {
-  const providers = cfg.models?.providers;
-  if (!providers) {
-    return;
-  }
-
-  // 2026-01-10: warn when OpenCode Zen overrides mask built-in routing/costs (8a194b4abc360c6098f157956bb9322576b44d51, 2d105d16f8a099276114173836d46b46cdfbdbae).
-  const overrides: string[] = [];
-  if (providers.opencode) {
-    overrides.push("opencode");
-  }
-  if (providers["opencode-zen"]) {
-    overrides.push("opencode-zen");
-  }
-  if (overrides.length === 0) {
-    return;
-  }
-
-  const lines = overrides.flatMap((id) => {
-    const providerEntry = providers[id];
-    const api =
-      isRecord(providerEntry) && typeof providerEntry.api === "string"
-        ? providerEntry.api
-        : undefined;
-    return [
-      `- models.providers.${id} is set; this overrides the built-in OpenCode Zen catalog.`,
-      api ? `- models.providers.${id}.api=${api}` : null,
-    ].filter((line): line is string => Boolean(line));
-  });
-
-  lines.push(
-    "- Remove these entries to restore per-model API routing + costs (then re-run onboarding if needed).",
-  );
-
-  note(lines.join("\n"), "OpenCode Zen");
-}
-
-function noteIncludeConfinementWarning(snapshot: {
-  path?: string | null;
-  issues?: Array<{ message: string }>;
-}): void {
-  const issues = snapshot.issues ?? [];
-  const includeIssue = issues.find(
-    (issue) =>
-      issue.message.includes("Include path escapes config directory") ||
-      issue.message.includes("Include path resolves outside config directory"),
-  );
-  if (!includeIssue) {
-    return;
-  }
-  const configRoot = path.dirname(snapshot.path ?? CONFIG_PATH);
-  note(
-    [
-      `- $include paths must stay under: ${configRoot}`,
-      '- Move shared include files under that directory and update to relative paths like "./shared/common.json".',
-      `- Error: ${includeIssue.message}`,
-    ].join("\n"),
-    "Doctor warnings",
-  );
-}
-
-type TelegramAllowFromUsernameHit = { path: string; entry: string };
-
-type TelegramAllowFromListRef = {
-  pathLabel: string;
-  holder: Record<string, unknown>;
-  key: "allowFrom" | "groupAllowFrom";
-};
-
-function asObjectRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  return value as Record<string, unknown>;
-}
-
-function collectTelegramAccountScopes(
+function collectChannelsMissingDefaultAccount(
   cfg: OpenClawConfig,
-): Array<{ prefix: string; account: Record<string, unknown> }> {
-  const scopes: Array<{ prefix: string; account: Record<string, unknown> }> = [];
-  const telegram = asObjectRecord(cfg.channels?.telegram);
-  if (!telegram) {
-    return scopes;
+): ChannelMissingDefaultAccountContext[] {
+  const channels = asObjectRecord(cfg.channels);
+  if (!channels) {
+    return [];
   }
 
-  scopes.push({ prefix: "channels.telegram", account: telegram });
-  const accounts = asObjectRecord(telegram.accounts);
-  if (!accounts) {
-    return scopes;
-  }
-  for (const key of Object.keys(accounts)) {
-    const account = asObjectRecord(accounts[key]);
-    if (!account) {
+  const contexts: ChannelMissingDefaultAccountContext[] = [];
+  for (const [channelKey, rawChannel] of Object.entries(channels)) {
+    const channel = asObjectRecord(rawChannel);
+    if (!channel) {
       continue;
     }
-    scopes.push({ prefix: `channels.telegram.accounts.${key}`, account });
-  }
-
-  return scopes;
-}
-
-function collectTelegramAllowFromLists(
-  prefix: string,
-  account: Record<string, unknown>,
-): TelegramAllowFromListRef[] {
-  const refs: TelegramAllowFromListRef[] = [
-    { pathLabel: `${prefix}.allowFrom`, holder: account, key: "allowFrom" },
-    { pathLabel: `${prefix}.groupAllowFrom`, holder: account, key: "groupAllowFrom" },
-  ];
-  const groups = asObjectRecord(account.groups);
-  if (!groups) {
-    return refs;
-  }
-
-  for (const groupId of Object.keys(groups)) {
-    const group = asObjectRecord(groups[groupId]);
-    if (!group) {
+    const accounts = asObjectRecord(channel.accounts);
+    if (!accounts) {
       continue;
     }
-    refs.push({
-      pathLabel: `${prefix}.groups.${groupId}.allowFrom`,
-      holder: group,
-      key: "allowFrom",
-    });
-    const topics = asObjectRecord(group.topics);
-    if (!topics) {
+
+    const normalizedAccountIds = Array.from(
+      new Set(
+        Object.keys(accounts)
+          .map((accountId) => normalizeAccountId(accountId))
+          .filter(Boolean),
+      ),
+    ).toSorted((a, b) => a.localeCompare(b));
+    if (normalizedAccountIds.length === 0 || normalizedAccountIds.includes(DEFAULT_ACCOUNT_ID)) {
       continue;
     }
-    for (const topicId of Object.keys(topics)) {
-      const topic = asObjectRecord(topics[topicId]);
-      if (!topic) {
-        continue;
-      }
-      refs.push({
-        pathLabel: `${prefix}.groups.${groupId}.topics.${topicId}.allowFrom`,
-        holder: topic,
-        key: "allowFrom",
-      });
-    }
+    contexts.push({ channelKey, channel, normalizedAccountIds });
   }
-  return refs;
+  return contexts;
 }
 
-function scanTelegramAllowFromUsernameEntries(cfg: OpenClawConfig): TelegramAllowFromUsernameHit[] {
-  const hits: TelegramAllowFromUsernameHit[] = [];
+export function collectMissingDefaultAccountBindingWarnings(cfg: OpenClawConfig): string[] {
+  const bindings = listRouteBindings(cfg);
+  const warnings: string[] = [];
 
-  const scanList = (pathLabel: string, list: unknown) => {
-    if (!Array.isArray(list)) {
-      return;
-    }
-    for (const entry of list) {
-      const normalized = normalizeTelegramAllowFromEntry(entry);
-      if (!normalized || normalized === "*") {
+  for (const { channelKey, normalizedAccountIds } of collectChannelsMissingDefaultAccount(cfg)) {
+    const accountIdSet = new Set(normalizedAccountIds);
+    const channelPattern = normalizeBindingChannelKey(channelKey);
+
+    let hasWildcardBinding = false;
+    const coveredAccountIds = new Set<string>();
+    for (const binding of bindings) {
+      const bindingRecord = asObjectRecord(binding);
+      if (!bindingRecord) {
         continue;
       }
-      if (isNumericTelegramUserId(normalized)) {
+      const match = asObjectRecord(bindingRecord.match);
+      if (!match) {
         continue;
       }
-      hits.push({ path: pathLabel, entry: String(entry).trim() });
-    }
-  };
 
-  for (const scope of collectTelegramAccountScopes(cfg)) {
-    for (const ref of collectTelegramAllowFromLists(scope.prefix, scope.account)) {
-      scanList(ref.pathLabel, ref.holder[ref.key]);
-    }
-  }
-
-  return hits;
-}
-
-async function maybeRepairTelegramAllowFromUsernames(cfg: OpenClawConfig): Promise<{
-  config: OpenClawConfig;
-  changes: string[];
-}> {
-  const hits = scanTelegramAllowFromUsernameEntries(cfg);
-  if (hits.length === 0) {
-    return { config: cfg, changes: [] };
-  }
-
-  const tokens = Array.from(
-    new Set(
-      listTelegramAccountIds(cfg)
-        .map((accountId) => resolveTelegramAccount({ cfg, accountId }))
-        .map((account) => (account.tokenSource === "none" ? "" : account.token))
-        .map((token) => token.trim())
-        .filter(Boolean),
-    ),
-  );
-
-  if (tokens.length === 0) {
-    return {
-      config: cfg,
-      changes: [
-        `- Telegram allowFrom contains @username entries, but no Telegram bot token is configured; cannot auto-resolve (run onboarding or replace with numeric sender IDs).`,
-      ],
-    };
-  }
-
-  const resolveUserId = async (raw: string): Promise<string | null> => {
-    const trimmed = raw.trim();
-    if (!trimmed) {
-      return null;
-    }
-    const stripped = normalizeTelegramAllowFromEntry(trimmed);
-    if (!stripped || stripped === "*") {
-      return null;
-    }
-    if (isNumericTelegramUserId(stripped)) {
-      return stripped;
-    }
-    if (/\s/.test(stripped)) {
-      return null;
-    }
-    const username = stripped.startsWith("@") ? stripped : `@${stripped}`;
-    for (const token of tokens) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4000);
-      try {
-        const id = await fetchTelegramChatId({
-          token,
-          chatId: username,
-          signal: controller.signal,
-        });
-        if (id) {
-          return id;
-        }
-      } catch {
-        // ignore and try next token
-      } finally {
-        clearTimeout(timeout);
-      }
-    }
-    return null;
-  };
-
-  const changes: string[] = [];
-  const next = structuredClone(cfg);
-
-  const repairList = async (pathLabel: string, holder: Record<string, unknown>, key: string) => {
-    const raw = holder[key];
-    if (!Array.isArray(raw)) {
-      return;
-    }
-    const out: Array<string | number> = [];
-    const replaced: Array<{ from: string; to: string }> = [];
-    for (const entry of raw) {
-      const normalized = normalizeTelegramAllowFromEntry(entry);
-      if (!normalized) {
+      const matchChannel =
+        typeof match.channel === "string" ? normalizeBindingChannelKey(match.channel) : "";
+      if (!matchChannel || matchChannel !== channelPattern) {
         continue;
       }
-      if (normalized === "*") {
-        out.push("*");
+
+      const rawAccountId = typeof match.accountId === "string" ? match.accountId.trim() : "";
+      if (!rawAccountId) {
         continue;
       }
-      if (isNumericTelegramUserId(normalized)) {
-        out.push(normalized);
+      if (rawAccountId === "*") {
+        hasWildcardBinding = true;
         continue;
       }
-      const resolved = await resolveUserId(String(entry));
-      if (resolved) {
-        out.push(resolved);
-        replaced.push({ from: String(entry).trim(), to: resolved });
-      } else {
-        out.push(String(entry).trim());
+      const normalizedBindingAccountId = normalizeAccountId(rawAccountId);
+      if (accountIdSet.has(normalizedBindingAccountId)) {
+        coveredAccountIds.add(normalizedBindingAccountId);
       }
     }
-    const deduped: Array<string | number> = [];
-    const seen = new Set<string>();
-    for (const entry of out) {
-      const k = String(entry).trim();
-      if (!k || seen.has(k)) {
-        continue;
-      }
-      seen.add(k);
-      deduped.push(entry);
-    }
-    holder[key] = deduped;
-    if (replaced.length > 0) {
-      for (const rep of replaced.slice(0, 5)) {
-        changes.push(`- ${pathLabel}: resolved ${rep.from} -> ${rep.to}`);
-      }
-      if (replaced.length > 5) {
-        changes.push(`- ${pathLabel}: resolved ${replaced.length - 5} more @username entries`);
-      }
-    }
-  };
 
-  const repairAccount = async (prefix: string, account: Record<string, unknown>) => {
-    for (const ref of collectTelegramAllowFromLists(prefix, account)) {
-      await repairList(ref.pathLabel, ref.holder, ref.key);
-    }
-  };
-
-  for (const scope of collectTelegramAccountScopes(next)) {
-    await repairAccount(scope.prefix, scope.account);
-  }
-
-  if (changes.length === 0) {
-    return { config: cfg, changes: [] };
-  }
-  return { config: next, changes };
-}
-
-type DiscordNumericIdHit = { path: string; entry: number };
-
-type DiscordIdListRef = {
-  pathLabel: string;
-  holder: Record<string, unknown>;
-  key: string;
-};
-
-function collectDiscordAccountScopes(
-  cfg: OpenClawConfig,
-): Array<{ prefix: string; account: Record<string, unknown> }> {
-  const scopes: Array<{ prefix: string; account: Record<string, unknown> }> = [];
-  const discord = asObjectRecord(cfg.channels?.discord);
-  if (!discord) {
-    return scopes;
-  }
-
-  scopes.push({ prefix: "channels.discord", account: discord });
-  const accounts = asObjectRecord(discord.accounts);
-  if (!accounts) {
-    return scopes;
-  }
-  for (const key of Object.keys(accounts)) {
-    const account = asObjectRecord(accounts[key]);
-    if (!account) {
+    if (hasWildcardBinding) {
       continue;
     }
-    scopes.push({ prefix: `channels.discord.accounts.${key}`, account });
-  }
 
-  return scopes;
-}
-
-function collectDiscordIdLists(
-  prefix: string,
-  account: Record<string, unknown>,
-): DiscordIdListRef[] {
-  const refs: DiscordIdListRef[] = [
-    { pathLabel: `${prefix}.allowFrom`, holder: account, key: "allowFrom" },
-  ];
-  const dm = asObjectRecord(account.dm);
-  if (dm) {
-    refs.push({ pathLabel: `${prefix}.dm.allowFrom`, holder: dm, key: "allowFrom" });
-    refs.push({ pathLabel: `${prefix}.dm.groupChannels`, holder: dm, key: "groupChannels" });
-  }
-  const execApprovals = asObjectRecord(account.execApprovals);
-  if (execApprovals) {
-    refs.push({
-      pathLabel: `${prefix}.execApprovals.approvers`,
-      holder: execApprovals,
-      key: "approvers",
-    });
-  }
-  const guilds = asObjectRecord(account.guilds);
-  if (!guilds) {
-    return refs;
-  }
-
-  for (const guildId of Object.keys(guilds)) {
-    const guild = asObjectRecord(guilds[guildId]);
-    if (!guild) {
-      continue;
-    }
-    refs.push({ pathLabel: `${prefix}.guilds.${guildId}.users`, holder: guild, key: "users" });
-    refs.push({ pathLabel: `${prefix}.guilds.${guildId}.roles`, holder: guild, key: "roles" });
-    const channels = asObjectRecord(guild.channels);
-    if (!channels) {
-      continue;
-    }
-    for (const channelId of Object.keys(channels)) {
-      const channel = asObjectRecord(channels[channelId]);
-      if (!channel) {
-        continue;
-      }
-      refs.push({
-        pathLabel: `${prefix}.guilds.${guildId}.channels.${channelId}.users`,
-        holder: channel,
-        key: "users",
-      });
-      refs.push({
-        pathLabel: `${prefix}.guilds.${guildId}.channels.${channelId}.roles`,
-        holder: channel,
-        key: "roles",
-      });
-    }
-  }
-  return refs;
-}
-
-function scanDiscordNumericIdEntries(cfg: OpenClawConfig): DiscordNumericIdHit[] {
-  const hits: DiscordNumericIdHit[] = [];
-  const scanList = (pathLabel: string, list: unknown) => {
-    if (!Array.isArray(list)) {
-      return;
-    }
-    for (const [index, entry] of list.entries()) {
-      if (typeof entry !== "number") {
-        continue;
-      }
-      hits.push({ path: `${pathLabel}[${index}]`, entry });
-    }
-  };
-
-  for (const scope of collectDiscordAccountScopes(cfg)) {
-    for (const ref of collectDiscordIdLists(scope.prefix, scope.account)) {
-      scanList(ref.pathLabel, ref.holder[ref.key]);
-    }
-  }
-
-  return hits;
-}
-
-function maybeRepairDiscordNumericIds(cfg: OpenClawConfig): {
-  config: OpenClawConfig;
-  changes: string[];
-} {
-  const hits = scanDiscordNumericIdEntries(cfg);
-  if (hits.length === 0) {
-    return { config: cfg, changes: [] };
-  }
-
-  const next = structuredClone(cfg);
-  const changes: string[] = [];
-
-  const repairList = (pathLabel: string, holder: Record<string, unknown>, key: string) => {
-    const raw = holder[key];
-    if (!Array.isArray(raw)) {
-      return;
-    }
-    let converted = 0;
-    const updated = raw.map((entry) => {
-      if (typeof entry === "number") {
-        converted += 1;
-        return String(entry);
-      }
-      return entry;
-    });
-    if (converted === 0) {
-      return;
-    }
-    holder[key] = updated;
-    changes.push(
-      `- ${pathLabel}: converted ${converted} numeric ${converted === 1 ? "entry" : "entries"} to strings`,
+    const uncoveredAccountIds = normalizedAccountIds.filter(
+      (accountId) => !coveredAccountIds.has(accountId),
     );
-  };
-
-  for (const scope of collectDiscordAccountScopes(next)) {
-    for (const ref of collectDiscordIdLists(scope.prefix, scope.account)) {
-      repairList(ref.pathLabel, ref.holder, ref.key);
+    if (uncoveredAccountIds.length === 0) {
+      continue;
     }
+    if (coveredAccountIds.size > 0) {
+      warnings.push(
+        `- channels.${channelKey}: accounts.default is missing and account bindings only cover a subset of configured accounts. Uncovered accounts: ${uncoveredAccountIds.join(", ")}. Add bindings[].match.accountId for uncovered accounts (or "*"), or add ${formatChannelAccountsDefaultPath(channelKey)}.`,
+      );
+      continue;
+    }
+
+    warnings.push(
+      `- channels.${channelKey}: accounts.default is missing and no valid account-scoped binding exists for configured accounts (${normalizedAccountIds.join(", ")}). Channel-only bindings (no accountId) match only default. Add bindings[].match.accountId for one of these accounts (or "*"), or add ${formatChannelAccountsDefaultPath(channelKey)}.`,
+    );
   }
 
-  if (changes.length === 0) {
-    return { config: cfg, changes: [] };
-  }
-  return { config: next, changes };
+  return warnings;
 }
 
-type MutableAllowlistHit = {
-  channel: string;
-  path: string;
-  entry: string;
-  dangerousFlagPath: string;
-};
+export function collectMissingExplicitDefaultAccountWarnings(cfg: OpenClawConfig): string[] {
+  const warnings: string[] = [];
+  for (const { channelKey, channel, normalizedAccountIds } of collectChannelsMissingDefaultAccount(
+    cfg,
+  )) {
+    if (normalizedAccountIds.length < 2) {
+      continue;
+    }
 
-function addMutableAllowlistHits(params: {
-  hits: MutableAllowlistHit[];
-  pathLabel: string;
-  list: unknown;
-  detector: (entry: string) => boolean;
-  channel: string;
-  dangerousFlagPath: string;
-}) {
-  if (!Array.isArray(params.list)) {
-    return;
-  }
-  for (const entry of params.list) {
-    const text = String(entry).trim();
-    if (!text || text === "*") {
+    const preferredDefault = normalizeOptionalAccountId(
+      typeof channel.defaultAccount === "string" ? channel.defaultAccount : undefined,
+    );
+    if (preferredDefault) {
+      if (normalizedAccountIds.includes(preferredDefault)) {
+        continue;
+      }
+      warnings.push(
+        `- channels.${channelKey}: defaultAccount is set to "${preferredDefault}" but does not match configured accounts (${normalizedAccountIds.join(", ")}). ${formatSetExplicitDefaultToConfiguredInstruction({ channelKey })} to avoid fallback routing.`,
+      );
       continue;
     }
-    if (!params.detector(text)) {
-      continue;
-    }
-    params.hits.push({
-      channel: params.channel,
-      path: params.pathLabel,
-      entry: text,
-      dangerousFlagPath: params.dangerousFlagPath,
-    });
+
+    warnings.push(
+      `- channels.${channelKey}: multiple accounts are configured but no explicit default is set. ${formatSetExplicitDefaultInstruction(channelKey)} to avoid fallback routing.`,
+    );
   }
+
+  return warnings;
 }
 
-function scanMutableAllowlistEntries(cfg: OpenClawConfig): MutableAllowlistHit[] {
-  const hits: MutableAllowlistHit[] = [];
+function formatMatrixLegacyStatePreview(
+  detection: Exclude<ReturnType<typeof detectLegacyMatrixState>, null | { warning: string }>,
+): string {
+  return [
+    "- Matrix plugin upgraded in place.",
+    `- Legacy sync store: ${detection.legacyStoragePath} -> ${detection.targetStoragePath}`,
+    `- Legacy crypto store: ${detection.legacyCryptoPath} -> ${detection.targetCryptoPath}`,
+    ...(detection.selectionNote ? [`- ${detection.selectionNote}`] : []),
+    '- Run "openclaw doctor --fix" to migrate this Matrix state now.',
+  ].join("\n");
+}
 
-  for (const scope of collectProviderDangerousNameMatchingScopes(cfg, "discord")) {
-    if (scope.dangerousNameMatchingEnabled) {
-      continue;
-    }
-    addMutableAllowlistHits({
-      hits,
-      pathLabel: `${scope.prefix}.allowFrom`,
-      list: scope.account.allowFrom,
-      detector: isDiscordMutableAllowEntry,
-      channel: "discord",
-      dangerousFlagPath: scope.dangerousFlagPath,
-    });
-    const dm = asObjectRecord(scope.account.dm);
-    if (dm) {
-      addMutableAllowlistHits({
-        hits,
-        pathLabel: `${scope.prefix}.dm.allowFrom`,
-        list: dm.allowFrom,
-        detector: isDiscordMutableAllowEntry,
-        channel: "discord",
-        dangerousFlagPath: scope.dangerousFlagPath,
-      });
-    }
-    const guilds = asObjectRecord(scope.account.guilds);
-    if (!guilds) {
-      continue;
-    }
-    for (const [guildId, guildRaw] of Object.entries(guilds)) {
-      const guild = asObjectRecord(guildRaw);
-      if (!guild) {
-        continue;
-      }
-      addMutableAllowlistHits({
-        hits,
-        pathLabel: `${scope.prefix}.guilds.${guildId}.users`,
-        list: guild.users,
-        detector: isDiscordMutableAllowEntry,
-        channel: "discord",
-        dangerousFlagPath: scope.dangerousFlagPath,
-      });
-      const channels = asObjectRecord(guild.channels);
-      if (!channels) {
-        continue;
-      }
-      for (const [channelId, channelRaw] of Object.entries(channels)) {
-        const channel = asObjectRecord(channelRaw);
-        if (!channel) {
-          continue;
-        }
-        addMutableAllowlistHits({
-          hits,
-          pathLabel: `${scope.prefix}.guilds.${guildId}.channels.${channelId}.users`,
-          list: channel.users,
-          detector: isDiscordMutableAllowEntry,
-          channel: "discord",
-          dangerousFlagPath: scope.dangerousFlagPath,
-        });
-      }
-    }
+function formatMatrixLegacyCryptoPreview(
+  detection: ReturnType<typeof detectLegacyMatrixCrypto>,
+): string[] {
+  const notes: string[] = [];
+  for (const warning of detection.warnings) {
+    notes.push(`- ${warning}`);
   }
-
-  for (const scope of collectProviderDangerousNameMatchingScopes(cfg, "slack")) {
-    if (scope.dangerousNameMatchingEnabled) {
-      continue;
-    }
-    addMutableAllowlistHits({
-      hits,
-      pathLabel: `${scope.prefix}.allowFrom`,
-      list: scope.account.allowFrom,
-      detector: isSlackMutableAllowEntry,
-      channel: "slack",
-      dangerousFlagPath: scope.dangerousFlagPath,
-    });
-    const dm = asObjectRecord(scope.account.dm);
-    if (dm) {
-      addMutableAllowlistHits({
-        hits,
-        pathLabel: `${scope.prefix}.dm.allowFrom`,
-        list: dm.allowFrom,
-        detector: isSlackMutableAllowEntry,
-        channel: "slack",
-        dangerousFlagPath: scope.dangerousFlagPath,
-      });
-    }
-    const channels = asObjectRecord(scope.account.channels);
-    if (!channels) {
-      continue;
-    }
-    for (const [channelKey, channelRaw] of Object.entries(channels)) {
-      const channel = asObjectRecord(channelRaw);
-      if (!channel) {
-        continue;
-      }
-      addMutableAllowlistHits({
-        hits,
-        pathLabel: `${scope.prefix}.channels.${channelKey}.users`,
-        list: channel.users,
-        detector: isSlackMutableAllowEntry,
-        channel: "slack",
-        dangerousFlagPath: scope.dangerousFlagPath,
-      });
-    }
+  for (const plan of detection.plans) {
+    notes.push(
+      [
+        `- Matrix encrypted-state migration is pending for account "${plan.accountId}".`,
+        `- Legacy crypto store: ${plan.legacyCryptoPath}`,
+        `- New recovery key file: ${plan.recoveryKeyPath}`,
+        `- Migration state file: ${plan.statePath}`,
+        '- Run "openclaw doctor --fix" to extract any saved backup key now. Backed-up room keys will restore automatically on next gateway start.',
+      ].join("\n"),
+    );
   }
+  return notes;
+}
 
-  for (const scope of collectProviderDangerousNameMatchingScopes(cfg, "googlechat")) {
-    if (scope.dangerousNameMatchingEnabled) {
-      continue;
-    }
-    addMutableAllowlistHits({
-      hits,
-      pathLabel: `${scope.prefix}.groupAllowFrom`,
-      list: scope.account.groupAllowFrom,
-      detector: isGoogleChatMutableAllowEntry,
-      channel: "googlechat",
-      dangerousFlagPath: scope.dangerousFlagPath,
-    });
-    const dm = asObjectRecord(scope.account.dm);
-    if (dm) {
-      addMutableAllowlistHits({
-        hits,
-        pathLabel: `${scope.prefix}.dm.allowFrom`,
-        list: dm.allowFrom,
-        detector: isGoogleChatMutableAllowEntry,
-        channel: "googlechat",
-        dangerousFlagPath: scope.dangerousFlagPath,
-      });
-    }
-    const groups = asObjectRecord(scope.account.groups);
-    if (!groups) {
-      continue;
-    }
-    for (const [groupKey, groupRaw] of Object.entries(groups)) {
-      const group = asObjectRecord(groupRaw);
-      if (!group) {
-        continue;
-      }
-      addMutableAllowlistHits({
-        hits,
-        pathLabel: `${scope.prefix}.groups.${groupKey}.users`,
-        list: group.users,
-        detector: isGoogleChatMutableAllowEntry,
-        channel: "googlechat",
-        dangerousFlagPath: scope.dangerousFlagPath,
-      });
-    }
+async function collectMatrixInstallPathWarnings(cfg: OpenClawConfig): Promise<string[]> {
+  const issue = await detectPluginInstallPathIssue({
+    pluginId: "matrix",
+    install: cfg.plugins?.installs?.matrix,
+  });
+  if (!issue) {
+    return [];
   }
-
-  for (const scope of collectProviderDangerousNameMatchingScopes(cfg, "msteams")) {
-    if (scope.dangerousNameMatchingEnabled) {
-      continue;
-    }
-    addMutableAllowlistHits({
-      hits,
-      pathLabel: `${scope.prefix}.allowFrom`,
-      list: scope.account.allowFrom,
-      detector: isMSTeamsMutableAllowEntry,
-      channel: "msteams",
-      dangerousFlagPath: scope.dangerousFlagPath,
-    });
-    addMutableAllowlistHits({
-      hits,
-      pathLabel: `${scope.prefix}.groupAllowFrom`,
-      list: scope.account.groupAllowFrom,
-      detector: isMSTeamsMutableAllowEntry,
-      channel: "msteams",
-      dangerousFlagPath: scope.dangerousFlagPath,
-    });
-  }
-
-  for (const scope of collectProviderDangerousNameMatchingScopes(cfg, "mattermost")) {
-    if (scope.dangerousNameMatchingEnabled) {
-      continue;
-    }
-    addMutableAllowlistHits({
-      hits,
-      pathLabel: `${scope.prefix}.allowFrom`,
-      list: scope.account.allowFrom,
-      detector: isMattermostMutableAllowEntry,
-      channel: "mattermost",
-      dangerousFlagPath: scope.dangerousFlagPath,
-    });
-    addMutableAllowlistHits({
-      hits,
-      pathLabel: `${scope.prefix}.groupAllowFrom`,
-      list: scope.account.groupAllowFrom,
-      detector: isMattermostMutableAllowEntry,
-      channel: "mattermost",
-      dangerousFlagPath: scope.dangerousFlagPath,
-    });
-  }
-
-  for (const scope of collectProviderDangerousNameMatchingScopes(cfg, "irc")) {
-    if (scope.dangerousNameMatchingEnabled) {
-      continue;
-    }
-    addMutableAllowlistHits({
-      hits,
-      pathLabel: `${scope.prefix}.allowFrom`,
-      list: scope.account.allowFrom,
-      detector: isIrcMutableAllowEntry,
-      channel: "irc",
-      dangerousFlagPath: scope.dangerousFlagPath,
-    });
-    addMutableAllowlistHits({
-      hits,
-      pathLabel: `${scope.prefix}.groupAllowFrom`,
-      list: scope.account.groupAllowFrom,
-      detector: isIrcMutableAllowEntry,
-      channel: "irc",
-      dangerousFlagPath: scope.dangerousFlagPath,
-    });
-    const groups = asObjectRecord(scope.account.groups);
-    if (!groups) {
-      continue;
-    }
-    for (const [groupKey, groupRaw] of Object.entries(groups)) {
-      const group = asObjectRecord(groupRaw);
-      if (!group) {
-        continue;
-      }
-      addMutableAllowlistHits({
-        hits,
-        pathLabel: `${scope.prefix}.groups.${groupKey}.allowFrom`,
-        list: group.allowFrom,
-        detector: isIrcMutableAllowEntry,
-        channel: "irc",
-        dangerousFlagPath: scope.dangerousFlagPath,
-      });
-    }
-  }
-
-  return hits;
+  return formatPluginInstallPathIssue({
+    issue,
+    pluginLabel: "Matrix",
+    defaultInstallCommand: "openclaw plugins install @openclaw/matrix",
+    repoInstallCommand: "openclaw plugins install ./extensions/matrix",
+    formatCommand: formatCliCommand,
+  }).map((entry) => `- ${entry}`);
 }
 
 /**
- * Scan all channel configs for dmPolicy="open" without allowFrom including "*".
- * This configuration is rejected by the schema validator but can easily occur when
- * users (or integrations) set dmPolicy to "open" without realising that an explicit
- * allowFrom wildcard is also required.
+ * Scan all channel configs for dmPolicy="allowlist" without any allowFrom entries.
+ * This configuration blocks all DMs because no sender can match the empty
+ * allowlist. Common after upgrades that remove external allowlist
+ * file support.
  */
-function maybeRepairOpenPolicyAllowFrom(cfg: OpenClawConfig): {
-  config: OpenClawConfig;
-  changes: string[];
-} {
+function detectEmptyAllowlistPolicy(cfg: OpenClawConfig): string[] {
   const channels = cfg.channels;
   if (!channels || typeof channels !== "object") {
-    return { config: cfg, changes: [] };
+    return [];
   }
 
-  const next = structuredClone(cfg);
-  const changes: string[] = [];
+  const warnings: string[] = [];
 
-  type OpenPolicyAllowFromMode = "topOnly" | "topOrNested" | "nestedOnly";
-
-  const resolveAllowFromMode = (channelName: string): OpenPolicyAllowFromMode => {
-    if (channelName === "googlechat") {
-      return "nestedOnly";
-    }
-    if (channelName === "discord" || channelName === "slack") {
-      return "topOrNested";
-    }
-    return "topOnly";
-  };
-
-  const hasWildcard = (list?: Array<string | number>) =>
-    list?.some((v) => String(v).trim() === "*") ?? false;
-
-  const ensureWildcard = (
+  const checkAccount = (
     account: Record<string, unknown>,
     prefix: string,
-    mode: OpenPolicyAllowFromMode,
+    parent?: Record<string, unknown>,
+    channelName?: string,
   ) => {
-    const dmEntry = account.dm;
-    const dm =
-      dmEntry && typeof dmEntry === "object" && !Array.isArray(dmEntry)
-        ? (dmEntry as Record<string, unknown>)
-        : undefined;
+    const accountDm = asObjectRecord(account.dm);
+    const parentDm = asObjectRecord(parent?.dm);
     const dmPolicy =
-      (account.dmPolicy as string | undefined) ?? (dm?.policy as string | undefined) ?? undefined;
+      (account.dmPolicy as string | undefined) ??
+      (accountDm?.policy as string | undefined) ??
+      (parent?.dmPolicy as string | undefined) ??
+      (parentDm?.policy as string | undefined) ??
+      undefined;
+    const effectiveAllowFrom =
+      (account.allowFrom as Array<string | number> | undefined) ??
+      (parent?.allowFrom as Array<string | number> | undefined) ??
+      (accountDm?.allowFrom as Array<string | number> | undefined) ??
+      (parentDm?.allowFrom as Array<string | number> | undefined) ??
+      undefined;
 
-    if (dmPolicy !== "open") {
-      return;
-    }
-
-    const topAllowFrom = account.allowFrom as Array<string | number> | undefined;
-    const nestedAllowFrom = dm?.allowFrom as Array<string | number> | undefined;
-
-    if (mode === "nestedOnly") {
-      if (hasWildcard(nestedAllowFrom)) {
-        return;
-      }
-      if (Array.isArray(nestedAllowFrom)) {
-        nestedAllowFrom.push("*");
-        changes.push(`- ${prefix}.dm.allowFrom: added "*" (required by dmPolicy="open")`);
-        return;
-      }
-      const nextDm = dm ?? {};
-      nextDm.allowFrom = ["*"];
-      account.dm = nextDm;
-      changes.push(`- ${prefix}.dm.allowFrom: set to ["*"] (required by dmPolicy="open")`);
-      return;
-    }
-
-    if (mode === "topOrNested") {
-      if (hasWildcard(topAllowFrom) || hasWildcard(nestedAllowFrom)) {
-        return;
-      }
-
-      if (Array.isArray(topAllowFrom)) {
-        topAllowFrom.push("*");
-        changes.push(`- ${prefix}.allowFrom: added "*" (required by dmPolicy="open")`);
-      } else if (Array.isArray(nestedAllowFrom)) {
-        nestedAllowFrom.push("*");
-        changes.push(`- ${prefix}.dm.allowFrom: added "*" (required by dmPolicy="open")`);
-      } else {
-        account.allowFrom = ["*"];
-        changes.push(`- ${prefix}.allowFrom: set to ["*"] (required by dmPolicy="open")`);
-      }
-      return;
-    }
-
-    if (hasWildcard(topAllowFrom)) {
-      return;
-    }
-    if (Array.isArray(topAllowFrom)) {
-      topAllowFrom.push("*");
-      changes.push(`- ${prefix}.allowFrom: added "*" (required by dmPolicy="open")`);
-    } else {
-      account.allowFrom = ["*"];
-      changes.push(`- ${prefix}.allowFrom: set to ["*"] (required by dmPolicy="open")`);
+    warnings.push(
+      ...collectEmptyAllowlistPolicyWarningsForAccount({
+        account,
+        channelName,
+        doctorFixCommand: formatCliCommand("openclaw doctor --fix"),
+        parent,
+        prefix,
+      }),
+    );
+    if (
+      channelName === "telegram" &&
+      ((account.groupPolicy as string | undefined) ??
+        (parent?.groupPolicy as string | undefined) ??
+        undefined) === "allowlist"
+    ) {
+      warnings.push(
+        ...collectTelegramGroupPolicyWarnings({
+          account,
+          dmPolicy,
+          effectiveAllowFrom,
+          parent,
+          prefix,
+        }),
+      );
     }
   };
 
-  const nextChannels = next.channels as Record<string, Record<string, unknown>>;
-  for (const [channelName, channelConfig] of Object.entries(nextChannels)) {
+  for (const [channelName, channelConfig] of Object.entries(
+    channels as Record<string, Record<string, unknown>>,
+  )) {
     if (!channelConfig || typeof channelConfig !== "object") {
       continue;
     }
+    checkAccount(channelConfig, `channels.${channelName}`, undefined, channelName);
 
-    const allowFromMode = resolveAllowFromMode(channelName);
-
-    // Check the top-level channel config
-    ensureWildcard(channelConfig, `channels.${channelName}`, allowFromMode);
-
-    // Check per-account configs (e.g. channels.discord.accounts.mybot)
-    const accounts = channelConfig.accounts as Record<string, Record<string, unknown>> | undefined;
+    const accounts = channelConfig.accounts;
     if (accounts && typeof accounts === "object") {
-      for (const [accountName, accountConfig] of Object.entries(accounts)) {
-        if (accountConfig && typeof accountConfig === "object") {
-          ensureWildcard(
-            accountConfig,
-            `channels.${channelName}.accounts.${accountName}`,
-            allowFromMode,
-          );
+      for (const [accountId, account] of Object.entries(
+        accounts as Record<string, Record<string, unknown>>,
+      )) {
+        if (!account || typeof account !== "object") {
+          continue;
         }
+        checkAccount(
+          account,
+          `channels.${channelName}.accounts.${accountId}`,
+          channelConfig,
+          channelName,
+        );
       }
     }
   }
 
-  if (changes.length === 0) {
-    return { config: cfg, changes: [] };
-  }
-  return { config: next, changes };
+  return warnings;
 }
 
 type ExecSafeBinCoverageHit = {
@@ -1001,6 +363,13 @@ type ExecSafeBinScopeRef = {
   safeBins: string[];
   exec: Record<string, unknown>;
   mergedProfiles: Record<string, unknown>;
+  trustedSafeBinDirs: ReadonlySet<string>;
+};
+
+type ExecSafeBinTrustedDirHintHit = {
+  scopePath: string;
+  bin: string;
+  resolvedPath: string;
 };
 
 function normalizeConfiguredSafeBins(entries: unknown): string[] {
@@ -1016,9 +385,19 @@ function normalizeConfiguredSafeBins(entries: unknown): string[] {
   ).toSorted();
 }
 
+function normalizeConfiguredTrustedSafeBinDirs(entries: unknown): string[] {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  return normalizeTrustedSafeBinDirs(
+    entries.filter((entry): entry is string => typeof entry === "string"),
+  );
+}
+
 function collectExecSafeBinScopes(cfg: OpenClawConfig): ExecSafeBinScopeRef[] {
   const scopes: ExecSafeBinScopeRef[] = [];
   const globalExec = asObjectRecord(cfg.tools?.exec);
+  const globalTrustedDirs = normalizeConfiguredTrustedSafeBinDirs(globalExec?.safeBinTrustedDirs);
   if (globalExec) {
     const safeBins = normalizeConfiguredSafeBins(globalExec.safeBins);
     if (safeBins.length > 0) {
@@ -1030,6 +409,9 @@ function collectExecSafeBinScopes(cfg: OpenClawConfig): ExecSafeBinScopeRef[] {
           resolveMergedSafeBinProfileFixtures({
             global: globalExec,
           }) ?? {},
+        trustedSafeBinDirs: getTrustedSafeBinDirs({
+          extraDirs: globalTrustedDirs,
+        }),
       });
     }
   }
@@ -1055,6 +437,12 @@ function collectExecSafeBinScopes(cfg: OpenClawConfig): ExecSafeBinScopeRef[] {
           global: globalExec,
           local: agentExec,
         }) ?? {},
+      trustedSafeBinDirs: getTrustedSafeBinDirs({
+        extraDirs: [
+          ...globalTrustedDirs,
+          ...normalizeConfiguredTrustedSafeBinDirs(agentExec.safeBinTrustedDirs),
+        ],
+      }),
     });
   }
   return scopes;
@@ -1072,6 +460,32 @@ function scanExecSafeBinCoverage(cfg: OpenClawConfig): ExecSafeBinCoverageHit[] 
         scopePath: scope.scopePath,
         bin,
         isInterpreter: interpreterBins.has(bin),
+      });
+    }
+  }
+  return hits;
+}
+
+function scanExecSafeBinTrustedDirHints(cfg: OpenClawConfig): ExecSafeBinTrustedDirHintHit[] {
+  const hits: ExecSafeBinTrustedDirHintHit[] = [];
+  for (const scope of collectExecSafeBinScopes(cfg)) {
+    for (const bin of scope.safeBins) {
+      const resolution = resolveCommandResolutionFromArgv([bin]);
+      if (!resolution?.resolvedPath) {
+        continue;
+      }
+      if (
+        isTrustedSafeBinPath({
+          resolvedPath: resolution.resolvedPath,
+          trustedDirs: scope.trustedSafeBinDirs,
+        })
+      ) {
+        continue;
+      }
+      hits.push({
+        scopePath: scope.scopePath,
+        bin,
+        resolvedPath: resolution.resolvedPath,
       });
     }
   }
@@ -1144,7 +558,7 @@ function collectLegacyToolsBySenderKeyHits(
   const toolsBySender = asObjectRecord(record.toolsBySender);
   if (toolsBySender) {
     const path = [...pathParts, "toolsBySender"];
-    const pathLabel = formatPath(path);
+    const pathLabel = formatConfigPath(path);
     for (const rawKey of Object.keys(toolsBySender)) {
       const trimmed = rawKey.trim();
       if (!trimmed || trimmed === "*" || parseToolsBySenderTypedKey(trimmed)) {
@@ -1187,7 +601,7 @@ function maybeRepairLegacyToolsBySenderKeys(cfg: OpenClawConfig): {
   let changed = false;
 
   for (const hit of hits) {
-    const toolsBySender = asObjectRecord(resolvePathTarget(next, hit.toolsBySenderPath));
+    const toolsBySender = asObjectRecord(resolveConfigPathTarget(next, hit.toolsBySenderPath));
     if (!toolsBySender || !(hit.key in toolsBySender)) {
       continue;
     }
@@ -1232,92 +646,24 @@ function maybeRepairLegacyToolsBySenderKeys(cfg: OpenClawConfig): {
   return { config: next, changes };
 }
 
-async function maybeMigrateLegacyConfig(): Promise<string[]> {
-  const changes: string[] = [];
-  const home = resolveHomeDir();
-  if (!home) {
-    return changes;
-  }
-
-  const targetDir = path.join(home, ".openclaw");
-  const targetPath = path.join(targetDir, "openclaw.json");
-  try {
-    await fs.access(targetPath);
-    return changes;
-  } catch {
-    // missing config
-  }
-
-  const legacyCandidates = [
-    path.join(home, ".clawdbot", "clawdbot.json"),
-    path.join(home, ".moldbot", "moldbot.json"),
-    path.join(home, ".moltbot", "moltbot.json"),
-  ];
-
-  let legacyPath: string | null = null;
-  for (const candidate of legacyCandidates) {
-    try {
-      await fs.access(candidate);
-      legacyPath = candidate;
-      break;
-    } catch {
-      // continue
-    }
-  }
-  if (!legacyPath) {
-    return changes;
-  }
-
-  await fs.mkdir(targetDir, { recursive: true });
-  try {
-    await fs.copyFile(legacyPath, targetPath, fs.constants.COPYFILE_EXCL);
-    changes.push(`Migrated legacy config: ${legacyPath} -> ${targetPath}`);
-  } catch {
-    // If it already exists, skip silently.
-  }
-
-  return changes;
-}
-
 export async function loadAndMaybeMigrateDoctorConfig(params: {
   options: DoctorOptions;
   confirm: (p: { message: string; initialValue: boolean }) => Promise<boolean>;
 }) {
   const shouldRepair = params.options.repair === true || params.options.yes === true;
-  const stateDirResult = await autoMigrateLegacyStateDir({ env: process.env });
-  if (stateDirResult.changes.length > 0) {
-    note(stateDirResult.changes.map((entry) => `- ${entry}`).join("\n"), "Doctor changes");
-  }
-  if (stateDirResult.warnings.length > 0) {
-    note(stateDirResult.warnings.map((entry) => `- ${entry}`).join("\n"), "Doctor warnings");
-  }
-
-  const legacyConfigChanges = await maybeMigrateLegacyConfig();
-  if (legacyConfigChanges.length > 0) {
-    note(legacyConfigChanges.map((entry) => `- ${entry}`).join("\n"), "Doctor changes");
-  }
-
-  let snapshot = await readConfigFileSnapshot();
-  const baseCfg = snapshot.config ?? {};
+  const preflight = await runDoctorConfigPreflight();
+  let snapshot = preflight.snapshot;
+  const baseCfg = preflight.baseConfig;
   let cfg: OpenClawConfig = baseCfg;
   let candidate = structuredClone(baseCfg);
   let pendingChanges = false;
   let shouldWriteConfig = false;
   const fixHints: string[] = [];
-  if (snapshot.exists && !snapshot.valid && snapshot.legacyIssues.length === 0) {
-    note("Config invalid; doctor will run with best-effort config.", "Config");
-    noteIncludeConfinementWarning(snapshot);
-  }
-  const warnings = snapshot.warnings ?? [];
-  if (warnings.length > 0) {
-    const lines = warnings.map((issue) => `- ${issue.path}: ${issue.message}`).join("\n");
-    note(lines, "Config warnings");
-  }
 
   if (snapshot.legacyIssues.length > 0) {
     note(
-      snapshot.legacyIssues.map((issue) => `- ${issue.path}: ${issue.message}`).join("\n"),
-      "Legacy config keys detected",
+      formatConfigIssueLines(snapshot.legacyIssues, "-").join("\n"),
+      "Compatibility config keys detected",
     );
     const { config: migrated, changes } = migrateLegacyConfig(snapshot.parsed);
     if (changes.length > 0) {
@@ -1328,18 +674,18 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
       pendingChanges = pendingChanges || changes.length > 0;
     }
     if (shouldRepair) {
-      // Legacy migration (2026-01-02, commit: 16420e5b) — normalize per-provider allowlists; move WhatsApp gating into channels.whatsapp.allowFrom.
+      // Compatibility migration (2026-01-02, commit: 16420e5b) — normalize per-provider allowlists; move WhatsApp gating into channels.whatsapp.allowFrom.
       if (migrated) {
         cfg = migrated;
       }
     } else {
       fixHints.push(
-        `Run "${formatCliCommand("openclaw doctor --fix")}" to apply legacy migrations.`,
+        `Run "${formatCliCommand("openclaw doctor --fix")}" to apply compatibility migrations.`,
       );
     }
   }
 
-  const normalized = normalizeLegacyConfigValues(candidate);
+  const normalized = normalizeCompatibilityConfigValues(candidate);
   if (normalized.changes.length > 0) {
     note(normalized.changes.join("\n"), "Doctor changes");
     candidate = normalized.config;
@@ -1361,6 +707,120 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
     } else {
       fixHints.push(`Run "${formatCliCommand("openclaw doctor --fix")}" to apply these changes.`);
     }
+  }
+
+  const matrixLegacyState = detectLegacyMatrixState({
+    cfg: candidate,
+    env: process.env,
+  });
+  const matrixLegacyCrypto = detectLegacyMatrixCrypto({
+    cfg: candidate,
+    env: process.env,
+  });
+  const pendingMatrixMigration = hasPendingMatrixMigration({
+    cfg: candidate,
+    env: process.env,
+  });
+  const actionableMatrixMigration = hasActionableMatrixMigration({
+    cfg: candidate,
+    env: process.env,
+  });
+  if (shouldRepair) {
+    let matrixSnapshotReady = true;
+    if (actionableMatrixMigration) {
+      try {
+        const snapshot = await maybeCreateMatrixMigrationSnapshot({
+          trigger: "doctor-fix",
+          env: process.env,
+        });
+        note(
+          `Matrix migration snapshot ${snapshot.created ? "created" : "reused"} before applying Matrix upgrades.\n- ${snapshot.archivePath}`,
+          "Doctor changes",
+        );
+      } catch (err) {
+        matrixSnapshotReady = false;
+        note(
+          `- Failed creating a Matrix migration snapshot before repair: ${String(err)}`,
+          "Doctor warnings",
+        );
+        note(
+          '- Skipping Matrix migration changes for now. Resolve the snapshot failure, then rerun "openclaw doctor --fix".',
+          "Doctor warnings",
+        );
+      }
+    } else if (pendingMatrixMigration) {
+      note(
+        "- Matrix migration warnings are present, but no on-disk Matrix mutation is actionable yet. No pre-migration snapshot was needed.",
+        "Doctor warnings",
+      );
+    }
+    if (matrixSnapshotReady) {
+      const matrixStateRepair = await autoMigrateLegacyMatrixState({
+        cfg: candidate,
+        env: process.env,
+      });
+      if (matrixStateRepair.changes.length > 0) {
+        note(
+          [
+            "Matrix plugin upgraded in place.",
+            ...matrixStateRepair.changes.map((entry) => `- ${entry}`),
+            "- No user action required.",
+          ].join("\n"),
+          "Doctor changes",
+        );
+      }
+      if (matrixStateRepair.warnings.length > 0) {
+        note(matrixStateRepair.warnings.map((entry) => `- ${entry}`).join("\n"), "Doctor warnings");
+      }
+      const matrixCryptoRepair = await autoPrepareLegacyMatrixCrypto({
+        cfg: candidate,
+        env: process.env,
+      });
+      if (matrixCryptoRepair.changes.length > 0) {
+        note(
+          [
+            "Matrix encrypted-state migration prepared.",
+            ...matrixCryptoRepair.changes.map((entry) => `- ${entry}`),
+          ].join("\n"),
+          "Doctor changes",
+        );
+      }
+      if (matrixCryptoRepair.warnings.length > 0) {
+        note(
+          matrixCryptoRepair.warnings.map((entry) => `- ${entry}`).join("\n"),
+          "Doctor warnings",
+        );
+      }
+    }
+  } else if (matrixLegacyState) {
+    if ("warning" in matrixLegacyState) {
+      note(`- ${matrixLegacyState.warning}`, "Doctor warnings");
+    } else {
+      note(formatMatrixLegacyStatePreview(matrixLegacyState), "Doctor warnings");
+    }
+  }
+  if (
+    !shouldRepair &&
+    (matrixLegacyCrypto.warnings.length > 0 || matrixLegacyCrypto.plans.length > 0)
+  ) {
+    for (const preview of formatMatrixLegacyCryptoPreview(matrixLegacyCrypto)) {
+      note(preview, "Doctor warnings");
+    }
+  }
+
+  const matrixInstallWarnings = await collectMatrixInstallPathWarnings(candidate);
+  if (matrixInstallWarnings.length > 0) {
+    note(matrixInstallWarnings.join("\n"), "Doctor warnings");
+  }
+
+  const missingDefaultAccountBindingWarnings =
+    collectMissingDefaultAccountBindingWarnings(candidate);
+  if (missingDefaultAccountBindingWarnings.length > 0) {
+    note(missingDefaultAccountBindingWarnings.join("\n"), "Doctor warnings");
+  }
+  const missingExplicitDefaultWarnings = collectMissingExplicitDefaultAccountWarnings(candidate);
+  if (missingExplicitDefaultWarnings.length > 0) {
+    note(missingExplicitDefaultWarnings.join("\n"), "Doctor warnings");
   }
 
   if (shouldRepair) {
@@ -1386,6 +846,19 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
       candidate = allowFromRepair.config;
       pendingChanges = true;
       cfg = allowFromRepair.config;
+    }
+
+    const allowlistRepair = await maybeRepairAllowlistPolicyAllowFrom(candidate);
+    if (allowlistRepair.changes.length > 0) {
+      note(allowlistRepair.changes.join("\n"), "Doctor changes");
+      candidate = allowlistRepair.config;
+      pendingChanges = true;
+      cfg = allowlistRepair.config;
+    }
+
+    const emptyAllowlistWarnings = detectEmptyAllowlistPolicy(candidate);
+    if (emptyAllowlistWarnings.length > 0) {
+      note(emptyAllowlistWarnings.join("\n"), "Doctor warnings");
     }
 
     const toolsBySenderRepair = maybeRepairLegacyToolsBySenderKeys(candidate);
@@ -1440,6 +913,11 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
       );
     }
 
+    const emptyAllowlistWarnings = detectEmptyAllowlistPolicy(candidate);
+    if (emptyAllowlistWarnings.length > 0) {
+      note(emptyAllowlistWarnings.join("\n"), "Doctor warnings");
+    }
+
     const toolsBySenderHits = scanLegacyToolsBySenderKeys(candidate);
     if (toolsBySenderHits.length > 0) {
       const sample = toolsBySenderHits[0];
@@ -1485,6 +963,25 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
       }
       lines.push(
         `- Run "${formatCliCommand("openclaw doctor --fix")}" to scaffold missing custom safeBinProfiles entries.`,
+      );
+      note(lines.join("\n"), "Doctor warnings");
+    }
+
+    const safeBinTrustedDirHints = scanExecSafeBinTrustedDirHints(candidate);
+    if (safeBinTrustedDirHints.length > 0) {
+      const lines = safeBinTrustedDirHints
+        .slice(0, 5)
+        .map(
+          (hit) =>
+            `- ${hit.scopePath}.safeBins entry '${hit.bin}' resolves to '${hit.resolvedPath}' outside trusted safe-bin dirs.`,
+        );
+      if (safeBinTrustedDirHints.length > 5) {
+        lines.push(
+          `- ${safeBinTrustedDirHints.length - 5} more safeBins entries resolve outside trusted safe-bin dirs.`,
+        );
+      }
+      lines.push(
+        "- If intentional, add the binary directory to tools.exec.safeBinTrustedDirs (global or agent scope).",
       );
       note(lines.join("\n"), "Doctor warnings");
     }

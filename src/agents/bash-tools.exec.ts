@@ -1,8 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
-import { type ExecHost, maxAsk, minSecurity } from "../infra/exec-approvals.js";
+import { type ExecHost, loadExecApprovals, maxAsk, minSecurity } from "../infra/exec-approvals.js";
 import { resolveExecSafeBinRuntimePolicy } from "../infra/exec-safe-bin-runtime-policy.js";
+import { sanitizeHostExecEnvWithDiagnostics } from "../infra/host-env-security.js";
 import {
   getShellPathFromLoginShell,
   resolveShellEnvFallbackTimeoutMs,
@@ -26,7 +27,6 @@ import {
   resolveApprovalRunningNoticeMs,
   runExecProcess,
   execSchema,
-  validateHostEnv,
 } from "./bash-tools.exec-runtime.js";
 import type {
   ExecElevatedDefaults,
@@ -175,6 +175,9 @@ export function createExecTool(
       safeBinTrustedDirs: defaults?.safeBinTrustedDirs,
       safeBinProfiles: defaults?.safeBinProfiles,
     },
+    onWarning: (message) => {
+      logInfo(message);
+    },
   });
   if (unprofiledSafeBins.length > 0) {
     logInfo(
@@ -320,7 +323,8 @@ export function createExecTool(
       if (elevatedRequested && elevatedMode === "full") {
         security = "full";
       }
-      const configuredAsk = defaults?.ask ?? "on-miss";
+      // Keep local exec defaults in sync with exec-approvals.json when tools.exec.ask is unset.
+      const configuredAsk = defaults?.ask ?? loadExecApprovals().defaults?.ask ?? "on-miss";
       const requestedAsk = normalizeExecAsk(params.ask);
       let ask = maxAsk(configuredAsk, requestedAsk ?? configuredAsk);
       const bypassApprovals = elevatedRequested && elevatedMode === "full";
@@ -356,24 +360,59 @@ export function createExecTool(
         workdir = resolveWorkdir(rawWorkdir, warnings);
       }
 
-      const baseEnv = coerceEnv(process.env);
-
-      // Logic: Sandbox gets raw env. Host (gateway/node) must pass validation.
-      // We validate BEFORE merging to prevent any dangerous vars from entering the stream.
-      if (host !== "sandbox" && params.env) {
-        validateHostEnv(params.env);
+      const inheritedBaseEnv = coerceEnv(process.env);
+      const hostEnvResult =
+        host === "sandbox"
+          ? null
+          : sanitizeHostExecEnvWithDiagnostics({
+              baseEnv: inheritedBaseEnv,
+              overrides: params.env,
+              blockPathOverrides: true,
+            });
+      if (
+        hostEnvResult &&
+        params.env &&
+        (hostEnvResult.rejectedOverrideBlockedKeys.length > 0 ||
+          hostEnvResult.rejectedOverrideInvalidKeys.length > 0)
+      ) {
+        const blockedKeys = hostEnvResult.rejectedOverrideBlockedKeys;
+        const invalidKeys = hostEnvResult.rejectedOverrideInvalidKeys;
+        const pathBlocked = blockedKeys.includes("PATH");
+        if (pathBlocked && blockedKeys.length === 1 && invalidKeys.length === 0) {
+          throw new Error(
+            "Security Violation: Custom 'PATH' variable is forbidden during host execution.",
+          );
+        }
+        if (blockedKeys.length === 1 && invalidKeys.length === 0) {
+          throw new Error(
+            `Security Violation: Environment variable '${blockedKeys[0]}' is forbidden during host execution.`,
+          );
+        }
+        const details: string[] = [];
+        if (blockedKeys.length > 0) {
+          details.push(`blocked override keys: ${blockedKeys.join(", ")}`);
+        }
+        if (invalidKeys.length > 0) {
+          details.push(`invalid non-portable override keys: ${invalidKeys.join(", ")}`);
+        }
+        const suffix = details.join("; ");
+        if (pathBlocked) {
+          throw new Error(
+            `Security Violation: Custom 'PATH' variable is forbidden during host execution (${suffix}).`,
+          );
+        }
+        throw new Error(`Security Violation: ${suffix}.`);
       }
 
-      const mergedEnv = params.env ? { ...baseEnv, ...params.env } : baseEnv;
-
-      const env = sandbox
-        ? buildSandboxEnv({
-            defaultPath: DEFAULT_PATH,
-            paramsEnv: params.env,
-            sandboxEnv: sandbox.env,
-            containerWorkdir: containerWorkdir ?? sandbox.containerWorkdir,
-          })
-        : mergedEnv;
+      const env =
+        sandbox && host === "sandbox"
+          ? buildSandboxEnv({
+              defaultPath: DEFAULT_PATH,
+              paramsEnv: params.env,
+              sandboxEnv: sandbox.env,
+              containerWorkdir: containerWorkdir ?? sandbox.containerWorkdir,
+            })
+          : (hostEnvResult?.env ?? inheritedBaseEnv);
 
       if (!sandbox && host === "gateway" && !params.env?.PATH) {
         const shellPath = getShellPathFromLoginShell({
@@ -402,6 +441,10 @@ export function createExecTool(
           requestedNode: params.node?.trim(),
           boundNode: defaults?.node?.trim(),
           sessionKey: defaults?.sessionKey,
+          turnSourceChannel: defaults?.messageProvider,
+          turnSourceTo: defaults?.currentChannelId,
+          turnSourceAccountId: defaults?.accountId,
+          turnSourceThreadId: defaults?.currentThreadTs,
           agentId,
           security,
           ask,
@@ -419,6 +462,7 @@ export function createExecTool(
           command: params.command,
           workdir,
           env,
+          requestedEnv: params.env,
           pty: params.pty === true && !sandbox,
           timeoutSec: params.timeout,
           defaultTimeoutSec,
@@ -428,6 +472,10 @@ export function createExecTool(
           safeBinProfiles,
           agentId,
           sessionKey: defaults?.sessionKey,
+          turnSourceChannel: defaults?.messageProvider,
+          turnSourceTo: defaults?.currentChannelId,
+          turnSourceAccountId: defaults?.accountId,
+          turnSourceThreadId: defaults?.currentThreadTs,
           scopeKey: defaults?.scopeKey,
           warnings,
           notifySessionKey,
