@@ -413,6 +413,33 @@ class SmsManagerTest {
   }
 
   @Test
+  fun materializeByPhoneCandidateDedupesById() {
+    val candidates = linkedMapOf<Long, SmsManager.SmsMessage>()
+
+    SmsManager.materializeByPhoneCandidate(candidates, smsMessage(id = 1L, date = 1000L))
+    SmsManager.materializeByPhoneCandidate(candidates, smsMessage(id = 1L, date = 2000L))
+
+    assertEquals(1, candidates.size)
+    assertEquals(2000L, candidates[1L]?.date)
+  }
+
+  @Test
+  fun pageByPhoneCandidatesHonorsDeepOffsetAfterStableSort() {
+    val params = SmsManager.QueryParams(limit = 5, offset = 5, includeMms = true)
+    val candidates = listOf(
+      smsMessage(id = 1399L, date = 1741112335720L),
+      smsMessage(id = 1976L, date = 1773784153770L),
+      smsMessage(id = 1981L, date = 1773790733566L),
+      smsMessage(id = 1985L, date = 1773872989602L),
+      smsMessage(id = 1986L, date = 1773899354039L),
+      smsMessage(id = 1987L, date = 1773950752506L),
+    )
+
+    assertEquals(listOf(1399L), SmsManager.pageByPhoneCandidates(candidates, params).map { it.id })
+    assertTrue(SmsManager.pageByPhoneCandidates(candidates, params.copy(offset = 10)).isEmpty())
+  }
+
+  @Test
   fun upsertTopDateCandidatesNoOpWhenMaxIsZero() {
     val candidates = mutableListOf<SmsManager.SmsMessage>()
     SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1L, date = 2000L), 0)

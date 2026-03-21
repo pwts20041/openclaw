@@ -263,6 +263,23 @@ class SmsManager(private val context: Context) {
             }
         }
 
+        internal fun materializeByPhoneCandidate(
+            candidates: MutableMap<Long, SmsMessage>,
+            message: SmsMessage,
+        ) {
+            candidates[message.id] = message
+        }
+
+        internal fun pageByPhoneCandidates(
+            candidates: Collection<SmsMessage>,
+            params: QueryParams,
+        ): List<SmsMessage> {
+            return candidates
+                .sortedWith(::compareByPhoneCandidateOrder)
+                .drop(params.offset)
+                .take(params.limit)
+        }
+
         internal fun buildSendPlan(
             message: String,
             divider: (String) -> List<String>,
@@ -721,7 +738,9 @@ class SmsManager(private val context: Context) {
             return emptyList()
         }
 
+        val useConversationReview = shouldUseConversationReviewByPhoneMode(params)
         val topCandidates = mutableListOf<SmsMessage>()
+        val materializedCandidates = linkedMapOf<Long, SmsMessage>()
         val cursor = context.contentResolver.query(uri, projection, null, null, "date DESC")
         cursor?.use {
             val idIndex = it.getColumnIndex("_id")
@@ -783,16 +802,19 @@ class SmsManager(private val context: Context) {
                     body = body,
                     status = -1,
                 )
-                upsertTopDateCandidates(topCandidates, message, maxCandidates)
-                if (!shouldUseConversationReviewByPhoneMode(params) && isByPhonePageComplete(topCandidates.size, maxCandidates)) {
-                    break
+                if (useConversationReview) {
+                    upsertTopDateCandidates(topCandidates, message, maxCandidates)
+                } else {
+                    materializeByPhoneCandidate(materializedCandidates, message)
                 }
             }
         }
 
-        return topCandidates
-            .drop(params.offset)
-            .take(params.limit)
+        return if (useConversationReview) {
+            pageByPhoneCandidates(topCandidates, params)
+        } else {
+            pageByPhoneCandidates(materializedCandidates.values, params)
+        }
     }
 
     private fun getMmsTextBody(messageId: Long): String? {
