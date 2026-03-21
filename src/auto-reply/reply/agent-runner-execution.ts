@@ -254,6 +254,7 @@ export async function runAgentTurnWithFallback(params: {
           })
         : undefined;
       const onToolResult = params.opts?.onToolResult;
+      const wallClockStartedAt = Date.now();
       const fallbackResult = await runWithModelFallback({
         ...resolveModelFallbackOptions(params.followupRun.run),
         runId,
@@ -355,7 +356,7 @@ export async function runAgentTurnWithFallback(params: {
                         model: agentMeta.model,
                         usage: agentMeta.usage,
                         lastCallUsage: agentMeta.lastCallUsage,
-                        durationMs: Date.now() - startedAt,
+                        durationMs: Date.now() - wallClockStartedAt,
                       },
                     });
                   } catch {
@@ -588,7 +589,7 @@ export async function runAgentTurnWithFallback(params: {
                       model: agentMeta.model,
                       usage: agentMeta.usage,
                       lastCallUsage: agentMeta.lastCallUsage,
-                      durationMs: result.meta?.durationMs,
+                      durationMs: Date.now() - wallClockStartedAt,
                     },
                   });
                 } catch {

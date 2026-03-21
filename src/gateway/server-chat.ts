@@ -842,6 +842,7 @@ export function createAgentEventHandler({
       // agentMeta is only available after runEmbeddedPiAgent returns. The seq
       // tracking at the top of this handler re-creates agentRunSeq entries;
       // clean them up immediately to prevent a permanent leak.
+      clearAgentRunContext(evt.runId);
       agentRunSeq.delete(evt.runId);
       agentRunSeq.delete(clientRunId);
     }
