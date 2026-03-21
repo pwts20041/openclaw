@@ -9,6 +9,7 @@ import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-cha
 import { buildGatewayConnectionDetails } from "./call.js";
 import { GatewayClient } from "./client.js";
 import { unwrapRemoteConfigSnapshot } from "./android-node.capabilities.policy-config.js";
+import { shouldFetchRemotePolicyConfig } from "./android-node.capabilities.policy-source.js";
 import { resolveGatewayCredentialsFromConfig } from "./credentials.js";
 import { resolveNodeCommandAllowlist } from "./node-command-policy.js";
 
@@ -271,31 +272,20 @@ function resolveGatewayConnection() {
     },
   });
   return {
+    details,
     url: details.url,
     token: creds.token,
     password: creds.password,
   };
 }
 
-function isLoopbackGatewayUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase();
-    return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
-  } catch {
-    return false;
-  }
-}
-
 async function resolvePolicyConfigForRun(params: {
   client: GatewayClient;
-  gatewayUrl: string;
+  connectionDetails: ReturnType<typeof buildGatewayConnectionDetails>;
 }): Promise<OpenClawConfig> {
   const localCfg = loadConfig();
-  const hasUrlOverride = readString(process.env.OPENCLAW_ANDROID_GATEWAY_URL) !== null;
-  const remoteMode = hasUrlOverride || !isLoopbackGatewayUrl(params.gatewayUrl);
 
-  if (!remoteMode) {
+  if (!shouldFetchRemotePolicyConfig(params.connectionDetails)) {
     return localCfg;
   }
 
@@ -463,7 +453,7 @@ describeLive("android node capability integration (preconditioned)", () => {
   const results = new Map<string, CommandResult>();
 
   beforeAll(async () => {
-    const { url, token, password } = resolveGatewayConnection();
+    const { details, url, token, password } = resolveGatewayConnection();
     client = await connectGatewayClient({ url, token, password });
 
     const listRaw = await client.request("node.list", {});
@@ -497,7 +487,7 @@ describeLive("android node capability integration (preconditioned)", () => {
 
     const cfg = await resolvePolicyConfigForRun({
       client,
-      gatewayUrl: url,
+      connectionDetails: details,
     });
     const allowlist = resolveNodeCommandAllowlist(cfg, {
       platform: target.platform,
