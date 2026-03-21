@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { telegramOutbound } from "../../../test/channel-outbounds.js";
 import type { ReplyPayload } from "../../auto-reply/types.js";
-import { telegramOutbound } from "../../channels/plugins/outbound/telegram.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { setActivePluginRegistry } from "../../plugins/runtime.js";
 import { createOutboundTestPlugin, createTestRegistry } from "../../test-utils/channel-plugins.js";

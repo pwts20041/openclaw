@@ -3,6 +3,7 @@ import {
   attachChannelToResult,
   createAttachedChannelResultAdapter,
 } from "openclaw/plugin-sdk/channel-send-result";
+import { markReplyApplied } from "openclaw/plugin-sdk/channel-send-result";
 import { resolveInteractiveTextFallback } from "openclaw/plugin-sdk/interactive-runtime";
 import {
   resolveOutboundSendDep,
@@ -13,7 +14,6 @@ import {
   sendPayloadMediaSequenceOrFallback,
 } from "openclaw/plugin-sdk/reply-payload";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
-import { markReplyApplied } from "../../../src/infra/outbound/reply-applied.js";
 import type { TelegramInlineButtons } from "./button-types.js";
 import { resolveTelegramInlineButtons } from "./button-types.js";
 import { markdownToTelegramHtmlChunks } from "./format.js";
@@ -151,7 +151,7 @@ export const telegramOutbound: ChannelOutboundAdapter = {
         replyToId,
         threadId,
       });
-      return await send(to, text, {
+      const result = await send(to, text, {
         ...baseOpts,
         mediaUrl,
         mediaLocalRoots,

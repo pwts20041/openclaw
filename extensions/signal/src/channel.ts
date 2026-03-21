@@ -324,7 +324,16 @@ export const signalPlugin: ChannelPlugin<ResolvedSignalAccount, SignalProbe> =
         chunker: (text, limit) => getSignalRuntime().channel.text.chunkText(text, limit),
         chunkerMode: "text",
         textChunkLimit: 4000,
-        sendFormattedText: async ({ cfg, to, text, accountId, deps, abortSignal, replyToId, quoteAuthor }) =>
+        sendFormattedText: async ({
+          cfg,
+          to,
+          text,
+          accountId,
+          deps,
+          abortSignal,
+          replyToId,
+          quoteAuthor,
+        }) =>
           await sendFormattedSignalText({
             cfg,
             to,
@@ -372,7 +381,17 @@ export const signalPlugin: ChannelPlugin<ResolvedSignalAccount, SignalProbe> =
             quoteAuthor,
             deps,
           }),
-        sendMedia: async ({ cfg, to, text, mediaUrl, mediaLocalRoots, accountId, deps, replyToId, quoteAuthor }) =>
+        sendMedia: async ({
+          cfg,
+          to,
+          text,
+          mediaUrl,
+          mediaLocalRoots,
+          accountId,
+          deps,
+          replyToId,
+          quoteAuthor,
+        }) =>
           await sendSignalOutbound({
             cfg,
             to,

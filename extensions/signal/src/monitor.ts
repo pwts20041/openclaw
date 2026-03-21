@@ -348,7 +348,7 @@ async function deliverReplies(params: {
         await sendMessageSignal(target, caption, {
           baseUrl,
           account,
-          mediaUrl,
+          mediaUrl: url,
           maxBytes,
           accountId,
           replyTo: first ? effectiveReplyTo : undefined,

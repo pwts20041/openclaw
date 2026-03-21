@@ -402,7 +402,7 @@ export async function deliverFormattedTextWithAttachments(params: {
   }
   await params.send({
     text,
-    replyToId: params.payload.replyToId,
+    replyToId: params.payload.replyToId ?? undefined,
   });
   return true;
 }

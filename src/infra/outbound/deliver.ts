@@ -941,7 +941,9 @@ async function deliverOutboundPayloadsCore(
             sendSignalTextChunks(payloadSummary.text, effectiveReplyTo, effectiveQuoteAuthor),
           );
         } else if (handler.sendFormattedText) {
-          results.push(...(await handler.sendFormattedText(payloadSummary.text, effectiveSendOverrides)));
+          results.push(
+            ...(await handler.sendFormattedText(payloadSummary.text, effectiveSendOverrides)),
+          );
         } else {
           await trackReplyConsumption(effectiveReplyTo, () =>
             sendTextChunks(payloadSummary.text, effectiveSendOverrides),

@@ -1,5 +1,4 @@
-import { kindFromMime } from "../../../../src/media/mime.js";
-import { normalizeE164 } from "../../../../src/utils.js";
+import { normalizeE164 } from "openclaw/plugin-sdk/signal";
 import { looksLikeUuid } from "../identity.js";
 import type {
   SignalDataMessage,
@@ -14,6 +13,27 @@ export type SignalQuotedAuthorResolver = (params: {
   conversationKey: string;
   replyToId: string;
 }) => string | undefined;
+
+/** Derive a broad media kind from a MIME type (inlined to avoid cross-boundary import). */
+function kindFromMime(mime?: string | null): string | undefined {
+  if (!mime) {
+    return undefined;
+  }
+  const lower = mime.toLowerCase().split(";")[0]?.trim();
+  if (!lower) {
+    return undefined;
+  }
+  if (lower.startsWith("image/")) {
+    return "image";
+  }
+  if (lower.startsWith("audio/")) {
+    return "audio";
+  }
+  if (lower.startsWith("video/")) {
+    return "video";
+  }
+  return undefined;
+}
 
 function filterMentions(mentions?: Array<SignalMention | null> | null) {
   const filtered = mentions?.filter((mention): mention is SignalMention => mention != null);
@@ -62,6 +82,11 @@ export function normalizeSignalQuoteId(rawId?: SignalQuote["id"]) {
   }
   const trimmed = rawId?.trim();
   if (!trimmed) {
+    return undefined;
+  }
+  // Only accept decimal digit strings — reject hex (0x10), scientific (1e3),
+  // and other Number()-parseable formats that would normalize to a different ID.
+  if (!/^\d+$/.test(trimmed)) {
     return undefined;
   }
   const numeric = Number(trimmed);

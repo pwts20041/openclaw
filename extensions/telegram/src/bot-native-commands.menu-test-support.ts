@@ -108,6 +108,7 @@ export function createNativeCommandTestParams(
     dispatchReplyWithBufferedBlockDispatcher: vi.fn(
       async () => dispatchResult,
     ) as TelegramBotDeps["dispatchReplyWithBufferedBlockDispatcher"],
+    loadWebMedia: vi.fn() as TelegramBotDeps["loadWebMedia"],
     buildModelsProviderData: vi.fn(async () => ({
       byProvider: new Map<string, Set<string>>(),
       providers: [],

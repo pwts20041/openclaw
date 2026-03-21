@@ -122,6 +122,7 @@ export function createNativeCommandsHarness(params?: {
     enqueueSystemEvent: vi.fn(),
     dispatchReplyWithBufferedBlockDispatcher:
       replyPipelineMocks.dispatchReplyWithBufferedBlockDispatcher,
+    loadWebMedia: vi.fn(),
     buildModelsProviderData: vi.fn(async () => ({
       byProvider: new Map<string, Set<string>>(),
       providers: [],
