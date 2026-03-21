@@ -109,6 +109,7 @@ class SmsManager(private val context: Context) {
 
     companion object {
         private const val DEFAULT_SMS_LIMIT = 25
+        internal const val MAX_MIXED_BY_PHONE_CANDIDATE_WINDOW = 500
         private const val MMS_SMS_BY_PHONE_BASE = "content://mms-sms/messages/byphone"
         private const val MMS_CONTENT_BASE = "content://mms"
         private const val MMS_PART_URI = "content://mms/part"
@@ -234,6 +235,23 @@ class SmsManager(private val context: Context) {
 
         internal fun normalizeProviderDateMillis(rawDate: Long): Long {
             return if (rawDate in 1..999_999_999_999L) rawDate * 1000L else rawDate
+        }
+
+        internal fun requestedMixedByPhoneCandidateWindow(params: QueryParams): Long {
+            return params.offset.toLong() + params.limit.toLong()
+        }
+
+        internal fun exceedsMixedByPhoneCandidateWindow(
+            params: QueryParams,
+            allPhoneNumbers: List<String>,
+        ): Boolean {
+            return params.includeMms &&
+                allPhoneNumbers.size == 1 &&
+                requestedMixedByPhoneCandidateWindow(params) > MAX_MIXED_BY_PHONE_CANDIDATE_WINDOW
+        }
+
+        internal fun mixedByPhoneWindowError(): String {
+            return "INVALID_REQUEST: includeMms offset+limit exceeds supported window ($MAX_MIXED_BY_PHONE_CANDIDATE_WINDOW)"
         }
 
         internal fun buildQueryMetadata(
@@ -537,6 +555,16 @@ class SmsManager(private val context: Context) {
                 (phoneNumbers + params.phoneNumber).distinct()
             } else {
                 phoneNumbers.distinct()
+            }
+
+            if (exceedsMixedByPhoneCandidateWindow(params, allPhoneNumbers)) {
+                val error = mixedByPhoneWindowError()
+                return@withContext SearchResult(
+                    ok = false,
+                    messages = emptyList(),
+                    error = error,
+                    payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = error)
+                )
             }
 
             if (!params.contactName.isNullOrEmpty() && phoneNumbers.isEmpty() && params.phoneNumber.isNullOrEmpty()) {

@@ -548,6 +548,44 @@ class SmsManagerTest {
   }
 
   @Test
+  fun requestedMixedByPhoneCandidateWindowAddsOffsetAndLimitSafely() {
+    val params = SmsManager.QueryParams(includeMms = true, phoneNumber = "+15551234567", limit = 200, offset = 300)
+    assertEquals(500L, SmsManager.requestedMixedByPhoneCandidateWindow(params))
+  }
+
+  @Test
+  fun exceedsMixedByPhoneCandidateWindowFalseAtSupportedBoundary() {
+    val params = SmsManager.QueryParams(includeMms = true, phoneNumber = "+15551234567", limit = 200, offset = 300)
+    assertFalse(SmsManager.exceedsMixedByPhoneCandidateWindow(params, listOf("+15551234567")))
+  }
+
+  @Test
+  fun exceedsMixedByPhoneCandidateWindowTrueWhenSingleNumberMixedWindowTooLarge() {
+    val params = SmsManager.QueryParams(includeMms = true, phoneNumber = "+15551234567", limit = 200, offset = 301)
+    assertTrue(SmsManager.exceedsMixedByPhoneCandidateWindow(params, listOf("+15551234567")))
+  }
+
+  @Test
+  fun exceedsMixedByPhoneCandidateWindowFalseForSmsOnlyQueries() {
+    val params = SmsManager.QueryParams(includeMms = false, phoneNumber = "+15551234567", limit = 200, offset = 50000)
+    assertFalse(SmsManager.exceedsMixedByPhoneCandidateWindow(params, listOf("+15551234567")))
+  }
+
+  @Test
+  fun exceedsMixedByPhoneCandidateWindowFalseWhenMultiplePhoneNumbersDisableMixedByPhonePath() {
+    val params = SmsManager.QueryParams(includeMms = true, phoneNumber = null, limit = 200, offset = 50000)
+    assertFalse(SmsManager.exceedsMixedByPhoneCandidateWindow(params, listOf("+15551234567", "+15557654321")))
+  }
+
+  @Test
+  fun mixedByPhoneWindowErrorMentionsSupportedWindow() {
+    assertEquals(
+      "INVALID_REQUEST: includeMms offset+limit exceeds supported window (500)",
+      SmsManager.mixedByPhoneWindowError(),
+    )
+  }
+
+  @Test
   fun buildQueryMetadataMarksIneligibleWhenIncludeMmsNotRequested() {
     val params = SmsManager.QueryParams(includeMms = false)
 
