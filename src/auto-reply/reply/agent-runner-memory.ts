@@ -735,7 +735,7 @@ export async function runMemoryFlushIfNeeded(params: {
       0;
     if (memoryCompactionCompleted) {
       const previousSessionId = activeSessionEntry?.sessionId ?? params.followupRun.run.sessionId;
-      const nextCount = await incrementCompactionCount({
+      await incrementCompactionCount({
         sessionEntry: activeSessionEntry,
         sessionStore: activeSessionStore,
         sessionKey: params.sessionKey,
@@ -759,9 +759,10 @@ export async function runMemoryFlushIfNeeded(params: {
           });
         }
       }
-      if (typeof nextCount === "number") {
-        memoryFlushCompactionCount = nextCount;
-      }
+      // Do NOT reassign memoryFlushCompactionCount to the post-increment value.
+      // Keeping it at the pre-increment value ensures the next compaction cycle
+      // sees different counters, allowing memoryFlush to fire every cycle
+      // instead of every other. See #12590.
     }
     if (params.storePath && params.sessionKey) {
       try {
