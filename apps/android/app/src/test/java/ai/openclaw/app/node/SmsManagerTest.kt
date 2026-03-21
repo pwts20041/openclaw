@@ -403,45 +403,49 @@ class SmsManagerTest {
 
   @Test
   fun upsertTopDateCandidatesKeepsDescendingOrderAndBounds() {
-    val candidates = mutableListOf<SmsManager.SmsMessage>()
+    val candidates = mutableListOf<Pair<String, SmsManager.SmsMessage>>()
     val max = 2
 
-    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1L, date = 1700L), max)
-    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 2L, date = 2000L), max)
-    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 3L, date = 1500L), max)
+    SmsManager.upsertTopDateCandidates(candidates, "sms:1", smsMessage(id = 1L, date = 1700L), max)
+    SmsManager.upsertTopDateCandidates(candidates, "sms:2", smsMessage(id = 2L, date = 2000L), max)
+    SmsManager.upsertTopDateCandidates(candidates, "sms:3", smsMessage(id = 3L, date = 1500L), max)
 
-    assertEquals(listOf(2L, 1L), candidates.map { it.id })
-    assertEquals(listOf(2000L, 1700L), candidates.map { it.date })
+    assertEquals(listOf(2L, 1L), candidates.map { it.second.id })
+    assertEquals(listOf(2000L, 1700L), candidates.map { it.second.date })
   }
 
   @Test
-  fun upsertTopDateCandidatesDedupesByIdAndKeepsBestOrdering() {
-    val candidates = mutableListOf<SmsManager.SmsMessage>()
+  fun upsertTopDateCandidatesDedupesBySourceAwareIdentityAndKeepsBestOrdering() {
+    val candidates = mutableListOf<Pair<String, SmsManager.SmsMessage>>()
     val max = 5
 
-    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1987L, date = 1773950752506L), max)
-    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1986L, date = 1773899354039L), max)
-    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1985L, date = 1773872989602L), max)
-    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1981L, date = 1773790733566L), max)
-    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1976L, date = 1773784153770L), max)
+    SmsManager.upsertTopDateCandidates(candidates, "sms:1987", smsMessage(id = 1987L, date = 1773950752506L), max)
+    SmsManager.upsertTopDateCandidates(candidates, "sms:1986", smsMessage(id = 1986L, date = 1773899354039L), max)
+    SmsManager.upsertTopDateCandidates(candidates, "sms:1985", smsMessage(id = 1985L, date = 1773872989602L), max)
+    SmsManager.upsertTopDateCandidates(candidates, "sms:1981", smsMessage(id = 1981L, date = 1773790733566L), max)
+    SmsManager.upsertTopDateCandidates(candidates, "sms:1976", smsMessage(id = 1976L, date = 1773784153770L), max)
 
-    // duplicate id seen later in stream should replace the old candidate rather than duplicate rows
-    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1986L, date = 1773899354039L), max)
+    // same source-aware identity should replace, not duplicate
+    SmsManager.upsertTopDateCandidates(candidates, "sms:1986", smsMessage(id = 1986L, date = 1773899354039L), max)
+    // different source-aware identity with same raw id must be preserved
+    SmsManager.upsertTopDateCandidates(candidates, "mms:1986", smsMessage(id = 1986L, date = 1773899354038L), max)
 
     assertEquals(5, candidates.size)
-    assertEquals(1, candidates.count { it.id == 1986L })
-    assertEquals(listOf(1987L, 1986L, 1985L, 1981L, 1976L), candidates.map { it.id })
+    assertEquals(2, candidates.count { it.second.id == 1986L })
+    assertEquals(listOf("sms:1987", "sms:1986", "mms:1986", "sms:1985", "sms:1981"), candidates.map { it.first })
   }
 
   @Test
-  fun materializeByPhoneCandidateDedupesById() {
-    val candidates = linkedMapOf<Long, SmsManager.SmsMessage>()
+  fun materializeByPhoneCandidateDedupesBySourceAwareIdentity() {
+    val candidates = linkedMapOf<String, SmsManager.SmsMessage>()
 
-    SmsManager.materializeByPhoneCandidate(candidates, smsMessage(id = 1L, date = 1000L))
-    SmsManager.materializeByPhoneCandidate(candidates, smsMessage(id = 1L, date = 2000L))
+    SmsManager.materializeByPhoneCandidate(candidates, "sms:1", smsMessage(id = 1L, date = 1000L))
+    SmsManager.materializeByPhoneCandidate(candidates, "sms:1", smsMessage(id = 1L, date = 2000L))
+    SmsManager.materializeByPhoneCandidate(candidates, "mms:1", smsMessage(id = 1L, date = 1500L))
 
-    assertEquals(1, candidates.size)
-    assertEquals(2000L, candidates[1L]?.date)
+    assertEquals(2, candidates.size)
+    assertEquals(2000L, candidates["sms:1"]?.date)
+    assertEquals(1500L, candidates["mms:1"]?.date)
   }
 
   @Test
@@ -462,9 +466,17 @@ class SmsManagerTest {
 
   @Test
   fun upsertTopDateCandidatesNoOpWhenMaxIsZero() {
-    val candidates = mutableListOf<SmsManager.SmsMessage>()
-    SmsManager.upsertTopDateCandidates(candidates, smsMessage(id = 1L, date = 2000L), 0)
+    val candidates = mutableListOf<Pair<String, SmsManager.SmsMessage>>()
+    SmsManager.upsertTopDateCandidates(candidates, "sms:1", smsMessage(id = 1L, date = 2000L), 0)
     assertTrue(candidates.isEmpty())
+  }
+
+  @Test
+  fun buildMixedRowIdentityUsesTransportTypeAndRowId() {
+    assertEquals("sms:7", SmsManager.buildMixedRowIdentity(7L, "sms"))
+    assertEquals("mms:7", SmsManager.buildMixedRowIdentity(7L, "mms"))
+    assertEquals("unknown:7", SmsManager.buildMixedRowIdentity(7L, null))
+    assertEquals("unknown:7", SmsManager.buildMixedRowIdentity(7L, ""))
   }
 
   @Test

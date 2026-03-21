@@ -269,8 +269,13 @@ class SmsManager(private val context: Context) {
             }
         }
 
+        internal fun buildMixedRowIdentity(rowId: Long, transportType: String?): String {
+            return "${transportType?.ifBlank { "unknown" } ?: "unknown"}:$rowId"
+        }
+
         internal fun upsertTopDateCandidates(
-            candidates: MutableList<SmsMessage>,
+            candidates: MutableList<Pair<String, SmsMessage>>,
+            identityKey: String,
             message: SmsMessage,
             maxCandidates: Int,
         ) {
@@ -278,9 +283,9 @@ class SmsManager(private val context: Context) {
                 return
             }
 
-            candidates.removeAll { existing -> existing.id == message.id }
-            candidates.add(message)
-            candidates.sortWith(::compareByPhoneCandidateOrder)
+            candidates.removeAll { existing -> existing.first == identityKey }
+            candidates.add(identityKey to message)
+            candidates.sortWith { left, right -> compareByPhoneCandidateOrder(left.second, right.second) }
 
             while (candidates.size > maxCandidates) {
                 candidates.removeAt(candidates.lastIndex)
@@ -288,10 +293,11 @@ class SmsManager(private val context: Context) {
         }
 
         internal fun materializeByPhoneCandidate(
-            candidates: MutableMap<Long, SmsMessage>,
+            candidates: MutableMap<String, SmsMessage>,
+            identityKey: String,
             message: SmsMessage,
         ) {
-            candidates[message.id] = message
+            candidates[identityKey] = message
         }
 
         internal fun pageByPhoneCandidates(
@@ -764,6 +770,7 @@ class SmsManager(private val context: Context) {
         val projection = arrayOf(
             "_id",
             "thread_id",
+            "transport_type",
             "address",
             "date",
             "date_sent",
@@ -778,12 +785,13 @@ class SmsManager(private val context: Context) {
         }
 
         val useConversationReview = shouldUseConversationReviewByPhoneMode(params)
-        val topCandidates = mutableListOf<SmsMessage>()
-        val materializedCandidates = linkedMapOf<Long, SmsMessage>()
+        val topCandidates = mutableListOf<Pair<String, SmsMessage>>()
+        val materializedCandidates = linkedMapOf<String, SmsMessage>()
         val cursor = context.contentResolver.query(uri, projection, null, null, "date DESC")
         cursor?.use {
             val idIndex = it.getColumnIndex("_id")
             val threadIdIndex = it.getColumnIndex("thread_id")
+            val transportTypeIndex = it.getColumnIndex("transport_type")
             val addressIndex = it.getColumnIndex("address")
             val dateIndex = it.getColumnIndex("date")
             val dateSentIndex = it.getColumnIndex("date_sent")
@@ -800,6 +808,7 @@ class SmsManager(private val context: Context) {
                 if (params.endTime != null && dateMs > params.endTime) continue
 
                 val threadId = if (threadIdIndex >= 0 && !it.isNull(threadIdIndex)) it.getLong(threadIdIndex) else 0L
+                val transportType = if (transportTypeIndex >= 0 && !it.isNull(transportTypeIndex)) it.getString(transportTypeIndex) else null
                 val address = if (addressIndex >= 0 && !it.isNull(addressIndex)) it.getString(addressIndex) else phoneNumber
                 var read = if (readIndex >= 0 && !it.isNull(readIndex)) it.getInt(readIndex) == 1 else true
                 var type = if (typeIndex >= 0 && !it.isNull(typeIndex)) it.getInt(typeIndex) else 0
@@ -841,16 +850,17 @@ class SmsManager(private val context: Context) {
                     body = body,
                     status = -1,
                 )
+                val identityKey = buildMixedRowIdentity(id, transportType)
                 if (useConversationReview) {
-                    upsertTopDateCandidates(topCandidates, message, maxCandidates)
+                    upsertTopDateCandidates(topCandidates, identityKey, message, maxCandidates)
                 } else {
-                    materializeByPhoneCandidate(materializedCandidates, message)
+                    materializeByPhoneCandidate(materializedCandidates, identityKey, message)
                 }
             }
         }
 
         return if (useConversationReview) {
-            pageByPhoneCandidates(topCandidates, params)
+            pageByPhoneCandidates(topCandidates.map { it.second }, params)
         } else {
             pageByPhoneCandidates(materializedCandidates.values, params)
         }
