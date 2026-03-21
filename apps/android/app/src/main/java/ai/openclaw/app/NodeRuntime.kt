@@ -166,6 +166,8 @@ class NodeRuntime(
     locationEnabled = { locationMode.value != LocationMode.Off },
     sendSmsAvailable = { BuildConfig.OPENCLAW_ENABLE_SMS && sms.canSendSms() },
     readSmsAvailable = { BuildConfig.OPENCLAW_ENABLE_SMS && sms.canReadSms() },
+    smsFeatureEnabled = { BuildConfig.OPENCLAW_ENABLE_SMS },
+    smsTelephonyAvailable = { sms.hasTelephonyFeature() },
     callLogAvailable = { BuildConfig.OPENCLAW_ENABLE_CALL_LOG },
     debugBuild = { BuildConfig.DEBUG },
     refreshNodeCanvasCapability = { nodeSession.refreshNodeCanvasCapability() },

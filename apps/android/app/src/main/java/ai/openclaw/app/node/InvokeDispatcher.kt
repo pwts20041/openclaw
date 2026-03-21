@@ -14,6 +14,22 @@ import ai.openclaw.app.protocol.OpenClawNotificationsCommand
 import ai.openclaw.app.protocol.OpenClawSmsCommand
 import ai.openclaw.app.protocol.OpenClawSystemCommand
 
+internal enum class SmsSearchAvailabilityReason {
+  Available,
+  PermissionRequired,
+  Unavailable,
+}
+
+internal fun classifySmsSearchAvailability(
+  readSmsAvailable: Boolean,
+  smsFeatureEnabled: Boolean,
+  smsTelephonyAvailable: Boolean,
+): SmsSearchAvailabilityReason {
+  if (readSmsAvailable) return SmsSearchAvailabilityReason.Available
+  if (!smsFeatureEnabled || !smsTelephonyAvailable) return SmsSearchAvailabilityReason.Unavailable
+  return SmsSearchAvailabilityReason.PermissionRequired
+}
+
 class InvokeDispatcher(
   private val canvas: CanvasController,
   private val cameraHandler: CameraHandler,
@@ -34,6 +50,8 @@ class InvokeDispatcher(
   private val locationEnabled: () -> Boolean,
   private val sendSmsAvailable: () -> Boolean,
   private val readSmsAvailable: () -> Boolean,
+  private val smsFeatureEnabled: () -> Boolean,
+  private val smsTelephonyAvailable: () -> Boolean,
   private val callLogAvailable: () -> Boolean,
   private val debugBuild: () -> Boolean,
   private val refreshNodeCanvasCapability: suspend () -> Boolean,
@@ -269,13 +287,24 @@ class InvokeDispatcher(
           )
         }
       InvokeCommandAvailability.ReadSmsAvailable ->
-        if (readSmsAvailable()) {
-          null
-        } else {
-          GatewaySession.InvokeResult.error(
-            code = "SMS_PERMISSION_REQUIRED",
-            message = "SMS_PERMISSION_REQUIRED: grant READ_SMS permission",
+        when (
+          classifySmsSearchAvailability(
+            readSmsAvailable = readSmsAvailable(),
+            smsFeatureEnabled = smsFeatureEnabled(),
+            smsTelephonyAvailable = smsTelephonyAvailable(),
           )
+        ) {
+          SmsSearchAvailabilityReason.Available -> null
+          SmsSearchAvailabilityReason.PermissionRequired ->
+            GatewaySession.InvokeResult.error(
+              code = "SMS_PERMISSION_REQUIRED",
+              message = "SMS_PERMISSION_REQUIRED: grant READ_SMS permission",
+            )
+          SmsSearchAvailabilityReason.Unavailable ->
+            GatewaySession.InvokeResult.error(
+              code = "SMS_UNAVAILABLE",
+              message = "SMS_UNAVAILABLE: SMS not available on this device",
+            )
         }
       InvokeCommandAvailability.CallLogAvailable ->
         if (callLogAvailable()) {
