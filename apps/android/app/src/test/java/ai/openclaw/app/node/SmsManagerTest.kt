@@ -662,6 +662,16 @@ class SmsManagerTest {
   }
 
   @Test
+  fun shouldHydrateMmsByPhoneRowTrueOnlyForMmsTransportWithBlankBodyOrZeroType() {
+    assertTrue(SmsManager.shouldHydrateMmsByPhoneRow("mms", null, 1))
+    assertTrue(SmsManager.shouldHydrateMmsByPhoneRow("mms", "", 1))
+    assertTrue(SmsManager.shouldHydrateMmsByPhoneRow("mms", "body", 0))
+    assertFalse(SmsManager.shouldHydrateMmsByPhoneRow("sms", null, 0))
+    assertFalse(SmsManager.shouldHydrateMmsByPhoneRow(null, null, 0))
+    assertFalse(SmsManager.shouldHydrateMmsByPhoneRow("mms", "body", 1))
+  }
+
+  @Test
   fun buildQueryMetadataDoesNotTreatSmsStatusSentinelAsMmsInclusion() {
     val params = SmsManager.QueryParams(includeMms = true, phoneNumber = "+15551234567")
     val smsLikeMessage = smsMessage(id = 7L, date = 1000L, status = -1, transportType = "sms")

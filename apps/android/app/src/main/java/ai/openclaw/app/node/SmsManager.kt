@@ -280,6 +280,10 @@ class SmsManager(private val context: Context) {
             return message.transportType.equals("mms", ignoreCase = true)
         }
 
+        internal fun shouldHydrateMmsByPhoneRow(transportType: String?, body: String?, type: Int): Boolean {
+            return transportType.equals("mms", ignoreCase = true) && (body.isNullOrBlank() || type == 0)
+        }
+
         internal fun buildQueryMetadata(
             params: QueryParams,
             allPhoneNumbers: List<String>,
@@ -870,8 +874,8 @@ class SmsManager(private val context: Context) {
                 var type = if (typeIndex >= 0 && !it.isNull(typeIndex)) it.getInt(typeIndex) else 0
                 var body = if (bodyIndex >= 0 && !it.isNull(bodyIndex)) it.getString(bodyIndex) else null
 
-                // MMS rows in by-phone cursor may carry null body/type/read.
-                if (body.isNullOrBlank() || type == 0) {
+                // Only MMS transport rows are allowed to hydrate from MMS storage.
+                if (shouldHydrateMmsByPhoneRow(transportType, body, type)) {
                     body = body?.takeIf { msg -> msg.isNotBlank() } ?: getMmsTextBody(id)
                     val mmsMeta = getMmsMeta(id)
                     if (type == 0) {
