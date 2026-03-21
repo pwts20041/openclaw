@@ -341,20 +341,26 @@ export async function runAgentTurnWithFallback(params: {
                 lifecycleTerminalEmitted = true;
 
                 // Emit supplementary usage event with accumulated token/cost data.
+                // Wrapped in its own try/catch so a failure here cannot
+                // propagate to the outer catch and emit a spurious "error" event.
                 const agentMeta = result.meta?.agentMeta;
                 if (agentMeta?.usage) {
-                  emitAgentEvent({
-                    runId,
-                    stream: "lifecycle",
-                    data: {
-                      phase: "usage",
-                      provider: agentMeta.provider,
-                      model: agentMeta.model,
-                      usage: agentMeta.usage,
-                      lastCallUsage: agentMeta.lastCallUsage,
-                      durationMs: result.meta?.durationMs,
-                    },
-                  });
+                  try {
+                    emitAgentEvent({
+                      runId,
+                      stream: "lifecycle",
+                      data: {
+                        phase: "usage",
+                        provider: agentMeta.provider,
+                        model: agentMeta.model,
+                        usage: agentMeta.usage,
+                        lastCallUsage: agentMeta.lastCallUsage,
+                        durationMs: result.meta?.durationMs,
+                      },
+                    });
+                  } catch {
+                    // Non-fatal: usage reporting should not surface as a run error.
+                  }
                 }
 
                 return result;
@@ -570,18 +576,22 @@ export async function runAgentTurnWithFallback(params: {
               // the run result is available.
               const agentMeta = result.meta?.agentMeta;
               if (agentMeta?.usage) {
-                emitAgentEvent({
-                  runId,
-                  stream: "lifecycle",
-                  data: {
-                    phase: "usage",
-                    provider: agentMeta.provider,
-                    model: agentMeta.model,
-                    usage: agentMeta.usage,
-                    lastCallUsage: agentMeta.lastCallUsage,
-                    durationMs: result.meta?.durationMs,
-                  },
-                });
+                try {
+                  emitAgentEvent({
+                    runId,
+                    stream: "lifecycle",
+                    data: {
+                      phase: "usage",
+                      provider: agentMeta.provider,
+                      model: agentMeta.model,
+                      usage: agentMeta.usage,
+                      lastCallUsage: agentMeta.lastCallUsage,
+                      durationMs: result.meta?.durationMs,
+                    },
+                  });
+                } catch {
+                  // Non-fatal: usage reporting should not surface as a run error.
+                }
               }
 
               const resultCompactionCount = Math.max(

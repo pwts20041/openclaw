@@ -256,18 +256,22 @@ export function createFollowupRunner(params: {
               // Emit supplementary usage event with accumulated token/cost data.
               const agentMeta = result.meta?.agentMeta;
               if (agentMeta?.usage) {
-                emitAgentEvent({
-                  runId,
-                  stream: "lifecycle",
-                  data: {
-                    phase: "usage",
-                    provider: agentMeta.provider,
-                    model: agentMeta.model,
-                    usage: agentMeta.usage,
-                    lastCallUsage: agentMeta.lastCallUsage,
-                    durationMs: result.meta?.durationMs,
-                  },
-                });
+                try {
+                  emitAgentEvent({
+                    runId,
+                    stream: "lifecycle",
+                    data: {
+                      phase: "usage",
+                      provider: agentMeta.provider,
+                      model: agentMeta.model,
+                      usage: agentMeta.usage,
+                      lastCallUsage: agentMeta.lastCallUsage,
+                      durationMs: result.meta?.durationMs,
+                    },
+                  });
+                } catch {
+                  // Non-fatal: usage reporting should not surface as a run error.
+                }
               }
 
               const resultCompactionCount = Math.max(
