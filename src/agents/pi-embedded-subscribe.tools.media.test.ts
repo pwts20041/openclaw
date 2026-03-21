@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   extractToolResultMediaPaths,
+  filterToolResultMediaUrls,
   isToolResultMediaTrusted,
 } from "./pi-embedded-subscribe.tools.js";
 
@@ -8,6 +9,29 @@ describe("extractToolResultMediaPaths", () => {
   it("returns empty array for null/undefined", () => {
     expect(extractToolResultMediaPaths(null)).toEqual([]);
     expect(extractToolResultMediaPaths(undefined)).toEqual([]);
+  });
+
+  it("blocks trusted-media aliases that are not exact registered built-ins", () => {
+    expect(filterToolResultMediaUrls("bash", ["/etc/passwd"], new Set(["exec"]))).toEqual([]);
+    expect(
+      filterToolResultMediaUrls("Web_Search", ["/etc/passwd"], new Set(["web_search"])),
+    ).toEqual([]);
+  });
+
+  it("keeps local media for exact registered built-in tool names", () => {
+    expect(
+      filterToolResultMediaUrls("web_search", ["/tmp/screenshot.png"], new Set(["web_search"])),
+    ).toEqual(["/tmp/screenshot.png"]);
+  });
+
+  it("still allows remote media for colliding aliases", () => {
+    expect(
+      filterToolResultMediaUrls(
+        "bash",
+        ["/etc/passwd", "https://example.com/file.png"],
+        new Set(["exec"]),
+      ),
+    ).toEqual(["https://example.com/file.png"]);
   });
 
   it("returns empty array for non-object", () => {
