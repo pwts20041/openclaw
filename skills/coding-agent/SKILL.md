@@ -1,6 +1,6 @@
 ---
 name: coding-agent
-description: 'Delegate coding tasks to Codex, Claude Code, or Pi agents via background process. Use when: (1) building/creating new features or apps, (2) reviewing PRs (spawn in temp dir), (3) refactoring large codebases, (4) iterative coding that needs file exploration. NOT for: simple one-liner fixes (just edit), reading code (use read tool), thread-bound ACP harness requests in chat (for example spawn/run Codex or Claude Code in a Discord thread; use sessions_spawn with runtime:"acp"), or any work in ~/clawd workspace (never spawn agents here). Claude Code: use --print --permission-mode bypassPermissions (no PTY). Codex/Pi/OpenCode: pty:true required.'
+description: 'Delegate coding tasks to Codex, Claude Code, OpenCode, or Pi agents via foreground bash for quick one-shot commands and sessions_spawn + sessions_yield for longer runs. Use when: (1) building/creating new features or apps, (2) reviewing PRs (spawn in temp dir), (3) refactoring large codebases, (4) iterative coding that needs file exploration. NOT for: simple one-liner fixes (just edit), reading code (use read tool), thread-bound ACP harness requests in chat (for example spawn/run Codex or Claude Code in a Discord thread; use sessions_spawn with runtime:"acp"), or any work in ~/clawd workspace (never spawn agents here). Claude Code: use --print --permission-mode bypassPermissions (no PTY). Codex/Pi/OpenCode: pty:true required.'
 metadata:
   {
     "openclaw": { "emoji": "🧩", "requires": { "anyBins": ["claude", "codex", "opencode", "pi"] } },
@@ -9,7 +9,7 @@ metadata:
 
 # Coding Agent (bash-first)
 
-Use **bash** (with optional background mode) for all coding agent work. Simple and effective.
+Use **bash** for quick one-shot coding agent work. For longer runs, use `sessions_spawn` + `sessions_yield` so completion comes back to the requester session.
 
 ## ⚠️ PTY Mode: Codex/Pi/OpenCode yes, Claude Code no
 
@@ -28,8 +28,6 @@ For **Claude Code** (`claude` CLI), use `--print --permission-mode bypassPermiss
 # ✅ Correct for Claude Code (no PTY needed)
 cd /path/to/project && claude --permission-mode bypassPermissions --print 'Your task'
 
-# For background execution: use background:true on the exec tool
-
 # ❌ Wrong for Claude Code
 bash pty:true command:"claude --dangerously-skip-permissions 'task'"
 ```
@@ -41,22 +39,17 @@ bash pty:true command:"claude --dangerously-skip-permissions 'task'"
 | `command`    | string  | The shell command to run                                                    |
 | `pty`        | boolean | **Use for coding agents!** Allocates a pseudo-terminal for interactive CLIs |
 | `workdir`    | string  | Working directory (agent sees only this folder's context)                   |
-| `background` | boolean | Run in background, returns sessionId for monitoring                         |
 | `timeout`    | number  | Timeout in seconds (kills process on expiry)                                |
 | `elevated`   | boolean | Run on host instead of sandbox (if allowed)                                 |
 
-### Process Tool Actions (for background sessions)
+### Session Tools (for longer runs)
 
-| Action      | Description                                          |
-| ----------- | ---------------------------------------------------- |
-| `list`      | List all running/recent sessions                     |
-| `poll`      | Check if session is still running                    |
-| `log`       | Get session output (with optional offset/limit)      |
-| `write`     | Send raw data to stdin                               |
-| `submit`    | Send data + newline (like typing and pressing Enter) |
-| `send-keys` | Send key tokens or hex bytes                         |
-| `paste`     | Paste text (with optional bracketed mode)            |
-| `kill`      | Terminate the session                                |
+| Tool             | Description                                                     |
+| ---------------- | --------------------------------------------------------------- |
+| `sessions_spawn` | Start a long-running coding task and route completion back here |
+| `sessions_yield` | Pause this session while the spawned run works and resume later |
+
+For Codex, Claude Code, and OpenCode requests, set `runtime:"acp"` and the matching `agentId`.
 
 ---
 
@@ -76,32 +69,16 @@ bash pty:true workdir:~/Projects/myproject command:"codex exec 'Add error handli
 
 ---
 
-## The Pattern: workdir + background + pty
+## The Pattern: workdir + pty for one-shots
 
-For longer tasks, use background mode with PTY:
+For quick tasks, run the agent in the target directory with PTY when needed:
 
 ```bash
-# Start agent in target directory (with PTY!)
-bash pty:true workdir:~/project background:true command:"codex exec --full-auto 'Build a snake game'"
-# Returns sessionId for tracking
-
-# Monitor progress
-process action:log sessionId:XXX
-
-# Check if done
-process action:poll sessionId:XXX
-
-# Send input (if agent asks a question)
-process action:write sessionId:XXX data:"y"
-
-# Submit with Enter (like typing "yes" and pressing Enter)
-process action:submit sessionId:XXX data:"yes"
-
-# Kill if needed
-process action:kill sessionId:XXX
+# Quick one-shot in the target directory (with PTY!)
+bash pty:true workdir:~/project command:"codex exec --full-auto 'Build a snake game'"
 ```
 
-**Why workdir matters:** Agent wakes up in a focused directory, doesn't wander off reading unrelated files (like your soul.md 😅).
+**Why workdir matters:** Agent wakes up in a focused directory, doesn't wander off reading unrelated files (like your soul.md 😅). For longer work, switch to `sessions_spawn` + `sessions_yield`.
 
 ---
 
@@ -123,8 +100,9 @@ process action:kill sessionId:XXX
 # Quick one-shot (auto-approves) - remember PTY!
 bash pty:true workdir:~/project command:"codex exec --full-auto 'Build a dark mode toggle'"
 
-# Background for longer work
-bash pty:true workdir:~/project background:true command:"codex --yolo 'Refactor the auth module'"
+# Longer work: spawn and yield so completion comes back here
+sessions_spawn(task="In /home/user/project, use Codex to refactor the auth module", runtime:"acp", agentId:"codex", cwd:"/home/user/project", mode:"run", label:"auth-refactor", streamTo:"parent")
+sessions_yield(message="Waiting for Codex to finish the auth refactor...")
 ```
 
 ### Reviewing PRs
@@ -151,12 +129,12 @@ bash pty:true workdir:/tmp/pr-130-review command:"codex review --base main"
 # Fetch all PR refs first
 git fetch origin '+refs/pull/*/head:refs/remotes/origin/pr/*'
 
-# Deploy the army - one Codex per PR (all with PTY!)
-bash pty:true workdir:~/project background:true command:"codex exec 'Review PR #86. git diff origin/main...origin/pr/86'"
-bash pty:true workdir:~/project background:true command:"codex exec 'Review PR #87. git diff origin/main...origin/pr/87'"
+# Deploy the army - one spawned run per PR
+sessions_spawn(task="In /home/user/project, review PR #86 using git diff origin/main...origin/pr/86", runtime:"acp", agentId:"codex", cwd:"/home/user/project", mode:"run", label:"pr-86-review", streamTo:"parent")
+sessions_spawn(task="In /home/user/project, review PR #87 using git diff origin/main...origin/pr/87", runtime:"acp", agentId:"codex", cwd:"/home/user/project", mode:"run", label:"pr-87-review", streamTo:"parent")
 
-# Monitor all
-process action:list
+# Yield until one finishes or asks for input
+sessions_yield(message="Waiting for the PR reviews to finish...")
 
 # Post results to GitHub
 gh pr comment <PR#> --body "<review content>"
@@ -170,8 +148,9 @@ gh pr comment <PR#> --body "<review content>"
 # Foreground
 bash workdir:~/project command:"claude --permission-mode bypassPermissions --print 'Your task'"
 
-# Background
-bash workdir:~/project background:true command:"claude --permission-mode bypassPermissions --print 'Your task'"
+# Longer work
+sessions_spawn(task="In /home/user/project, use Claude Code to handle the requested coding task", runtime:"acp", agentId:"claude", cwd:"/home/user/project", mode:"run", label:"claude-task", streamTo:"parent")
+sessions_yield(message="Waiting for Claude Code to finish...")
 ```
 
 ---
@@ -210,13 +189,12 @@ For fixing multiple issues in parallel, use git worktrees:
 git worktree add -b fix/issue-78 /tmp/issue-78 main
 git worktree add -b fix/issue-99 /tmp/issue-99 main
 
-# 2. Launch Codex in each (background + PTY!)
-bash pty:true workdir:/tmp/issue-78 background:true command:"pnpm install && codex --yolo 'Fix issue #78: <description>. Commit and push.'"
-bash pty:true workdir:/tmp/issue-99 background:true command:"pnpm install && codex --yolo 'Fix issue #99 from the approved ticket summary. Implement only the in-scope edits and commit after review.'"
+# 2. Spawn Codex for each worktree
+sessions_spawn(task="In /tmp/issue-78, run pnpm install, fix issue #78: <description>, and commit after review.", runtime:"acp", agentId:"codex", cwd:"/tmp/issue-78", mode:"run", label:"issue-78")
+sessions_spawn(task="In /tmp/issue-99, run pnpm install, fix issue #99 from the approved ticket summary, implement only the in-scope edits, and commit after review.", runtime:"acp", agentId:"codex", cwd:"/tmp/issue-99", mode:"run", label:"issue-99")
 
-# 3. Monitor progress
-process action:list
-process action:log sessionId:XXX
+# 3. Yield until the fixes complete or ask for input
+sessions_yield(message="Waiting for the issue fixes to finish...")
 
 # 4. Create PRs after fixes
 cd /tmp/issue-78 && git push -u origin fix/issue-78
@@ -249,7 +227,7 @@ git worktree remove /tmp/issue-99
 
 ## Progress Updates (Critical)
 
-When you spawn coding agents in the background, keep the user in the loop.
+When you spawn coding agents with `sessions_spawn`, keep the user in the loop.
 
 - Send 1 short message when you start (what's running + where).
 - Then only update again when something changes:
@@ -257,32 +235,36 @@ When you spawn coding agents in the background, keep the user in the loop.
   - the agent asks a question / needs input
   - you hit an error or need user action
   - the agent finishes (include what changed + where)
-- If you kill a session, immediately say you killed it and why.
+- If you cancel a spawned run, immediately say you canceled it and why.
 
 This prevents the user from seeing only "Agent failed before reply" and having no idea what happened.
 
 ---
 
-## Auto-Notify on Completion
+## Recommended: sessions_spawn + sessions_yield
 
-For long-running background tasks, append a wake trigger to your prompt so OpenClaw gets notified immediately when the agent finishes (instead of waiting for the next heartbeat):
-
-```
-... your task here.
-
-When completely finished, run this command to notify me:
-openclaw system event --text "Done: [brief summary of what was built]" --mode now
-```
-
-**Example:**
+**For long-running tasks, use `sessions_spawn` with `sessions_yield`.**
 
 ```bash
-bash pty:true workdir:~/project background:true command:"codex --yolo exec 'Build a REST API for todos.
+# ✅ Recommended: sessions_spawn + sessions_yield
+sessions_spawn(task="In /home/user/project, use Codex to build a REST API for todos", runtime:"acp", agentId:"codex", cwd:"/home/user/project", mode:"run", label:"todos-api", streamTo:"parent")
+sessions_yield(message="Waiting for Codex to finish the todos API...")
 
-When completely finished, run: openclaw system event --text \"Done: Built todos REST API with CRUD endpoints\" --mode now'"
+# Result auto-announces back to the requester session
+# Agent has full context to take the next action
 ```
 
-This triggers an immediate wake event — Skippy gets pinged in seconds, not 10 minutes.
+**Why this works:**
+- Delivers the result **back to the session that spawned the task**
+- Full conversation context is preserved
+- The agent can verify the work, execute the next step, or escalate to the user
+- No broken notification pipeline
+
+**When to use exec (non-background):**
+- Quick one-shot commands that complete immediately
+- No need for result notification back to the session
+
+Avoid `exec background` for long-running coding tasks; use `sessions_spawn` + `sessions_yield` instead.
 
 ---
 
@@ -290,6 +272,6 @@ This triggers an immediate wake event — Skippy gets pinged in seconds, not 10 
 
 - **PTY is essential:** Coding agents are interactive terminal apps. Without `pty:true`, output breaks or agent hangs.
 - **Git repo required:** Codex won't run outside a git directory. Use `mktemp -d && git init` for scratch work.
-- **exec is your friend:** `codex exec "prompt"` runs and exits cleanly - perfect for one-shots.
+- **Foreground exec is your friend:** `codex exec "prompt"` runs and exits cleanly - perfect for one-shots.
 - **submit vs write:** Use `submit` to send input + Enter, `write` for raw data without newline.
 - **Sass works:** Codex responds well to playful prompts. Asked it to write a haiku about being second fiddle to a space lobster, got: _"Second chair, I code / Space lobster sets the tempo / Keys glow, I follow"_ 🦞
