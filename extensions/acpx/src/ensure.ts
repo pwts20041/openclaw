@@ -15,6 +15,8 @@ export type AcpxVersionCheckResult =
       ok: true;
       version: string;
       expectedVersion?: string;
+      /** Set when version was resolved from package.json because the .cmd wrapper could not be executed. The binary needs a local install to become truly executable. */
+      cmdWrapperFallback?: true;
     }
   | {
       ok: false;
@@ -55,6 +57,31 @@ function resolveVersionFromPackage(command: string, cwd: string): string | null 
   } catch {
     return null;
   }
+
+  // npm on Windows typically provides .cmd wrappers under node_modules/.bin.
+  // In that case, the acpx package.json lives at node_modules/acpx/package.json
+  // and is not on the upward walk from .bin -> node_modules -> plugin root.
+  const commandDir = path.dirname(commandPath);
+  const commandBase = path.basename(commandPath).toLowerCase();
+  if (
+    process.platform === "win32" &&
+    path.basename(commandDir).toLowerCase() === ".bin" &&
+    (commandBase === "acpx.cmd" || commandBase === "acpx.bat")
+  ) {
+    const siblingPackageJson = path.resolve(commandDir, "..", "acpx", "package.json");
+    try {
+      const parsed = JSON.parse(fs.readFileSync(siblingPackageJson, "utf8")) as {
+        name?: unknown;
+        version?: unknown;
+      };
+      if (parsed.name === "acpx" && typeof parsed.version === "string" && parsed.version.trim()) {
+        return parsed.version.trim();
+      }
+    } catch {
+      // no-op; fall back to upward walk
+    }
+  }
+
   while (true) {
     const packageJsonPath = path.join(current, "package.json");
     try {
@@ -98,6 +125,45 @@ function resolveVersionCheckResult(params: {
   };
 }
 
+function isWindowsCmdWrapperProbeFailure(error: unknown): boolean {
+  if (process.platform !== "win32") {
+    return false;
+  }
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return (
+    (message.includes("acpx.cmd") || message.includes("acpx.bat")) &&
+    message.includes("wrapper resolved") &&
+    message.includes("without shell execution")
+  );
+}
+
+function tryResolveVersionFromPackageForWrapperFailure(params: {
+  error: unknown;
+  command: string;
+  cwd: string;
+  expectedVersion?: string;
+  installCommand: string;
+}): AcpxVersionCheckResult | null {
+  if (!isWindowsCmdWrapperProbeFailure(params.error)) {
+    return null;
+  }
+  const installedVersion = resolveVersionFromPackage(params.command, params.cwd);
+  if (!installedVersion) {
+    return null;
+  }
+  const result = resolveVersionCheckResult({
+    expectedVersion: params.expectedVersion,
+    installedVersion,
+    installCommand: params.installCommand,
+  });
+  // Tag ok results so ensureAcpx knows the command is not yet executable and
+  // must still run a local install to replace the broken .cmd wrapper.
+  if (result.ok) {
+    return { ...result, cmdWrapperFallback: true };
+  }
+  return result;
+}
+
 export async function checkAcpxVersion(params: {
   command: string;
   cwd?: string;
@@ -122,6 +188,16 @@ export async function checkAcpxVersion(params: {
       ? await spawnAndCollect(spawnParams, params.spawnOptions)
       : await spawnAndCollect(spawnParams);
   } catch (error) {
+    const packageFallback = tryResolveVersionFromPackageForWrapperFailure({
+      error,
+      command: params.command,
+      cwd,
+      expectedVersion,
+      installCommand,
+    });
+    if (packageFallback) {
+      return packageFallback;
+    }
     return {
       ok: false,
       reason: "execution-failed",
@@ -141,6 +217,16 @@ export async function checkAcpxVersion(params: {
         expectedVersion,
         installCommand,
       };
+    }
+    const packageFallback = tryResolveVersionFromPackageForWrapperFailure({
+      error: result.error,
+      command: params.command,
+      cwd,
+      expectedVersion,
+      installCommand,
+    });
+    if (packageFallback) {
+      return packageFallback;
     }
     return {
       ok: false,
@@ -220,15 +306,24 @@ export async function ensureAcpx(params: {
       stripProviderAuthEnvVars: params.stripProviderAuthEnvVars,
       spawnOptions: params.spawnOptions,
     });
-    if (precheck.ok) {
+    if (precheck.ok && !precheck.cmdWrapperFallback) {
       return;
     }
     if (!allowInstall) {
+      if (precheck.ok) {
+        // Version matches via package.json fallback but the .cmd wrapper is not
+        // executable; install is not permitted, so there is nothing more to do.
+        return;
+      }
       throw new Error(precheck.message);
     }
 
+    const precheckMessage = precheck.ok
+      ? "Windows .cmd wrapper is not directly executable; reinstalling to fix"
+      : precheck.message;
+
     params.logger?.warn(
-      `acpx local binary unavailable or mismatched (${precheck.message}); running plugin-local install`,
+      `acpx local binary unavailable or mismatched (${precheckMessage}); running plugin-local install`,
     );
 
     const install = await spawnAndCollect({
@@ -269,6 +364,12 @@ export async function ensureAcpx(params: {
 
     if (!postcheck.ok) {
       throw new Error(`plugin-local acpx verification failed after install: ${postcheck.message}`);
+    }
+
+    if (postcheck.cmdWrapperFallback) {
+      throw new Error(
+        "plugin-local acpx reinstall did not resolve the Windows .cmd wrapper; binary is still not directly executable",
+      );
     }
 
     params.logger?.info(`acpx plugin-local binary ready (version ${postcheck.version})`);
