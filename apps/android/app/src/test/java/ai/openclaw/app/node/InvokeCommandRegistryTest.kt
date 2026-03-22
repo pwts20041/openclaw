@@ -114,6 +114,7 @@ class InvokeCommandRegistryTest {
           locationEnabled = true,
           sendSmsAvailable = true,
           readSmsAvailable = true,
+          smsSearchPossible = true,
           callLogAvailable = true,
           motionActivityAvailable = true,
           motionPedometerAvailable = true,
