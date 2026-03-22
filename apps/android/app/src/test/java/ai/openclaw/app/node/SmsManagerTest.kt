@@ -3,6 +3,7 @@ package ai.openclaw.app.node
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -385,6 +386,16 @@ class SmsManagerTest {
   }
 
   @Test
+  fun sanitizeContactPhoneNumberOrNullDropsPercentWildcardInput() {
+    assertNull(SmsManager.sanitizeContactPhoneNumberOrNull("1%2"))
+  }
+
+  @Test
+  fun sanitizeContactPhoneNumberOrNullDropsUnderscoreWildcardInput() {
+    assertNull(SmsManager.sanitizeContactPhoneNumberOrNull("1_2"))
+  }
+
+  @Test
   fun escapeSqlLikeLiteralEscapesPercentUnderscoreAndBackslash() {
     assertEquals("\\%a\\_b\\\\c", SmsManager.escapeSqlLikeLiteral("%a_b\\c"))
   }
@@ -422,7 +433,7 @@ class SmsManagerTest {
 
   @Test
   fun buildMixedByPhoneProjectionMatchesExpectedStatusAwareShape() {
-    assertContentEquals(
+    assertArrayEquals(
       arrayOf(
         "_id",
         "thread_id",
@@ -794,11 +805,6 @@ class SmsManagerTest {
 
     assertTrue(metadata.mmsRequested)
     assertTrue(metadata.mmsEligible)
-    assertTrue(metadata.mmsAttempted)
-    assertTrue(metadata.mmsIncluded)
-  }
-}
-data.mmsEligible)
     assertTrue(metadata.mmsAttempted)
     assertTrue(metadata.mmsIncluded)
   }

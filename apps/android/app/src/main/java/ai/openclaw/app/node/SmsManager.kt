@@ -213,7 +213,8 @@ class SmsManager(private val context: Context) {
         }
 
         internal fun sanitizeContactPhoneNumberOrNull(phone: String?): String? {
-            return normalizePhoneNumberOrNull(phone)
+            val normalized = normalizePhoneNumberOrNull(phone) ?: return null
+            return normalized.takeUnless(::hasSqlLikeWildcard)
         }
 
         internal fun escapeSqlLikeLiteral(value: String): String {
