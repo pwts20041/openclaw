@@ -1329,7 +1329,7 @@ describe("runHeartbeatOnce", () => {
     }
   });
 
-  it("uses an internal-only exec prompt when heartbeat delivery target is none", async () => {
+  it("relays exec completion to last channel when heartbeat delivery target is none", async () => {
     const tmpDir = await createCaseDir("hb-exec-target-none");
     const storePath = path.join(tmpDir, "sessions.json");
     const cfg: OpenClawConfig = {
@@ -1360,7 +1360,7 @@ describe("runHeartbeatOnce", () => {
     });
 
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
-    replySpy.mockResolvedValue({ text: "Handled internally" });
+    replySpy.mockResolvedValue({ text: "Exec completed successfully" });
     const sendWhatsApp = vi
       .fn<
         (to: string, text: string, opts?: unknown) => Promise<{ messageId: string; toJid: string }>
@@ -1374,11 +1374,16 @@ describe("runHeartbeatOnce", () => {
         deps: createHeartbeatDeps(sendWhatsApp),
       });
       expect(res.status).toBe("ran");
-      expect(sendWhatsApp).toHaveBeenCalledTimes(0);
+      expect(sendWhatsApp).toHaveBeenCalledTimes(1);
+      expect(sendWhatsApp).toHaveBeenCalledWith(
+        "120363401234567890@g.us",
+        "Exec completed successfully",
+        expect.objectContaining({ accountId: undefined }),
+      );
       const calledCtx = replySpy.mock.calls[0]?.[0] as { Provider?: string; Body?: string };
       expect(calledCtx.Provider).toBe("exec-event");
-      expect(calledCtx.Body).toContain("Handle the result internally");
-      expect(calledCtx.Body).not.toContain("Please relay the command output to the user");
+      expect(calledCtx.Body).toContain("Please relay the command output to the user");
+      expect(calledCtx.Body).not.toContain("Handle the result internally");
     } finally {
       replySpy.mockRestore();
     }

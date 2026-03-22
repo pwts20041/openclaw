@@ -5,7 +5,7 @@ import { resolveSessionFilePath, resolveSessionFilePathOptions } from "../config
 import { onAgentEvent } from "../infra/agent-events.js";
 import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
-import { scopedHeartbeatWakeOptions } from "../routing/session-key.js";
+import { resolveEventSessionKey, scopedHeartbeatWakeOptions } from "../routing/session-key.js";
 
 const DEFAULT_STREAM_FLUSH_MS = 2_500;
 const DEFAULT_NO_OUTPUT_NOTICE_MS = 60_000;
@@ -191,7 +191,10 @@ export function startAcpSpawnParentStreamRelay(params: {
       return;
     }
     logEvent("system_event", { contextKey, text: cleaned });
-    enqueueSystemEvent(cleaned, { sessionKey: parentSessionKey, contextKey });
+    enqueueSystemEvent(cleaned, {
+      sessionKey: resolveEventSessionKey(parentSessionKey),
+      contextKey,
+    });
     wake();
   };
   const emitStartNotice = () => {
