@@ -124,7 +124,7 @@ function describeMSTeamsMessageTool({
     cfg.channels?.msteams?.enabled !== false &&
     Boolean(resolveMSTeamsCredentials(cfg.channels?.msteams));
   return {
-    actions: enabled ? (["poll"] satisfies ChannelMessageActionName[]) : [],
+    actions: enabled ? (["poll", "react"] satisfies ChannelMessageActionName[]) : [],
     capabilities: enabled ? ["cards"] : [],
     schema: enabled
       ? {
@@ -428,6 +428,54 @@ export const msteamsPlugin: ChannelPlugin<ResolvedMSTeamsAccount> = {
             },
           ],
           details: { ok: true, channel: "msteams", messageId: result.messageId },
+        };
+      }
+      if (ctx.action === "react") {
+        const to =
+          typeof ctx.params.to === "string"
+            ? ctx.params.to.trim()
+            : typeof ctx.params.target === "string"
+              ? ctx.params.target.trim()
+              : "";
+        const activityId =
+          typeof ctx.params.messageId === "string" ? ctx.params.messageId.trim() : "";
+        const emoji = typeof ctx.params.emoji === "string" ? ctx.params.emoji.trim() : "";
+        const remove = ctx.params.remove === true;
+        if (!to) {
+          return {
+            isError: true,
+            content: [{ type: "text" as const, text: "react requires a target (to)." }],
+            details: { error: "react requires a target (to)." },
+          };
+        }
+        if (!activityId) {
+          return {
+            isError: true,
+            content: [{ type: "text" as const, text: "react requires a messageId." }],
+            details: { error: "react requires a messageId." },
+          };
+        }
+        if (!emoji) {
+          return {
+            isError: true,
+            content: [{ type: "text" as const, text: "react requires an emoji." }],
+            details: { error: "react requires an emoji." },
+          };
+        }
+        const { reactMessageMSTeams, removeReactionMSTeams } = await loadMSTeamsChannelRuntime();
+        if (remove) {
+          await removeReactionMSTeams({ cfg: ctx.cfg, to, activityId, emoji });
+        } else {
+          await reactMessageMSTeams({ cfg: ctx.cfg, to, activityId, emoji });
+        }
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({ ok: true, channel: "msteams", action: "react", remove }),
+            },
+          ],
+          details: { ok: true, channel: "msteams", action: "react" },
         };
       }
       // Return null to fall through to default handler

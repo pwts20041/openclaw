@@ -35,16 +35,29 @@ export async function fetchGraphJson<T>(params: {
   token: string;
   path: string;
   headers?: Record<string, string>;
+  /** HTTP method; defaults to "GET" */
+  method?: string;
+  /** Request body (serialized as JSON). Only used for non-GET methods. */
+  body?: unknown;
 }): Promise<T> {
+  const method = params.method ?? "GET";
+  const hasBody = params.body !== undefined && method !== "GET";
   const res = await fetch(`${GRAPH_ROOT}${params.path}`, {
+    method,
     headers: {
       Authorization: `Bearer ${params.token}`,
+      ...(hasBody ? { "Content-Type": "application/json" } : {}),
       ...params.headers,
     },
+    ...(hasBody ? { body: JSON.stringify(params.body) } : {}),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Graph ${params.path} failed (${res.status}): ${text || "unknown error"}`);
+  }
+  // 204 No Content responses have no body to parse.
+  if (res.status === 204) {
+    return undefined as unknown as T;
   }
   return (await res.json()) as T;
 }
