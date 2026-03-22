@@ -751,6 +751,23 @@ class SmsManagerTest {
   }
 
   @Test
+  fun mapMmsMsgBoxToSearchTypeCoversSearchRelevantMmsBoxes() {
+    assertEquals(1, SmsManager.mapMmsMsgBoxToSearchType(1))
+    assertEquals(2, SmsManager.mapMmsMsgBoxToSearchType(2))
+    assertEquals(3, SmsManager.mapMmsMsgBoxToSearchType(3))
+    assertEquals(4, SmsManager.mapMmsMsgBoxToSearchType(4))
+    assertEquals(5, SmsManager.mapMmsMsgBoxToSearchType(5))
+    assertEquals(6, SmsManager.mapMmsMsgBoxToSearchType(6))
+  }
+
+  @Test
+  fun mapMmsMsgBoxToSearchTypeLeavesUnsupportedBoxesUnmapped() {
+    assertNull(SmsManager.mapMmsMsgBoxToSearchType(0))
+    assertNull(SmsManager.mapMmsMsgBoxToSearchType(99))
+    assertNull(SmsManager.mapMmsMsgBoxToSearchType(null))
+  }
+
+  @Test
   fun shouldUseConversationReviewByPhoneModeOnlyForMixedByPhoneReviewPulls() {
     val active =
       SmsManager.QueryParams(

@@ -225,6 +225,18 @@ class SmsManager(private val context: Context) {
             return !contactName.isNullOrEmpty() && phoneNumber.isNullOrEmpty() && !hasReadContactsPermission
         }
 
+        internal fun mapMmsMsgBoxToSearchType(msgBox: Int?): Int? {
+            return when (msgBox) {
+                1 -> 1 // inbox
+                2 -> 2 // sent
+                3 -> 3 // draft
+                4 -> 4 // outbox
+                5 -> 5 // failed
+                6 -> 6 // queued
+                else -> null
+            }
+        }
+
         internal fun escapeSqlLikeLiteral(value: String): String {
             return buildString(value.length) {
                 for (ch in value) {
@@ -1061,11 +1073,7 @@ class SmsManager(private val context: Context) {
                 val msgBoxIndex = it.getColumnIndex("msg_box")
                 val readIndex = it.getColumnIndex("read")
                 val msgBox = if (msgBoxIndex >= 0 && !it.isNull(msgBoxIndex)) it.getInt(msgBoxIndex) else null
-                val mappedType = when (msgBox) {
-                    1 -> 1 // inbox
-                    2 -> 2 // sent
-                    else -> null
-                }
+                val mappedType = mapMmsMsgBoxToSearchType(msgBox)
                 val read = if (readIndex >= 0 && !it.isNull(readIndex)) it.getInt(readIndex) == 1 else null
                 return mappedType to read
             }
