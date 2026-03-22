@@ -396,6 +396,39 @@ class SmsManagerTest {
   }
 
   @Test
+  fun shouldPromptForContactNameSearchPermissionTrueForContactNameOnlyWithoutContactsAccess() {
+    assertTrue(
+      SmsManager.shouldPromptForContactNameSearchPermission(
+        contactName = "Alice",
+        phoneNumber = null,
+        hasReadContactsPermission = false,
+      ),
+    )
+  }
+
+  @Test
+  fun shouldPromptForContactNameSearchPermissionFalseWhenExplicitPhoneFallbackExists() {
+    assertFalse(
+      SmsManager.shouldPromptForContactNameSearchPermission(
+        contactName = "Alice",
+        phoneNumber = "+15551234567",
+        hasReadContactsPermission = false,
+      ),
+    )
+  }
+
+  @Test
+  fun shouldPromptForContactNameSearchPermissionFalseWhenContactsAlreadyGranted() {
+    assertFalse(
+      SmsManager.shouldPromptForContactNameSearchPermission(
+        contactName = "Alice",
+        phoneNumber = null,
+        hasReadContactsPermission = true,
+      ),
+    )
+  }
+
+  @Test
   fun escapeSqlLikeLiteralEscapesPercentUnderscoreAndBackslash() {
     assertEquals("\\%a\\_b\\\\c", SmsManager.escapeSqlLikeLiteral("%a_b\\c"))
   }

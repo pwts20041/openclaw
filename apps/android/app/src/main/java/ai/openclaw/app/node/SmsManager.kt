@@ -217,6 +217,14 @@ class SmsManager(private val context: Context) {
             return normalized.takeUnless(::hasSqlLikeWildcard)
         }
 
+        internal fun shouldPromptForContactNameSearchPermission(
+            contactName: String?,
+            phoneNumber: String?,
+            hasReadContactsPermission: Boolean,
+        ): Boolean {
+            return !contactName.isNullOrEmpty() && phoneNumber.isNullOrEmpty() && !hasReadContactsPermission
+        }
+
         internal fun escapeSqlLikeLiteral(value: String): String {
             return buildString(value.length) {
                 for (ch in value) {
@@ -623,10 +631,17 @@ class SmsManager(private val context: Context) {
         val params = effectiveSearchParams(parsedParams.copy(phoneNumber = normalizedPhoneNumber))
 
         return@withContext try {
+            val contactsPermissionGranted = hasReadContactsPermission()
+            val shouldPromptForContactsPermission =
+                shouldPromptForContactNameSearchPermission(
+                    contactName = params.contactName,
+                    phoneNumber = params.phoneNumber,
+                    hasReadContactsPermission = contactsPermissionGranted,
+                )
             val phoneNumbers = if (!params.contactName.isNullOrEmpty()) {
-                if (hasReadContactsPermission()) {
+                if (contactsPermissionGranted || (shouldPromptForContactsPermission && ensureReadContactsPermission())) {
                     getPhoneNumbersFromContactName(params.contactName)
-                } else if (params.phoneNumber.isNullOrEmpty()) {
+                } else if (shouldPromptForContactsPermission) {
                     return@withContext SearchResult(
                         ok = false,
                         messages = emptyList(),
