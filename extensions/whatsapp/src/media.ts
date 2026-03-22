@@ -32,6 +32,12 @@ type WebMediaOptions = {
   /** Caller already validated the local path (sandbox/other guards); requires readFile override. */
   sandboxValidated?: boolean;
   readFile?: (filePath: string) => Promise<Buffer>;
+  /**
+   * When true, WebP images are passed through as-is instead of being converted to JPEG.
+   * Use for channels that natively support WebP (e.g. Discord).
+   * Default: false — WebP is converted to JPEG (required for WhatsApp and similar channels).
+   */
+  preserveWebp?: boolean;
 };
 
 function resolveWebMediaOptions(params: {
@@ -241,6 +247,7 @@ async function loadWebMediaInternal(
     localRoots,
     sandboxValidated = false,
     readFile: readFileOverride,
+    preserveWebp = false,
   } = options;
   // Strip MEDIA: prefix used by agent tools (e.g. TTS) to tag media paths.
   // Be lenient: LLM output may add extra whitespace (e.g. "  MEDIA :  /tmp/x.png").
@@ -291,8 +298,13 @@ async function loadWebMediaInternal(
     // Otherwise fall back to per-kind defaults.
     const cap = maxBytes !== undefined ? maxBytes : maxBytesForKind(params.kind ?? "document");
     if (params.kind === "image") {
+      // GIF is always passed through: conversion loses animation/transparency.
+      // WebP is only preserved when the caller opts in (preserveWebp: true, e.g. Discord).
+      // By default WebP is converted to JPEG — required for WhatsApp and similar channels.
       const isGif = params.contentType === "image/gif";
-      if (isGif || !optimizeImages) {
+      const isWebp = params.contentType === "image/webp";
+      const shouldSkipOptimization = isGif || (isWebp && preserveWebp);
+      if (shouldSkipOptimization || !optimizeImages) {
         if (params.buffer.length > cap) {
           throw new Error(formatCapLimit(isGif ? "GIF" : "Media", cap, params.buffer.length));
         }

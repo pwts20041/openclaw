@@ -268,7 +268,7 @@ describe("sendMessageDiscord", () => {
     );
     expect(loadWebMedia).toHaveBeenCalledWith(
       "file:///tmp/photo.jpg",
-      expect.objectContaining({ maxBytes: 8 * 1024 * 1024 }),
+      expect.objectContaining({ maxBytes: 8 * 1024 * 1024, preserveWebp: true }),
     );
   });
 
@@ -291,7 +291,7 @@ describe("sendMessageDiscord", () => {
 
     expect(loadWebMedia).toHaveBeenCalledWith(
       "file:///tmp/photo.jpg",
-      expect.objectContaining({ maxBytes: 32 * 1024 * 1024 }),
+      expect.objectContaining({ maxBytes: 32 * 1024 * 1024, preserveWebp: true }),
     );
   });
 

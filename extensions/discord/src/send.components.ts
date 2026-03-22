@@ -100,6 +100,7 @@ async function buildDiscordComponentPayload(params: {
   if (params.opts.mediaUrl) {
     const media = await loadWebMedia(params.opts.mediaUrl, {
       localRoots: params.opts.mediaLocalRoots,
+      preserveWebp: true,
     });
     const filenameOverride = params.opts.filename?.trim();
     const fileName = filenameOverride || media.fileName || "upload";
@@ -108,7 +109,7 @@ async function buildDiscordComponentPayload(params: {
         `Component file block expects attachment "${expectedAttachmentName}", but the uploaded file is "${fileName}". Update components.blocks[].file or provide a matching filename.`,
       );
     }
-    const fileData = toDiscordFileBlob(media.buffer);
+    const fileData = toDiscordFileBlob(media.buffer, media.contentType);
     files = [{ data: fileData, name: fileName }];
   } else if (expectedAttachmentName) {
     throw new Error(
