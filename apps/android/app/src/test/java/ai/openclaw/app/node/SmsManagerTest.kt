@@ -659,6 +659,10 @@ class SmsManagerTest {
     val singleResolvedContact = params.copy(phoneNumber = null, contactName = "Leah")
     assertEquals(25, SmsManager.effectiveSearchParams(singleResolvedContact, listOf("15551234567")).limit)
     assertEquals(5, SmsManager.effectiveSearchParams(singleResolvedContact, listOf("15551234567", "15557654321")).limit)
+    assertEquals(
+      SmsManager.effectiveSearchParams(params).limit,
+      SmsManager.effectiveSearchParams(singleResolvedContact, listOf("15551234567")).limit,
+    )
   }
 
   @Test
