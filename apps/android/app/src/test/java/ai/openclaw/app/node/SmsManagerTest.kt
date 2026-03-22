@@ -573,6 +573,101 @@ class SmsManagerTest {
   }
 
   @Test
+  fun collectMixedByPhoneCandidateUsesBoundedCollectorWhenReviewModeDisabled() {
+    val topCandidates = mutableListOf<Pair<String, SmsManager.SmsMessage>>()
+    val materializedCandidates = linkedMapOf<String, SmsManager.SmsMessage>()
+
+    SmsManager.collectMixedByPhoneCandidate(
+      topCandidates = topCandidates,
+      materializedCandidates = materializedCandidates,
+      identityKey = "sms:1",
+      message = smsMessage(id = 1L, date = 1000L),
+      maxCandidates = 1,
+      reviewMode = false,
+    )
+    SmsManager.collectMixedByPhoneCandidate(
+      topCandidates = topCandidates,
+      materializedCandidates = materializedCandidates,
+      identityKey = "mms:2",
+      message = smsMessage(id = 2L, date = 2000L, transportType = "mms"),
+      maxCandidates = 1,
+      reviewMode = false,
+    )
+
+    assertEquals(listOf(2L), topCandidates.map { it.second.id })
+    assertTrue(materializedCandidates.isEmpty())
+  }
+
+  @Test
+  fun collectMixedByPhoneCandidateMaterializesFullSetWhenReviewModeEnabled() {
+    val topCandidates = mutableListOf<Pair<String, SmsManager.SmsMessage>>()
+    val materializedCandidates = linkedMapOf<String, SmsManager.SmsMessage>()
+
+    SmsManager.collectMixedByPhoneCandidate(
+      topCandidates = topCandidates,
+      materializedCandidates = materializedCandidates,
+      identityKey = "sms:1",
+      message = smsMessage(id = 1L, date = 1000L),
+      maxCandidates = 1,
+      reviewMode = true,
+    )
+    SmsManager.collectMixedByPhoneCandidate(
+      topCandidates = topCandidates,
+      materializedCandidates = materializedCandidates,
+      identityKey = "mms:2",
+      message = smsMessage(id = 2L, date = 2000L, transportType = "mms"),
+      maxCandidates = 1,
+      reviewMode = true,
+    )
+
+    assertTrue(topCandidates.isEmpty())
+    assertEquals(listOf(1L, 2L), materializedCandidates.values.map { it.id })
+  }
+
+  @Test
+  fun pageMixedByPhoneCandidatesLetsReviewModeSurfaceOlderRowsBeyondBoundedDefaultWindow() {
+    val params =
+      SmsManager.QueryParams(
+        limit = 2,
+        offset = 2,
+        includeMms = true,
+        phoneNumber = "+15551234567",
+        conversationReview = true,
+      )
+    val topCandidates = listOf(
+      "sms:9" to smsMessage(id = 9L, date = 9000L),
+      "sms:8" to smsMessage(id = 8L, date = 8000L),
+      "sms:7" to smsMessage(id = 7L, date = 7000L),
+    )
+    val materializedCandidates =
+      linkedMapOf(
+        "sms:9" to smsMessage(id = 9L, date = 9000L),
+        "sms:8" to smsMessage(id = 8L, date = 8000L),
+        "sms:7" to smsMessage(id = 7L, date = 7000L),
+        "mms:6" to smsMessage(id = 6L, date = 6000L, transportType = "mms"),
+      )
+
+    val defaultPage =
+      SmsManager.pageMixedByPhoneCandidates(
+        topCandidates = topCandidates,
+        materializedCandidates = materializedCandidates,
+        params = params.copy(conversationReview = false),
+        reviewMode = false,
+      )
+    val reviewPage =
+      SmsManager.pageMixedByPhoneCandidates(
+        topCandidates = topCandidates,
+        materializedCandidates = materializedCandidates,
+        params = params,
+        reviewMode = true,
+      )
+
+    assertEquals(listOf(7L), defaultPage.map { it.id })
+    assertEquals(listOf(7L, 6L), reviewPage.map { it.id })
+    assertEquals(4, materializedCandidates.size)
+  }
+
+  @Test
   fun pageByPhoneCandidatesHonorsDeepOffsetAfterStableSort() {
     val params = SmsManager.QueryParams(limit = 5, offset = 5, includeMms = true)
     val candidates = listOf(

@@ -410,6 +410,34 @@ class SmsManager(private val context: Context) {
             candidates[identityKey] = message
         }
 
+        internal fun collectMixedByPhoneCandidate(
+            topCandidates: MutableList<Pair<String, SmsMessage>>,
+            materializedCandidates: MutableMap<String, SmsMessage>,
+            identityKey: String,
+            message: SmsMessage,
+            maxCandidates: Int,
+            reviewMode: Boolean,
+        ) {
+            if (reviewMode) {
+                materializeByPhoneCandidate(materializedCandidates, identityKey, message)
+            } else {
+                upsertTopDateCandidates(topCandidates, identityKey, message, maxCandidates)
+            }
+        }
+
+        internal fun pageMixedByPhoneCandidates(
+            topCandidates: Collection<Pair<String, SmsMessage>>,
+            materializedCandidates: Map<String, SmsMessage>,
+            params: QueryParams,
+            reviewMode: Boolean,
+        ): List<SmsMessage> {
+            return if (reviewMode) {
+                pageByPhoneCandidates(materializedCandidates.values, params)
+            } else {
+                pageByPhoneCandidates(topCandidates.map { it.second }, params)
+            }
+        }
+
         internal fun pageByPhoneCandidates(
             candidates: Collection<SmsMessage>,
             params: QueryParams,
@@ -907,7 +935,9 @@ class SmsManager(private val context: Context) {
             return emptyList()
         }
 
+        val reviewMode = shouldUseConversationReviewByPhoneMode(params)
         val topCandidates = mutableListOf<Pair<String, SmsMessage>>()
+        val materializedCandidates = linkedMapOf<String, SmsMessage>()
         val cursor = context.contentResolver.query(uri, projection, null, null, "date DESC")
         cursor?.use {
             val idIndex = it.getColumnIndex("_id")
@@ -975,11 +1005,23 @@ class SmsManager(private val context: Context) {
                     transportType = transportType,
                 )
                 val identityKey = buildMixedRowIdentity(id, transportType)
-                upsertTopDateCandidates(topCandidates, identityKey, message, maxCandidates)
+                collectMixedByPhoneCandidate(
+                    topCandidates = topCandidates,
+                    materializedCandidates = materializedCandidates,
+                    identityKey = identityKey,
+                    message = message,
+                    maxCandidates = maxCandidates,
+                    reviewMode = reviewMode,
+                )
             }
         }
 
-        return pageByPhoneCandidates(topCandidates.map { it.second }, params)
+        return pageMixedByPhoneCandidates(
+            topCandidates = topCandidates,
+            materializedCandidates = materializedCandidates,
+            params = params,
+            reviewMode = reviewMode,
+        )
     }
 
     private fun getMmsTextBody(messageId: Long): String? {
