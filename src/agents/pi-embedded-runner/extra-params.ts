@@ -271,7 +271,80 @@ export function applyExtraParamsToAgent(
     agent.streamFn = createMoonshotThinkingWrapper(agent.streamFn, thinkingType);
   }
 
-  const anthropicFastMode = resolveAnthropicFastMode(effectiveExtraParams);
+  agent.streamFn = createAnthropicToolPayloadCompatibilityWrapper(agent.streamFn);
+
+  if (provider === "openrouter") {
+    log.debug(`applying OpenRouter app attribution headers for ${provider}/${modelId}`);
+    // "auto" is a dynamic routing model — we don't know which underlying model
+    // OpenRouter will select, and it may be a reasoning-required endpoint.
+    // Omit the thinkingLevel so we never inject `reasoning.effort: "none"`,
+    // which would cause a 400 on models where reasoning is mandatory.
+    // Users who need reasoning control should target a specific model ID.
+    // See: openclaw/openclaw#24851
+    //
+    // x-ai/grok models do not support OpenRouter's reasoning.effort parameter
+    // and reject payloads containing it with "Invalid arguments passed to the
+    // model." Skip reasoning injection for these models.
+    // See: openclaw/openclaw#32039
+    const skipReasoningInjection = modelId === "auto" || isProxyReasoningUnsupported(modelId);
+    const openRouterThinkingLevel = skipReasoningInjection ? undefined : thinkingLevel;
+    agent.streamFn = createOpenRouterWrapper(agent.streamFn, openRouterThinkingLevel);
+    agent.streamFn = createOpenRouterSystemCacheWrapper(agent.streamFn);
+  }
+
+  if (provider === "kilocode") {
+    log.debug(`applying Kilocode feature header for ${provider}/${modelId}`);
+    // kilo/auto is a dynamic routing model — skip reasoning injection
+    // (same rationale as OpenRouter "auto"). See: openclaw/openclaw#24851
+    // Also skip for models known to reject reasoning.effort (e.g. x-ai/*).
+    const kilocodeThinkingLevel =
+      modelId === "kilo/auto" || isProxyReasoningUnsupported(modelId) ? undefined : thinkingLevel;
+    agent.streamFn = createKilocodeWrapper(agent.streamFn, kilocodeThinkingLevel);
+  }
+
+  // Azure OpenAI requires api-version as a query parameter, not a header.
+  // Ensure the model's baseUrl includes it so all requests carry the param (#46676).
+  if (provider === "azure-openai" || provider === "azure-openai-responses") {
+    const inner = agent.streamFn;
+    agent.streamFn = (model, context, options) => {
+      const baseUrl = typeof model.baseUrl === "string" ? model.baseUrl : "";
+      if (baseUrl && !baseUrl.includes("api-version")) {
+        try {
+          const url = new URL(baseUrl);
+          url.searchParams.set("api-version", "2024-10-21");
+          return (inner ?? streamSimple)(
+            { ...model, baseUrl: url.toString() } as typeof model,
+            context,
+            options,
+          );
+        } catch {
+          // Malformed URL – fall through to default behavior.
+        }
+      }
+      return (inner ?? streamSimple)(model, context, options);
+    };
+  }
+
+  if (provider === "amazon-bedrock" && !isAnthropicBedrockModel(modelId)) {
+    log.debug(`disabling prompt caching for non-Anthropic Bedrock model ${provider}/${modelId}`);
+    agent.streamFn = createBedrockNoCacheWrapper(agent.streamFn);
+  }
+
+  // Enable Z.AI tool_stream for real-time tool call streaming.
+  // Enabled by default for Z.AI provider, can be disabled via params.tool_stream: false
+  if (provider === "zai" || provider === "z-ai") {
+    const toolStreamEnabled = merged?.tool_stream !== false;
+    if (toolStreamEnabled) {
+      log.debug(`enabling Z.AI tool_stream for ${provider}/${modelId}`);
+      agent.streamFn = createZaiToolStreamWrapper(agent.streamFn, true);
+    }
+  }
+
+  // Guard Google payloads against invalid negative thinking budgets emitted by
+  // upstream model-ID heuristics for Gemini 3.1 variants.
+  agent.streamFn = createGoogleThinkingPayloadWrapper(agent.streamFn, thinkingLevel);
+
+  const anthropicFastMode = resolveAnthropicFastMode(merged);
   if (anthropicFastMode !== undefined) {
     log.debug(`applying Anthropic fast mode=${anthropicFastMode} for ${provider}/${modelId}`);
     agent.streamFn = createAnthropicFastModeWrapper(agent.streamFn, anthropicFastMode);
