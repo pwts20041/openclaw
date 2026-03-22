@@ -86,6 +86,7 @@ class InvokeCommandRegistryTest {
           locationEnabled = true,
           sendSmsAvailable = true,
           readSmsAvailable = true,
+          smsSearchPossible = true,
           callLogAvailable = true,
           voiceWakeEnabled = true,
           motionActivityAvailable = true,
@@ -149,7 +150,7 @@ class InvokeCommandRegistryTest {
   fun advertisedCommands_splitsSmsSendAndSearchAvailability() {
     val readOnlyCommands =
       InvokeCommandRegistry.advertisedCommands(
-        defaultFlags(readSmsAvailable = true),
+        defaultFlags(readSmsAvailable = true, smsSearchPossible = true),
       )
     val sendOnlyCommands =
       InvokeCommandRegistry.advertisedCommands(
