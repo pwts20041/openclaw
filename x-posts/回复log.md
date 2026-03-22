@@ -1,5 +1,16 @@
 # X 回复记录
 
+## 2026-03-22
+
+1. 回复了 @HiTw93 的帖子（浏览 36.5万，Learn Claude Code 教程推荐）：
+   - 内容：分享跑完教程的体感——核心循环简单但 tool 设计和 error recovery 才是差距所在；context window 管理是第一个撞墙点，建议补 context pruning 章节
+
+2. 回复了 @dotey 的帖子（浏览 5.1万，Anthropic 推出 Code Review）：
+   - 内容：补充个人用户替代方案（开源 GitHub Action），分享 200+ PR/周项目两个月使用数据，从成本角度分析 15-25 刀/次的合理性
+
+3. 回复了 @chenchengpro 的帖子（浏览 4.1万，git worktree + pnpm 多 agent 并行开发）：
+   - 内容：补充 .env 配置冲突踩坑经验和 worktree 自动清理 cron 方案
+
 ## 2026-03-21
 
 1. 回复了 @runes_leo 的帖子（浏览 2.6万，Claude Code TG Channel 远程控制）：
