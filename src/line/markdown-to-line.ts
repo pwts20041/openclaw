@@ -350,7 +350,7 @@ export function stripMarkdown(text: string): string {
 
   // Remove italic: *text* or _text_ (but not already processed)
   result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "$1");
-  result = result.replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, "$1");
+  result = result.replace(/(?<![\p{L}\p{N}])_(?!_)(.+?)(?<!_)_(?![\p{L}\p{N}])/gu, "$1");
 
   // Remove strikethrough: ~~text~~
   result = result.replace(/~~(.+?)~~/g, "$1");
