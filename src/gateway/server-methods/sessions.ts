@@ -974,6 +974,13 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         // Fire-and-forget: the reset will happen after the run ends.
         void waitForEmbeddedPiRunEnd(sessionId, 10 * 60_000).then(async (ended) => {
           if (!ended) {
+            // Timed out — clear the stale flag so it doesn't linger in the store.
+            await updateSessionStore(storePath, (store) => {
+              const e = store[canonicalKey];
+              if (e?.pendingAction?.type === "reset") {
+                delete e.pendingAction;
+              }
+            });
             return;
           }
           // Re-read store and verify the pending action is still ours.
@@ -1264,22 +1271,25 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
     const sessionId = entry.sessionId;
 
-    const cfg = loadConfig();
-    const agentId = resolveAgentIdFromSessionKey(canonicalKey) ?? resolveDefaultAgentId(cfg);
-    const sessionFile = resolveSessionFilePath(
-      sessionId,
-      entry,
-      resolveSessionFilePathOptions({ agentId, storePath }),
-    );
-    const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
-
     const executeCompaction = async (instructions?: string) => {
+      // Derive paths at execution time (not schedule time) so deferred compaction
+      // uses fresh values if config or session paths change between scheduling and execution.
+      const freshCfg = loadConfig();
+      const freshAgentId =
+        resolveAgentIdFromSessionKey(canonicalKey) ?? resolveDefaultAgentId(freshCfg);
+      const freshSessionFile = resolveSessionFilePath(
+        sessionId,
+        entry,
+        resolveSessionFilePathOptions({ agentId: freshAgentId, storePath }),
+      );
+      const freshWorkspaceDir = resolveAgentWorkspaceDir(freshCfg, freshAgentId);
+
       return await compactEmbeddedPiSession({
         sessionId,
         sessionKey: canonicalKey,
-        sessionFile,
-        workspaceDir,
-        config: loadConfig(),
+        sessionFile: freshSessionFile,
+        workspaceDir: freshWorkspaceDir,
+        config: freshCfg,
         trigger: "manual",
         customInstructions: instructions,
         allowGatewaySubagentBinding: true,
@@ -1301,6 +1311,13 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       // Fire-and-forget: the compaction will happen after the run ends.
       void waitForEmbeddedPiRunEnd(sessionId, 10 * 60_000).then(async (ended) => {
         if (!ended) {
+          // Timed out — clear the stale flag so it doesn't linger in the store.
+          await updateSessionStore(storePath, (store) => {
+            const e = store[canonicalKey];
+            if (e?.pendingAction?.type === "compact") {
+              delete e.pendingAction;
+            }
+          });
           return;
         }
         const cleared = await updateSessionStore(storePath, (store) => {

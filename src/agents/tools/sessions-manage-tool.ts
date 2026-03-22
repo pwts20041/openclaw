@@ -83,9 +83,8 @@ export function createSessionsManageTool(opts?: {
         cfg,
         sandboxed: opts?.sandboxed === true,
       });
-      // TODO: add "manage" to SessionAccessAction for accurate error messages
       const visibilityGuard = await createSessionVisibilityGuard({
-        action: "send",
+        action: "manage",
         requesterSessionKey: effectiveRequesterKey,
         visibility: sessionVisibility,
         a2aPolicy,
