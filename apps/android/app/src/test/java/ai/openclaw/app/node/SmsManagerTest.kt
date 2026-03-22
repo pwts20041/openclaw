@@ -421,8 +421,22 @@ class SmsManagerTest {
   }
 
   @Test
-  fun buildMixedByPhoneProjectionIncludesStatusColumn() {
-    assertTrue(SmsManager.buildMixedByPhoneProjection().contains("status"))
+  fun buildMixedByPhoneProjectionMatchesExpectedStatusAwareShape() {
+    assertContentEquals(
+      arrayOf(
+        "_id",
+        "thread_id",
+        "transport_type",
+        "address",
+        "date",
+        "date_sent",
+        "read",
+        "type",
+        "body",
+        "status",
+      ),
+      SmsManager.buildMixedByPhoneProjection(),
+    )
   }
 
   @Test
@@ -776,6 +790,11 @@ class SmsManagerTest {
 
     assertTrue(metadata.mmsRequested)
     assertTrue(metadata.mmsEligible)
+    assertTrue(metadata.mmsAttempted)
+    assertTrue(metadata.mmsIncluded)
+  }
+}
+data.mmsEligible)
     assertTrue(metadata.mmsAttempted)
     assertTrue(metadata.mmsIncluded)
   }
