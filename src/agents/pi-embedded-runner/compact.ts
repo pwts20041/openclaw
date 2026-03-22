@@ -636,7 +636,7 @@ export async function compactEmbeddedPiSessionDirect(
       modelId = compactionModelOverride.slice(slashIdx + 1).trim() || DEFAULT_MODEL;
       // Provider changed — drop primary auth profile so getApiKeyForModel
       // falls back to provider-based key resolution for the override model.
-      if (provider !== (params.provider ?? "").trim()) {
+      if (provider.toLowerCase() !== (params.provider ?? "").trim().toLowerCase()) {
         authProfileId = undefined;
       }
     } else {
@@ -662,12 +662,100 @@ export async function compactEmbeddedPiSessionDirect(
   };
   const agentDir = params.agentDir ?? resolveOpenClawAgentDir();
   await ensureOpenClawModelsJson(params.config, agentDir);
-  const { model, error, authStorage, modelRegistry } = await resolveModelAsync(
-    provider,
-    modelId,
-    agentDir,
-    params.config,
-  );
+  const effectiveProvider = (params.provider ?? DEFAULT_PROVIDER).trim() || DEFAULT_PROVIDER;
+
+  let primaryResult: Awaited<ReturnType<typeof resolveModelAsync>>;
+  try {
+    primaryResult = await resolveModelAsync(provider, modelId, agentDir, params.config);
+  } catch (err) {
+    log.warn(
+      `[compaction] Primary model ${provider}/${modelId} threw: ${describeUnknownError(err)}`,
+    );
+    // Resolve a default model just to obtain authStorage/modelRegistry for fallback iteration.
+    // Guard this call as well — if the provider is down entirely, we still need to proceed
+    // to the fallback loop with whatever we can construct.
+    let defaults: Awaited<ReturnType<typeof resolveModelAsync>> | undefined;
+    try {
+      defaults = await resolveModelAsync(effectiveProvider, DEFAULT_MODEL, agentDir, params.config);
+    } catch {
+      log.warn("[compaction] Default model resolution also failed; proceeding with empty registry");
+    }
+    primaryResult = {
+      model: undefined,
+      error: describeUnknownError(err),
+      authStorage:
+        defaults?.authStorage ??
+        ({} as Awaited<ReturnType<typeof resolveModelAsync>>["authStorage"]),
+      modelRegistry:
+        defaults?.modelRegistry ??
+        ({} as Awaited<ReturnType<typeof resolveModelAsync>>["modelRegistry"]),
+    };
+  }
+
+  // If the primary compaction model failed to resolve, try configured fallbacks in order.
+  let finalModel = primaryResult.model;
+  let finalError = primaryResult.error;
+  let finalAuthStorage = primaryResult.authStorage;
+  let finalModelRegistry = primaryResult.modelRegistry;
+
+  if (!finalModel) {
+    const fallbacks = params.config?.agents?.defaults?.compaction?.modelFallbacks;
+    if (fallbacks && Array.isArray(fallbacks) && fallbacks.length > 0) {
+      const triedModels = [`${provider}/${modelId}`];
+      for (const fallbackSpec of fallbacks) {
+        const trimmed = fallbackSpec?.trim();
+        if (!trimmed) {
+          continue;
+        }
+        let fbProvider: string;
+        let fbModelId: string;
+        const slashIdx = trimmed.indexOf("/");
+        if (slashIdx > 0) {
+          fbProvider = trimmed.slice(0, slashIdx).trim();
+          fbModelId = trimmed.slice(slashIdx + 1).trim() || DEFAULT_MODEL;
+        } else {
+          fbProvider = effectiveProvider;
+          fbModelId = trimmed;
+        }
+        triedModels.push(`${fbProvider}/${fbModelId}`);
+        log.info(
+          `[compaction] Primary model ${provider}/${modelId} unavailable, trying fallback: ${fbProvider}/${fbModelId}`,
+        );
+        try {
+          const fbResult = await resolveModelAsync(fbProvider, fbModelId, agentDir, params.config);
+          if (fbResult.model) {
+            finalModel = fbResult.model;
+            finalError = fbResult.error;
+            finalAuthStorage = fbResult.authStorage;
+            finalModelRegistry = fbResult.modelRegistry;
+            provider = fbProvider;
+            modelId = fbModelId;
+            // Reset or restore auth profile based on whether fallback provider matches the original
+            if (fbProvider.toLowerCase() !== effectiveProvider.toLowerCase()) {
+              authProfileId = undefined;
+            } else {
+              authProfileId = params.authProfileId;
+            }
+            log.info(`[compaction] Using fallback model: ${fbProvider}/${fbModelId}`);
+            break;
+          }
+        } catch (fbErr) {
+          log.warn(
+            `[compaction] Fallback model ${fbProvider}/${fbModelId} threw: ${describeUnknownError(fbErr)}`,
+          );
+        }
+      }
+      // If all fallbacks also failed, surface all attempted models in the error
+      if (!finalModel) {
+        finalError = `All compaction models failed to resolve (tried: ${triedModels.join(", ")})`;
+      }
+    }
+  }
+
+  const model = finalModel;
+  const error = finalError;
+  const authStorage = finalAuthStorage;
+  const modelRegistry = finalModelRegistry;
   if (!model) {
     const reason = error ?? `Unknown model: ${provider}/${modelId}`;
     return fail(reason);
@@ -1161,6 +1249,11 @@ export async function compactEmbeddedPiSessionDirect(
           // If token estimation throws on a malformed message, fall back to 0 so
           // the sanity check below becomes a no-op instead of crashing compaction.
         }
+        // TODO: modelFallbacks currently only covers model *resolution* failures (model not in
+        // registry, provider plugin rejects). Runtime API failures (endpoint unreachable at
+        // compaction time) are not retried with fallback models because the session object is
+        // already bound to a specific model. A future enhancement could wrap this entire
+        // session-creation-and-compact cycle in a retry loop to handle runtime unreachability.
         const result = await compactWithSafetyTimeout(
           () => session.compact(params.customInstructions),
           compactionTimeoutMs,

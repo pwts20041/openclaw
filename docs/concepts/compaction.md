@@ -54,6 +54,25 @@ This also works with local models, for example a second Ollama model dedicated t
 
 When unset, compaction uses the agent's primary model.
 
+You can also specify fallback models for compaction via `agents.defaults.compaction.modelFallbacks`. When the primary compaction model is unreachable (e.g. a local model server is down), OpenClaw tries each fallback in order before giving up:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "compaction": {
+        "model": "vllm/qwen3-coder-next",
+        "modelFallbacks": ["anthropic/claude-haiku-4-5", "google-gemini-cli/gemini-3-flash-preview"]
+      }
+    }
+  }
+}
+```
+
+This is especially useful when the primary compaction model is a local/self-hosted model that may occasionally be unavailable.
+
+**Note:** `modelFallbacks` currently covers model _resolution_ failures (model not in registry, provider plugin unavailable, auth profile missing). Runtime API failures where the model resolves from config but the endpoint is unreachable at compaction time are not yet retried with fallback models.
+
 ## Auto-compaction (default on)
 
 When a session nears or exceeds the model’s context window, OpenClaw triggers auto-compaction and may retry the original request using the compacted context.
