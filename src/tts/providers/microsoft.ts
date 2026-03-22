@@ -72,6 +72,34 @@ export async function listMicrosoftVoices(): Promise<SpeechVoiceOption[]> {
     : [];
 }
 
+/**
+ * Detect whether the text is predominantly CJK (Chinese/Japanese/Korean).
+ * Uses Unicode ranges for CJK Unified Ideographs and common CJK punctuation.
+ */
+export function isCjkDominant(text: string): boolean {
+  const stripped = text.replace(/\s+/g, "");
+  if (stripped.length === 0) {
+    return false;
+  }
+  let cjkCount = 0;
+  for (const ch of stripped) {
+    const code = ch.codePointAt(0)!;
+    if (
+      (code >= 0x4e00 && code <= 0x9fff) || // CJK Unified Ideographs
+      (code >= 0x3400 && code <= 0x4dbf) || // CJK Extension A
+      (code >= 0x3000 && code <= 0x303f) || // CJK Symbols and Punctuation
+      (code >= 0xff00 && code <= 0xffef) // Fullwidth Forms
+    ) {
+      cjkCount++;
+    }
+  }
+  return cjkCount / stripped.length > 0.3;
+}
+
+/** Default Chinese voice to fall back to when text is CJK but voice is English-only. */
+const DEFAULT_CHINESE_EDGE_VOICE = "zh-CN-XiaoxiaoNeural";
+const DEFAULT_CHINESE_EDGE_LANG = "zh-CN";
+
 export function buildMicrosoftSpeechProvider(): SpeechProviderPlugin {
   return {
     id: "microsoft",
@@ -87,6 +115,15 @@ export function buildMicrosoftSpeechProvider(): SpeechProviderPlugin {
       const fallbackOutputFormat =
         outputFormat !== DEFAULT_EDGE_OUTPUT_FORMAT ? DEFAULT_EDGE_OUTPUT_FORMAT : undefined;
 
+      // If user hasn't explicitly set a voice and the text looks CJK,
+      // switch to a Chinese voice so edge-tts doesn't produce empty audio.
+      let voice = req.overrides?.microsoft?.voice ?? req.config.edge.voice;
+      let lang = req.config.edge.lang;
+      if (!req.overrides?.microsoft?.voice && voice.startsWith("en-") && isCjkDominant(req.text)) {
+        voice = DEFAULT_CHINESE_EDGE_VOICE;
+        lang = DEFAULT_CHINESE_EDGE_LANG;
+      }
+
       try {
         const runEdge = async (format: string) => {
           const fileExtension = inferEdgeExtension(format);
@@ -96,7 +133,8 @@ export function buildMicrosoftSpeechProvider(): SpeechProviderPlugin {
             outputPath,
             config: {
               ...req.config.edge,
-              voice: req.overrides?.microsoft?.voice ?? req.config.edge.voice,
+              voice,
+              lang,
               outputFormat: format,
             },
             timeoutMs: req.config.timeoutMs,
