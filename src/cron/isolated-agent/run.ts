@@ -432,7 +432,13 @@ export async function runCronIsolatedAgentTurn(params: {
   // Accumulate usage across interim-ack follow-up turns so the usage event
   // reflects total resource consumption, not just the final turn.
   let accumulatedUsage:
-    | { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
+    | {
+        input: number;
+        output: number;
+        cacheRead: number;
+        cacheWrite: number;
+        total: number | undefined;
+      }
     | undefined;
   try {
     const sessionFile = resolveSessionTranscriptPath(cronSession.sessionEntry.sessionId, agentId);
@@ -565,14 +571,19 @@ export async function runCronIsolatedAgentTurn(params: {
           accumulatedUsage.output += turnUsage.output ?? 0;
           accumulatedUsage.cacheRead += turnUsage.cacheRead ?? 0;
           accumulatedUsage.cacheWrite += turnUsage.cacheWrite ?? 0;
-          accumulatedUsage.total += turnUsage.total ?? 0;
+          // Preserve undefined when providers don't report total so
+          // dashboards can distinguish "zero" from "not reported".
+          accumulatedUsage.total =
+            turnUsage.total != null
+              ? (accumulatedUsage.total ?? 0) + turnUsage.total
+              : accumulatedUsage.total;
         } else {
           accumulatedUsage = {
             input: turnUsage.input ?? 0,
             output: turnUsage.output ?? 0,
             cacheRead: turnUsage.cacheRead ?? 0,
             cacheWrite: turnUsage.cacheWrite ?? 0,
-            total: turnUsage.total ?? 0,
+            total: turnUsage.total,
           };
         }
       }
@@ -643,6 +654,7 @@ export async function runCronIsolatedAgentTurn(params: {
     try {
       emitAgentEvent({
         runId: cronSession.sessionEntry.sessionId,
+        sessionKey: agentSessionKey,
         stream: "lifecycle",
         data: {
           phase: "usage",

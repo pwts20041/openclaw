@@ -842,6 +842,7 @@ async function agentCommandInternal(
       try {
         emitAgentEvent({
           runId,
+          sessionKey,
           stream: "lifecycle",
           data: {
             phase: "usage",

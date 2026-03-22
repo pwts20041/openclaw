@@ -727,6 +727,7 @@ export async function runMemoryFlushIfNeeded(params: {
       try {
         emitAgentEvent({
           runId: flushRunId,
+          sessionKey: params.sessionKey ?? params.followupRun.run.sessionKey,
           stream: "lifecycle",
           data: {
             phase: "usage",
