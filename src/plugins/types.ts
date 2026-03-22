@@ -1640,6 +1640,7 @@ export type PluginHookName =
   | "llm_input"
   | "llm_output"
   | "agent_end"
+  | "agent_error"
   | "before_compaction"
   | "after_compaction"
   | "before_reset"
@@ -1668,6 +1669,7 @@ export const PLUGIN_HOOK_NAMES = [
   "llm_input",
   "llm_output",
   "agent_end",
+  "agent_error",
   "before_compaction",
   "after_compaction",
   "before_reset",
@@ -1835,6 +1837,19 @@ export type PluginHookLlmOutputEvent = {
     cacheWrite?: number;
     total?: number;
   };
+};
+
+// agent_error hook — fired when an agent run ends with an error, before the
+// error message is broadcast to the user. Allows plugins to replace the error
+// text with a friendlier, localised message.
+export type PluginHookAgentErrorEvent = {
+  /** The raw error message that would be sent to the user. */
+  error: string;
+};
+
+export type PluginHookAgentErrorResult = {
+  /** Replacement error message to broadcast instead. */
+  message?: string;
 };
 
 // agent_end hook
@@ -2216,6 +2231,10 @@ export type PluginHookHandlerMap = {
     ctx: PluginHookAgentContext,
   ) => Promise<void> | void;
   agent_end: (event: PluginHookAgentEndEvent, ctx: PluginHookAgentContext) => Promise<void> | void;
+  agent_error: (
+    event: PluginHookAgentErrorEvent,
+    ctx: PluginHookAgentContext,
+  ) => Promise<PluginHookAgentErrorResult | void> | PluginHookAgentErrorResult | void;
   before_compaction: (
     event: PluginHookBeforeCompactionEvent,
     ctx: PluginHookAgentContext,
