@@ -29,6 +29,25 @@ class DeviceHandler(
   private val smsEnabled: Boolean = BuildConfig.OPENCLAW_ENABLE_SMS,
   private val callLogEnabled: Boolean = BuildConfig.OPENCLAW_ENABLE_CALL_LOG,
 ) {
+  companion object {
+    internal fun hasAnySmsCapability(
+      smsEnabled: Boolean,
+      telephonyAvailable: Boolean,
+      smsSendGranted: Boolean,
+      smsReadGranted: Boolean,
+    ): Boolean {
+      return smsEnabled && telephonyAvailable && (smsSendGranted || smsReadGranted)
+    }
+
+    internal fun isSmsPromptable(
+      smsEnabled: Boolean,
+      telephonyAvailable: Boolean,
+      smsSendGranted: Boolean,
+      smsReadGranted: Boolean,
+    ): Boolean {
+      return smsEnabled && telephonyAvailable && (!smsSendGranted || !smsReadGranted)
+    }
+  }
   private data class BatterySnapshot(
     val status: Int,
     val plugged: Int,
@@ -181,10 +200,10 @@ class DeviceHandler(
               put(
                 "status",
                 JsonPrimitive(
-                  if (smsEnabled && smsSendGranted && smsReadGranted && canSendSms) "granted" else "denied",
+                  if (hasAnySmsCapability(smsEnabled, canSendSms, smsSendGranted, smsReadGranted)) "granted" else "denied",
                 ),
               )
-              put("promptable", JsonPrimitive(!(smsEnabled && smsSendGranted && smsReadGranted && canSendSms) && smsEnabled && canSendSms))
+              put("promptable", JsonPrimitive(isSmsPromptable(smsEnabled, canSendSms, smsSendGranted, smsReadGranted)))
               put(
                 "capabilities",
                 buildJsonObject {

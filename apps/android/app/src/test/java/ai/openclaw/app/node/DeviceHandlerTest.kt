@@ -114,6 +114,62 @@ class DeviceHandlerTest {
   }
 
   @Test
+  fun smsTopLevelStatusTreatsSendOnlyPartialGrantAsGranted() {
+    assertTrue(
+      DeviceHandler.hasAnySmsCapability(
+        smsEnabled = true,
+        telephonyAvailable = true,
+        smsSendGranted = true,
+        smsReadGranted = false,
+      ),
+    )
+  }
+
+  @Test
+  fun smsTopLevelStatusTreatsReadOnlyPartialGrantAsGranted() {
+    assertTrue(
+      DeviceHandler.hasAnySmsCapability(
+        smsEnabled = true,
+        telephonyAvailable = true,
+        smsSendGranted = false,
+        smsReadGranted = true,
+      ),
+    )
+  }
+
+  @Test
+  fun smsTopLevelStatusTreatsNoSmsGrantAsDenied() {
+    assertTrue(
+      !DeviceHandler.hasAnySmsCapability(
+        smsEnabled = true,
+        telephonyAvailable = true,
+        smsSendGranted = false,
+        smsReadGranted = false,
+      ),
+    )
+  }
+
+  @Test
+  fun smsTopLevelPromptableStaysTrueUntilBothSmsPermissionsAreGranted() {
+    assertTrue(
+      DeviceHandler.isSmsPromptable(
+        smsEnabled = true,
+        telephonyAvailable = true,
+        smsSendGranted = true,
+        smsReadGranted = false,
+      ),
+    )
+    assertTrue(
+      !DeviceHandler.isSmsPromptable(
+        smsEnabled = true,
+        telephonyAvailable = true,
+        smsSendGranted = true,
+        smsReadGranted = true,
+      ),
+    )
+  }
+
+  @Test
   fun handleDeviceHealth_returnsExpectedShape() {
     val handler = DeviceHandler(appContext())
 
