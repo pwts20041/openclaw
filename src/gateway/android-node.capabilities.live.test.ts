@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../config/config.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { isTruthyEnvValue } from "../infra/env.js";
@@ -282,16 +282,57 @@ function resolveGatewayConnection() {
 async function resolvePolicyConfigForRun(params: {
   client: GatewayClient;
   connectionDetails: ReturnType<typeof buildGatewayConnectionDetails>;
+  loadLocalConfig?: () => OpenClawConfig;
 }): Promise<OpenClawConfig> {
-  const localCfg = loadConfig();
-
-  if (!shouldFetchRemotePolicyConfig(params.connectionDetails)) {
-    return localCfg;
+  if (shouldFetchRemotePolicyConfig(params.connectionDetails)) {
+    const raw = await params.client.request("config.get", {});
+    return unwrapRemoteConfigSnapshot(raw);
   }
 
-  const raw = await params.client.request("config.get", {});
-  return unwrapRemoteConfigSnapshot(raw);
+  const loadLocalConfig = params.loadLocalConfig ?? loadConfig;
+  return loadLocalConfig();
 }
+
+describe("resolvePolicyConfigForRun", () => {
+  it("skips local config loading for remote runs", async () => {
+    const request = vi.fn().mockResolvedValue({ config: { gateway: { bind: "127.0.0.1" } } });
+    const loadLocalConfig = vi.fn(() => {
+      throw new Error("local config should not load in remote mode");
+    });
+
+    const result = await resolvePolicyConfigForRun({
+      client: { request } as unknown as GatewayClient,
+      connectionDetails: {
+        url: "wss://example.invalid/gateway",
+        urlSource: "env override",
+        message: "remote",
+      },
+      loadLocalConfig,
+    });
+
+    expect(loadLocalConfig).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledWith("config.get", {});
+    expect(asRecord(result.gateway)).toBeTruthy();
+  });
+
+  it("still uses local config loading for local loopback runs", async () => {
+    const localConfig = { gateway: { bind: "127.0.0.1" } } as unknown as OpenClawConfig;
+    const loadLocalConfig = vi.fn(() => localConfig);
+
+    const result = await resolvePolicyConfigForRun({
+      client: { request: vi.fn() } as unknown as GatewayClient,
+      connectionDetails: {
+        url: "ws://127.0.0.1:4000/gateway",
+        urlSource: "local loopback",
+        message: "local",
+      },
+      loadLocalConfig,
+    });
+
+    expect(loadLocalConfig).toHaveBeenCalledTimes(1);
+    expect(result).toBe(localConfig);
+  });
+});
 
 async function connectGatewayClient(params: {
   url: string;
