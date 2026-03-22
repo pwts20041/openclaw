@@ -7,7 +7,7 @@ import {
   evaluateShellAllowlist,
   recordAllowlistUse,
   requiresExecApproval,
-  resolveAllowAlwaysPatterns,
+  resolveAllowAlwaysPatternsAsync,
 } from "../infra/exec-approvals.js";
 import { detectCommandObfuscation } from "../infra/exec-obfuscation-detect.js";
 import type { SafeBinProfile } from "../infra/exec-safe-bin-policy.js";
@@ -215,6 +215,7 @@ export async function processGatewayAllowlist(
       });
       let approvedByAsk = initialApprovedByAsk;
       let deniedReason = initialDeniedReason;
+      let unresolvedWarning = "";
 
       if (baseDecision.timedOut && askFallback === "allowlist") {
         if (!analysisOk || !allowlistSatisfied) {
@@ -227,7 +228,7 @@ export async function processGatewayAllowlist(
       } else if (decision === "allow-always") {
         approvedByAsk = true;
         if (hostSecurity === "allowlist") {
-          const patterns = resolveAllowAlwaysPatterns({
+          const { patterns, unresolved } = await resolveAllowAlwaysPatternsAsync({
             segments: allowlistEval.segments,
             cwd: params.workdir,
             env: params.env,
@@ -238,6 +239,11 @@ export async function processGatewayAllowlist(
               addAllowlistEntry(approvals.file, params.agentId, pattern);
             }
           }
+          if (unresolved.length > 0) {
+            const joined = unresolved.join(", ");
+            logInfo(`exec: failed to resolve absolute paths for “Always Allow”: ${joined}`);
+            unresolvedWarning = `⚠️ Could not resolve absolute path for command(s): ${joined}. "Always Allow" failed to persist.\n`;
+          }
         }
       }
 
@@ -246,9 +252,10 @@ export async function processGatewayAllowlist(
       }
 
       if (deniedReason) {
+        const denyMessage = `Exec denied (gateway id=${approvalId}, ${deniedReason}): ${params.command}`;
         await sendExecApprovalFollowupResult(
           followupTarget,
-          `Exec denied (gateway id=${approvalId}, ${deniedReason}): ${params.command}`,
+          unresolvedWarning ? unresolvedWarning + denyMessage : denyMessage,
         );
         return;
       }
