@@ -308,7 +308,8 @@ class InvokeDispatcher(
             message = "SMS_UNAVAILABLE: SMS not available on this device",
           )
         }
-      InvokeCommandAvailability.ReadSmsAvailable ->
+      InvokeCommandAvailability.ReadSmsAvailable,
+      InvokeCommandAvailability.RequestableSmsSearchAvailable ->
         smsSearchAvailabilityError(
           readSmsAvailable = readSmsAvailable(),
           smsFeatureEnabled = smsFeatureEnabled(),
