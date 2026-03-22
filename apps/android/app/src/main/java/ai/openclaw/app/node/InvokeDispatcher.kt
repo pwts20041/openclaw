@@ -30,6 +30,28 @@ internal fun classifySmsSearchAvailability(
   return SmsSearchAvailabilityReason.PermissionRequired
 }
 
+internal fun smsSearchAvailabilityError(
+  readSmsAvailable: Boolean,
+  smsFeatureEnabled: Boolean,
+  smsTelephonyAvailable: Boolean,
+): GatewaySession.InvokeResult? {
+  return when (
+    classifySmsSearchAvailability(
+      readSmsAvailable = readSmsAvailable,
+      smsFeatureEnabled = smsFeatureEnabled,
+      smsTelephonyAvailable = smsTelephonyAvailable,
+    )
+  ) {
+    SmsSearchAvailabilityReason.Available,
+    SmsSearchAvailabilityReason.PermissionRequired -> null
+    SmsSearchAvailabilityReason.Unavailable ->
+      GatewaySession.InvokeResult.error(
+        code = "SMS_UNAVAILABLE",
+        message = "SMS_UNAVAILABLE: SMS not available on this device",
+      )
+  }
+}
+
 class InvokeDispatcher(
   private val canvas: CanvasController,
   private val cameraHandler: CameraHandler,
@@ -287,25 +309,11 @@ class InvokeDispatcher(
           )
         }
       InvokeCommandAvailability.ReadSmsAvailable ->
-        when (
-          classifySmsSearchAvailability(
-            readSmsAvailable = readSmsAvailable(),
-            smsFeatureEnabled = smsFeatureEnabled(),
-            smsTelephonyAvailable = smsTelephonyAvailable(),
-          )
-        ) {
-          SmsSearchAvailabilityReason.Available -> null
-          SmsSearchAvailabilityReason.PermissionRequired ->
-            GatewaySession.InvokeResult.error(
-              code = "SMS_PERMISSION_REQUIRED",
-              message = "SMS_PERMISSION_REQUIRED: grant READ_SMS permission",
-            )
-          SmsSearchAvailabilityReason.Unavailable ->
-            GatewaySession.InvokeResult.error(
-              code = "SMS_UNAVAILABLE",
-              message = "SMS_UNAVAILABLE: SMS not available on this device",
-            )
-        }
+        smsSearchAvailabilityError(
+          readSmsAvailable = readSmsAvailable(),
+          smsFeatureEnabled = smsFeatureEnabled(),
+          smsTelephonyAvailable = smsTelephonyAvailable(),
+        )
       InvokeCommandAvailability.CallLogAvailable ->
         if (callLogAvailable()) {
           null
