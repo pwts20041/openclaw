@@ -557,6 +557,8 @@ const CommonToolPolicyFields = {
 export const AgentToolsSchema = z
   .object({
     ...CommonToolPolicyFields,
+    maxConsecutiveToolOnlyTurns: z.number().int().min(0).optional(),
+    notifyUserOnApiError: z.boolean().optional(),
     elevated: z
       .object({
         enabled: z.boolean().optional(),
@@ -807,6 +809,8 @@ export const AgentEntrySchema = z
 export const ToolsSchema = z
   .object({
     ...CommonToolPolicyFields,
+    maxConsecutiveToolOnlyTurns: z.number().int().min(0).optional(),
+    notifyUserOnApiError: z.boolean().optional(),
     web: ToolsWebSchema,
     media: ToolsMediaSchema,
     links: ToolsLinksSchema,
