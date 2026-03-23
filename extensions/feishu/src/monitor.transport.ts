@@ -7,6 +7,7 @@ import {
   type RuntimeEnv,
   installRequestBodyLimitGuard,
 } from "openclaw/plugin-sdk/feishu";
+import { computeBackoff, sleepWithAbort } from "openclaw/plugin-sdk/infra-runtime";
 import { createFeishuWSClient } from "./client.js";
 import {
   botNames,
@@ -72,6 +73,91 @@ function respondText(res: http.ServerResponse, statusCode: number, body: string)
   res.end(body);
 }
 
+/**
+ * How long to wait after detecting that the Lark SDK has gone silent (no
+ * reconnect activity) before we declare it dead and start a new cycle.
+ * The Lark SDK's own reconnect intervals can be up to ~60 s, so we give it
+ * extra headroom before we step in.
+ */
+const FEISHU_WS_STALL_DETECT_MS = 90_000;
+
+/**
+ * How often we poll the SDK's reconnect-info to decide if it has stalled.
+ */
+const FEISHU_WS_STALL_POLL_MS = 10_000;
+
+/**
+ * Backoff policy for the OpenClaw-level supervisor loop.  Each cycle
+ * represents the Lark SDK exhausting all of its own server-configured
+ * reconnect attempts.
+ */
+const FEISHU_WS_SUPERVISOR_RECONNECT_POLICY = {
+  initialMs: 5_000,
+  maxMs: 60_000,
+  factor: 2,
+  jitter: 0.25,
+} as const;
+
+/**
+ * Start the Lark WSClient and return a promise that resolves once the
+ * client has gone silent (SDK retry budget exhausted or stall detected).
+ * Rejects only on abort.
+ */
+function runFeishuWSClientUntilDead(params: {
+  wsClient: Lark.WSClient;
+  eventDispatcher: Lark.EventDispatcher;
+  accountId: string;
+  log: (msg: string) => void;
+  abortSignal?: AbortSignal;
+}): Promise<void> {
+  const { wsClient, eventDispatcher, accountId, log, abortSignal } = params;
+
+  return new Promise<void>((resolve) => {
+    if (abortSignal?.aborted) {
+      resolve();
+      return;
+    }
+
+    wsClient.start({ eventDispatcher });
+    log(`feishu[${accountId}]: WebSocket client started`);
+
+    // Poll for stall: if the SDK hasn't attempted a (re)connect within
+    // FEISHU_WS_STALL_DETECT_MS, we treat it as having given up.
+    let lastSeenConnectTime = wsClient.getReconnectInfo().lastConnectTime;
+    let lastActivityAt = Date.now();
+
+    const handleAbort = () => {
+      clearInterval(stallPoller);
+      resolve();
+    };
+
+    abortSignal?.addEventListener("abort", handleAbort, { once: true });
+
+    const stallPoller = setInterval(() => {
+      if (abortSignal?.aborted) {
+        clearInterval(stallPoller);
+        return;
+      }
+      const info = wsClient.getReconnectInfo();
+      if (info.lastConnectTime !== lastSeenConnectTime) {
+        // SDK is still actively (re)connecting — reset the stall clock.
+        lastSeenConnectTime = info.lastConnectTime;
+        lastActivityAt = Date.now();
+        return;
+      }
+      const idleMs = Date.now() - lastActivityAt;
+      if (idleMs >= FEISHU_WS_STALL_DETECT_MS) {
+        log(
+          `feishu[${accountId}]: WebSocket stall detected (no reconnect activity for ${Math.round(idleMs / 1000)}s); will restart supervisor cycle`,
+        );
+        clearInterval(stallPoller);
+        abortSignal?.removeEventListener("abort", handleAbort);
+        resolve();
+      }
+    }, FEISHU_WS_STALL_POLL_MS);
+  });
+}
+
 export async function monitorWebSocket({
   account,
   accountId,
@@ -80,41 +166,76 @@ export async function monitorWebSocket({
   eventDispatcher,
 }: MonitorTransportParams): Promise<void> {
   const log = runtime?.log ?? console.log;
-  log(`feishu[${accountId}]: starting WebSocket connection...`);
+  const error = runtime?.error ?? console.error;
 
-  const wsClient = createFeishuWSClient(account);
-  wsClients.set(accountId, wsClient);
+  const cleanup = () => {
+    wsClients.delete(accountId);
+    botOpenIds.delete(accountId);
+    botNames.delete(accountId);
+  };
 
-  return new Promise((resolve, reject) => {
-    const cleanup = () => {
-      wsClients.delete(accountId);
-      botOpenIds.delete(accountId);
-      botNames.delete(accountId);
-    };
+  if (abortSignal?.aborted) {
+    cleanup();
+    return;
+  }
 
-    const handleAbort = () => {
-      log(`feishu[${accountId}]: abort signal received, stopping`);
+  let supervisorAttempt = 0;
+
+  // Supervisor loop: each iteration creates a new WSClient and runs it until
+  // either (a) abort is requested or (b) the SDK's internal retry budget is
+  // exhausted.  We then back off and start a fresh cycle.
+  while (!abortSignal?.aborted) {
+    log(
+      `feishu[${accountId}]: starting WebSocket connection... (supervisor cycle ${supervisorAttempt + 1})`,
+    );
+
+    let wsClient: Lark.WSClient;
+    try {
+      wsClient = createFeishuWSClient(account);
+    } catch (err) {
+      // Non-recoverable config error (missing credentials etc.).
       cleanup();
-      resolve();
-    };
-
-    if (abortSignal?.aborted) {
-      cleanup();
-      resolve();
-      return;
+      throw err;
     }
 
-    abortSignal?.addEventListener("abort", handleAbort, { once: true });
+    wsClients.set(accountId, wsClient);
 
     try {
-      wsClient.start({ eventDispatcher });
-      log(`feishu[${accountId}]: WebSocket client started`);
-    } catch (err) {
-      cleanup();
-      abortSignal?.removeEventListener("abort", handleAbort);
-      reject(err);
+      await runFeishuWSClientUntilDead({
+        wsClient,
+        eventDispatcher,
+        accountId,
+        log,
+        abortSignal,
+      });
+    } finally {
+      // Always close the stale SDK client before creating a fresh one.
+      try {
+        wsClient.close({ force: true });
+      } catch {
+        // Ignore close errors; the important thing is the new client starts clean.
+      }
     }
-  });
+
+    if (abortSignal?.aborted) {
+      break;
+    }
+
+    supervisorAttempt += 1;
+    const delayMs = computeBackoff(FEISHU_WS_SUPERVISOR_RECONNECT_POLICY, supervisorAttempt);
+    error(
+      `feishu[${accountId}]: WebSocket supervisor restarting (attempt ${supervisorAttempt}) in ${Math.round(delayMs / 1000)}s`,
+    );
+
+    try {
+      await sleepWithAbort(delayMs, abortSignal);
+    } catch {
+      // Abort during sleep — exit loop.
+      break;
+    }
+  }
+
+  cleanup();
 }
 
 export async function monitorWebhook({
