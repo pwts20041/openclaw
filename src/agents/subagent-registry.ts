@@ -1354,9 +1354,8 @@ export function replaceSubagentRunAfterSteer(params: {
   subagentRuns.set(nextRunId, next);
   ensureListener();
   persistSubagentRuns();
-  if (archiveAtMs) {
-    startSweeper();
-  }
+  // Always start sweeper — session-mode runs (no archiveAtMs) also need TTL cleanup.
+  startSweeper();
   void waitForSubagentCompletion(nextRunId, waitTimeoutMs);
   return true;
 }
@@ -1421,9 +1420,8 @@ export function registerSubagentRun(params: {
   });
   ensureListener();
   persistSubagentRuns();
-  if (archiveAtMs) {
-    startSweeper();
-  }
+  // Always start sweeper — session-mode runs (no archiveAtMs) also need TTL cleanup.
+  startSweeper();
   // Wait for subagent completion via gateway RPC (cross-process).
   // The in-process lifecycle listener is a fallback for embedded runs.
   void waitForSubagentCompletion(params.runId, waitTimeoutMs);
