@@ -267,6 +267,11 @@ describe("executeSlashCommand directives", () => {
 
   it("mirrors resolved provider-qualified model refs after /model changes", async () => {
     const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "models.list") {
+        return {
+          models: [{ id: "gpt-5-mini", provider: "openai", name: "GPT-5 Mini" }],
+        };
+      }
       if (method === "sessions.patch") {
         return {
           ok: true,
@@ -287,13 +292,124 @@ describe("executeSlashCommand directives", () => {
       "gpt-5-mini",
     );
 
+    // Bare model name is qualified with the catalog provider before sending.
     expect(request).toHaveBeenCalledWith("sessions.patch", {
       key: "main",
-      model: "gpt-5-mini",
+      model: "openai/gpt-5-mini",
     });
     expect(result.sessionPatch?.modelOverride).toEqual({
       kind: "qualified",
       value: "openai/gpt-5-mini",
+    });
+  });
+
+  it("skips models.list when a catalog is provided", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "sessions.patch") {
+        return {
+          ok: true,
+          key: "main",
+          resolved: {
+            modelProvider: "openai",
+            model: "gpt-5-mini",
+          },
+        };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    const catalog = [{ id: "gpt-5-mini", provider: "openai", name: "GPT-5 Mini" }];
+    await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "main",
+      "model",
+      "gpt-5-mini",
+      catalog as import("../types.ts").ModelCatalogEntry[],
+    );
+
+    // Should NOT call models.list since catalog was provided.
+    expect(request).not.toHaveBeenCalledWith("models.list", expect.anything());
+    expect(request).toHaveBeenCalledWith("sessions.patch", {
+      key: "main",
+      model: "openai/gpt-5-mini",
+    });
+  });
+
+  it("falls back to bare name when same model ID exists under multiple providers", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "models.list") {
+        return {
+          models: [
+            { id: "shared-model", provider: "providerA", name: "Shared A" },
+            { id: "shared-model", provider: "providerB", name: "Shared B" },
+          ],
+        };
+      }
+      if (method === "sessions.patch") {
+        return {
+          ok: true,
+          key: "main",
+          resolved: {
+            modelProvider: "providerA",
+            model: "shared-model",
+          },
+        };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "main",
+      "model",
+      "shared-model",
+    );
+
+    // Ambiguous — should send bare name, not first-match provider.
+    expect(request).toHaveBeenCalledWith("sessions.patch", {
+      key: "main",
+      model: "shared-model",
+    });
+  });
+
+  it("uses the selected model's own provider when switching between providers", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "models.list") {
+        return {
+          models: [
+            { id: "claude-opus-4-6", provider: "anthropic", name: "Claude Opus" },
+            { id: "gemini-2.5-pro", provider: "google", name: "Gemini 2.5 Pro" },
+          ],
+        };
+      }
+      if (method === "sessions.patch") {
+        return {
+          ok: true,
+          key: "main",
+          resolved: {
+            modelProvider: "google",
+            model: "gemini-2.5-pro",
+          },
+        };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "main",
+      "model",
+      "gemini-2.5-pro",
+    );
+
+    // Must send "google/gemini-2.5-pro", NOT "anthropic/gemini-2.5-pro".
+    expect(request).toHaveBeenCalledWith("sessions.patch", {
+      key: "main",
+      model: "google/gemini-2.5-pro",
+    });
+    expect(result.sessionPatch?.modelOverride).toEqual({
+      kind: "qualified",
+      value: "google/gemini-2.5-pro",
     });
   });
 

@@ -16,7 +16,11 @@ import {
   isSubagentSessionKey,
   parseAgentSessionKey,
 } from "../../../../src/routing/session-key.js";
-import { createChatModelOverride, resolveServerChatModelValue } from "../chat-model-ref.ts";
+import {
+  buildQualifiedChatModelValue,
+  createChatModelOverride,
+  resolveServerChatModelValue,
+} from "../chat-model-ref.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type {
   AgentsListResult,
@@ -51,6 +55,7 @@ export async function executeSlashCommand(
   sessionKey: string,
   commandName: string,
   args: string,
+  catalog?: ModelCatalogEntry[],
 ): Promise<SlashCommandResult> {
   switch (commandName) {
     case "help":
@@ -68,7 +73,7 @@ export async function executeSlashCommand(
     case "compact":
       return await executeCompact(client, sessionKey);
     case "model":
-      return await executeModel(client, sessionKey, args);
+      return await executeModel(client, sessionKey, args, catalog);
     case "think":
       return await executeThink(client, sessionKey, args);
     case "fast":
@@ -125,6 +130,7 @@ async function executeModel(
   client: GatewayBrowserClient,
   sessionKey: string,
   args: string,
+  catalog?: ModelCatalogEntry[],
 ): Promise<SlashCommandResult> {
   if (!args) {
     try {
@@ -151,16 +157,59 @@ async function executeModel(
   }
 
   try {
+    // Qualify bare model names with their catalog provider so the server
+    // does not fall back to the session's current provider (which may
+    // belong to a completely different provider).
+    const modelArg = args.trim();
+    let qualifiedModel = modelArg;
+    if (!modelArg.includes("/")) {
+      // Prefer the caller-provided catalog to avoid an extra network round-trip;
+      // fall back to fetching when the catalog was not passed in.
+      let catalogEntries = catalog;
+      if (!catalogEntries) {
+        try {
+          const result = await client.request<{ models: ModelCatalogEntry[] }>("models.list", {});
+          catalogEntries = result?.models ?? [];
+        } catch {
+          // Catalog unavailable — send the bare name and let the server resolve.
+        }
+      }
+      if (catalogEntries) {
+        // Walk all entries to detect ambiguity: if the same model ID appears
+        // under multiple providers, fall back to the bare name and let the
+        // server resolve — consistent with normalizeChatModelOverrideValue.
+        let matchedValue = "";
+        for (const entry of catalogEntries) {
+          if (entry.id.trim().toLowerCase() !== modelArg.toLowerCase()) {
+            continue;
+          }
+          const candidate = buildQualifiedChatModelValue(entry.id, entry.provider);
+          if (!matchedValue) {
+            matchedValue = candidate;
+            continue;
+          }
+          if (matchedValue.toLowerCase() !== candidate.toLowerCase()) {
+            // Ambiguous — multiple providers; leave as the bare name.
+            matchedValue = "";
+            break;
+          }
+        }
+        if (matchedValue) {
+          qualifiedModel = matchedValue;
+        }
+      }
+    }
+
     const patched = await client.request<SessionsPatchResult>("sessions.patch", {
       key: sessionKey,
-      model: args.trim(),
+      model: qualifiedModel,
     });
     const resolvedValue = resolveServerChatModelValue(
-      patched.resolved?.model ?? args.trim(),
+      patched.resolved?.model ?? modelArg,
       patched.resolved?.modelProvider,
     );
     return {
-      content: `Model set to \`${args.trim()}\`.`,
+      content: `Model set to \`${modelArg}\`.`,
       action: "refresh",
       sessionPatch: { modelOverride: createChatModelOverride(resolvedValue) },
     };
