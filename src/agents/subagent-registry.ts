@@ -96,6 +96,10 @@ type SubagentRunOrphanReason = "missing-session-entry" | "missing-session-id";
  * subsequent lifecycle `start` / `end` can cancel premature failure announces.
  */
 const LIFECYCLE_ERROR_RETRY_GRACE_MS = 15_000;
+/** Absolute TTL for session-mode runs after cleanup completes (no archiveAtMs). */
+const SESSION_RUN_TTL_MS = 5 * 60_000; // 5 minutes
+/** Absolute TTL for orphaned pendingLifecycleError entries. */
+const PENDING_ERROR_TTL_MS = 5 * 60_000; // 5 minutes
 const FROZEN_RESULT_TEXT_MAX_BYTES = 100 * 1024;
 
 function capFrozenResultText(resultText: string): string {
@@ -843,11 +847,11 @@ function stopSweeper() {
 async function sweepSubagentRuns() {
   const now = Date.now();
   let mutated = false;
-  const SESSION_RUN_TTL_MS = 5 * 60 * 1000; // 5 min absolute TTL for session-mode runs
   for (const [runId, entry] of subagentRuns.entries()) {
-    // Session-mode runs have no archiveAtMs — apply absolute TTL after completion.
+    // Session-mode runs have no archiveAtMs — apply absolute TTL after cleanup completes.
+    // Use cleanupCompletedAt (not endedAt) to avoid interrupting deferred cleanup flows.
     if (!entry.archiveAtMs) {
-      if (typeof entry.endedAt === "number" && now - entry.endedAt > SESSION_RUN_TTL_MS) {
+      if (typeof entry.cleanupCompletedAt === "number" && now - entry.cleanupCompletedAt > SESSION_RUN_TTL_MS) {
         clearPendingLifecycleError(runId);
         void notifyContextEngineSubagentEnded({
           childSessionKey: entry.childSessionKey,
@@ -888,7 +892,6 @@ async function sweepSubagentRuns() {
     }
   }
   // Sweep orphaned pendingLifecycleError entries (absolute TTL).
-  const PENDING_ERROR_TTL_MS = 5 * 60 * 1000;
   for (const [runId, pending] of pendingLifecycleErrorByRunId.entries()) {
     if (now - pending.endedAt > PENDING_ERROR_TTL_MS) {
       clearPendingLifecycleError(runId);
