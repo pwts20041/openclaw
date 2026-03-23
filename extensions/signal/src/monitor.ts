@@ -428,6 +428,9 @@ export async function monitorSignalProvider(opts: MonitorSignalOpts = {}): Promi
       }
     }
 
+    const injectLinkPreviews = accountInfo.config.injectLinkPreviews !== false;
+    const preserveTextStyles = accountInfo.config.preserveTextStyles !== false;
+
     const handleEvent = createSignalEventHandler({
       runtime,
       cfg,
@@ -449,6 +452,8 @@ export async function monitorSignalProvider(opts: MonitorSignalOpts = {}): Promi
       ignoreAttachments,
       sendReadReceipts,
       readReceiptsViaDaemon,
+      injectLinkPreviews,
+      preserveTextStyles,
       fetchAttachment,
       deliverReplies: (params) => deliverReplies({ ...params, chunkMode }),
       resolveSignalReactionTargets,
