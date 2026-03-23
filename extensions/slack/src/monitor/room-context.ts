@@ -1,4 +1,4 @@
-import { buildUntrustedChannelMetadata } from "../../../../src/security/channel-metadata.js";
+import { buildUntrustedChannelMetadata } from "openclaw/plugin-sdk/security-runtime";
 
 // LLMs default to standard Markdown (e.g. **bold**, # headers, [links](url)),
 // which Slack does not render correctly. This prompt overrides that behavior
