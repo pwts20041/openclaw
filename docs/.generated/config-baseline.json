@@ -29034,6 +29034,16 @@
       "hasChildren": false
     },
     {
+      "path": "channels.slack.accounts.*.dm.systemPrompt",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
       "path": "channels.slack.accounts.*.dmHistoryLimit",
       "kind": "channel",
       "type": "integer",
@@ -29489,6 +29499,16 @@
         "status_final",
         "append"
       ],
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.slack.accounts.*.systemPrompt",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
       "deprecated": false,
       "sensitive": false,
       "tags": [],
@@ -30431,6 +30451,16 @@
       "hasChildren": false
     },
     {
+      "path": "channels.slack.dm.systemPrompt",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
       "path": "channels.slack.dmHistoryLimit",
       "kind": "channel",
       "type": "integer",
@@ -30912,6 +30942,16 @@
       ],
       "label": "Slack Stream Mode (Legacy)",
       "help": "Legacy Slack preview mode alias (replace | status_final | append); auto-migrated to channels.slack.streaming.",
+      "hasChildren": false
+    },
+    {
+      "path": "channels.slack.systemPrompt",
+      "kind": "channel",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
       "hasChildren": false
     },
     {
@@ -45753,7 +45793,7 @@
         "storage"
       ],
       "label": "Node Browser Proxy Allowed Profiles",
-      "help": "Optional allowlist of browser profile names exposed through node proxy routing. Leave empty to expose all configured profiles, or use a tight list to enforce least-privilege profile access.",
+      "help": "Optional allowlist of browser profile names exposed through node proxy routing. Leave empty to preserve the default full profile surface, including profile create/delete routes. When set, OpenClaw enforces least-privilege profile access and blocks persistent profile create/delete through the proxy.",
       "hasChildren": true
     },
     {
@@ -46064,7 +46104,7 @@
         "advanced"
       ],
       "label": "Expected acpx Version",
-      "help": "Exact version to enforce (for example 0.1.16) or \"any\" to skip strict version matching.",
+      "help": "Exact version to enforce or \"any\" to skip strict version matching.",
       "hasChildren": false
     },
     {
