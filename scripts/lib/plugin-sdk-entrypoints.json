@@ -85,6 +85,7 @@
   "json-store",
   "keyed-async-queue",
   "line",
+  "line-runtime",
   "line-core",
   "line-runtime",
   "llm-task",
