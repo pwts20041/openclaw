@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import * as clientModule from "./client.js";
+import * as clientModule from "./client-adapter.js";
 import { classifySignalCliLogLine } from "./daemon.js";
 import {
   looksLikeUuid,
