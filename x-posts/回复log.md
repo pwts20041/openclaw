@@ -24,3 +24,9 @@
 3. 回复了 @Zai_org 的帖子（浏览 102.6万，GLM-5-Turbo for agent environments）：
    - 内容：分享用 GLM-5 via OpenRouter 做 batch 任务的实测体验，指出 agent 模型的真实考验是连续 50+ tool calls 不跑偏
    - 链接：https://x.com/geyunfei/status/2035175823809159537
+
+## 2026-03-23
+
+- 回复了 @danshipper 的帖子（浏览 10.8万，1597赞）— pirate+architect 团队模型：分享了 AI agent 做 pirate 的经验，指出 handoff 环节是断裂点，建议 pirate 写简短 context doc
+- 回复了 @OfficialLoganK 的帖子（浏览 5.3万，554赞）— every app becomes App Store：指出分发模式从"下载"变成"告诉 app 你要什么"，moat 从代码质量转向数据+上下文
+- 回复了 @andrewchen 的帖子（浏览 1.3万，180赞）— Founder-Led Coding：指出非技术创始人 vibe-code v1 反而做出更好产品决策，但风险是对自己代码过度依恋
