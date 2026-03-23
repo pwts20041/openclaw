@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { buildWorkspaceSkillSnapshot } from "../../agents/skills.js";
 import { ensureSkillsWatcher, getSkillsSnapshotVersion } from "../../agents/skills/refresh.js";
+import { canReuseSkillSnapshot } from "../../agents/skills/snapshot-cache.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { type SessionEntry, updateSessionStore } from "../../config/sessions.js";
 import { getRemoteSkillEligibility } from "../../infra/skills-remote.js";
@@ -71,7 +72,13 @@ export async function ensureSkillSnapshot(params: {
   const snapshotVersion = getSkillsSnapshotVersion(workspaceDir);
   ensureSkillsWatcher({ workspaceDir, config: cfg });
   const shouldRefreshSnapshot =
-    snapshotVersion > 0 && (nextEntry?.skillsSnapshot?.version ?? 0) < snapshotVersion;
+    !isFirstTurnInSession &&
+    !canReuseSkillSnapshot({
+      snapshot: nextEntry?.skillsSnapshot,
+      snapshotVersion,
+      config: cfg,
+      skillFilter,
+    });
 
   if (isFirstTurnInSession && sessionStore && sessionKey) {
     const current = nextEntry ??

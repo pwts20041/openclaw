@@ -11239,6 +11239,12 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
               type: "string",
             },
           },
+          priority: {
+            type: "array",
+            items: {
+              type: "string",
+            },
+          },
           load: {
             type: "object",
             properties: {

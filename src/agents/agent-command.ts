@@ -90,6 +90,7 @@ import {
 } from "./model-selection.js";
 import { prepareSessionManagerForRun } from "./pi-embedded-runner/session-manager-init.js";
 import { runEmbeddedPiAgent } from "./pi-embedded.js";
+import { canReuseSkillSnapshot } from "./skills/snapshot-cache.js";
 import { buildWorkspaceSkillSnapshot } from "./skills.js";
 import { getSkillsSnapshotVersion } from "./skills/refresh.js";
 import { normalizeSpawnedRunMetadata } from "./spawned-context.js";
@@ -905,9 +906,16 @@ async function agentCommandInternal(
       });
     }
 
-    const needsSkillsSnapshot = isNewSession || !sessionEntry?.skillsSnapshot;
     const skillsSnapshotVersion = getSkillsSnapshotVersion(workspaceDir);
     const skillFilter = resolveAgentSkillsFilter(cfg, sessionAgentId);
+    const needsSkillsSnapshot =
+      isNewSession ||
+      !canReuseSkillSnapshot({
+        snapshot: sessionEntry?.skillsSnapshot,
+        snapshotVersion: skillsSnapshotVersion,
+        config: cfg,
+        skillFilter,
+      });
     const skillsSnapshot = needsSkillsSnapshot
       ? buildWorkspaceSkillSnapshot(workspaceDir, {
           config: cfg,

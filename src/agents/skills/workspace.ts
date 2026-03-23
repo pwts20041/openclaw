@@ -18,10 +18,12 @@ import { normalizeSkillFilter } from "./filter.js";
 import {
   parseFrontmatter,
   resolveOpenClawMetadata,
+  resolveSkillKey,
   resolveSkillInvocationPolicy,
 } from "./frontmatter.js";
 import { resolvePluginSkillDirs } from "./plugin-skills.js";
 import { serializeByKey } from "./serialize.js";
+import { resolveSkillsSnapshotConfigKey } from "./snapshot-cache.js";
 import type {
   ParsedSkillFrontmatter,
   SkillEligibilityContext,
@@ -357,7 +359,7 @@ function loadSkillEntries(
     const suspicious = childDirs.length > limits.maxCandidatesPerRoot;
 
     const maxCandidates = Math.max(0, limits.maxSkillsLoadedPerSource);
-    const limitedChildren = childDirs.slice().sort().slice(0, maxCandidates);
+    const limitedChildren = childDirs.sort().slice(0, maxCandidates);
 
     if (suspicious) {
       skillsLogger.warn("Skills root looks suspiciously large, truncating discovery.", {
@@ -435,7 +437,6 @@ function loadSkillEntries(
 
     if (loadedSkills.length > limits.maxSkillsLoadedPerSource) {
       return loadedSkills
-        .slice()
         .sort((a, b) => a.name.localeCompare(b.name))
         .slice(0, limits.maxSkillsLoadedPerSource);
     }
@@ -612,6 +613,40 @@ function applySkillsPromptLimits(params: { skills: Skill[]; config?: OpenClawCon
   return { skillsForPrompt, truncated, compact };
 }
 
+function orderSkillEntriesForPrompt(entries: SkillEntry[], priority?: string[]): SkillEntry[] {
+  if (entries.length <= 1) {
+    return entries.slice();
+  }
+
+  const orderedPriority = (priority ?? []).map((name) => name.trim()).filter(Boolean);
+  const entriesByKey = new Map<string, SkillEntry>();
+  for (const entry of entries) {
+    // Keep both identifiers addressable so alias support does not break
+    // existing configs that still pin the underlying skill name.
+    const matchKeys = new Set([entry.skill.name, resolveSkillKey(entry.skill, entry)]);
+    for (const matchKey of matchKeys) {
+      entriesByKey.set(matchKey, entry);
+    }
+  }
+  const seen = new Set<string>();
+  const prioritized: SkillEntry[] = [];
+
+  for (const key of orderedPriority) {
+    const entry = entriesByKey.get(key);
+    if (!entry || seen.has(entry.skill.name)) {
+      continue;
+    }
+    prioritized.push(entry);
+    seen.add(entry.skill.name);
+  }
+
+  const remaining = entries
+    .filter((entry) => !seen.has(entry.skill.name))
+    .sort((a, b) => a.skill.name.localeCompare(b.skill.name));
+
+  return [...prioritized, ...remaining];
+}
+
 export function buildWorkspaceSkillSnapshot(
   workspaceDir: string,
   opts?: WorkspaceSkillBuildOptions & { snapshotVersion?: number },
@@ -625,6 +660,7 @@ export function buildWorkspaceSkillSnapshot(
       primaryEnv: entry.metadata?.primaryEnv,
       requiredEnv: entry.metadata?.requires?.env?.slice(),
     })),
+    configKey: resolveSkillsSnapshotConfigKey(opts?.config),
     ...(skillFilter === undefined ? {} : { skillFilter }),
     resolvedSkills,
     version: opts?.snapshotVersion,
@@ -667,7 +703,11 @@ function resolveWorkspaceSkillPromptState(
     (entry) => entry.invocation?.disableModelInvocation !== true,
   );
   const remoteNote = opts?.eligibility?.remote?.note?.trim();
-  const resolvedSkills = promptEntries.map((entry) => entry.skill);
+  const orderedPromptEntries = orderSkillEntriesForPrompt(
+    promptEntries,
+    opts?.config?.skills?.priority,
+  );
+  const resolvedSkills = orderedPromptEntries.map((entry) => entry.skill);
   // Derive prompt-facing skills with compacted paths (e.g. ~/...) once.
   // Budget checks and final render both use this same representation so the
   // tier decision is based on the exact strings that end up in the prompt.
