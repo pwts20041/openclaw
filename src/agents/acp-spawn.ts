@@ -27,6 +27,7 @@ import { loadConfig } from "../config/config.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { loadSessionStore, resolveStorePath, type SessionEntry } from "../config/sessions.js";
 import { resolveSessionTranscriptFile } from "../config/sessions/transcript.js";
+import type { SessionAcpMeta } from "../config/sessions/types.js";
 import { callGateway } from "../gateway/call.js";
 import { areHeartbeatsEnabled } from "../infra/heartbeat-wake.js";
 import { resolveConversationIdFromTargets } from "../infra/outbound/conversation-id.js";
@@ -54,6 +55,7 @@ import {
 } from "./acp-spawn-parent-stream.js";
 import { resolveAgentConfig, resolveDefaultAgentId } from "./agent-scope.js";
 import { resolveSandboxRuntimeStatus } from "./sandbox/runtime-status.js";
+import { registerSubagentRun } from "./subagent-registry.js";
 import { resolveInternalSessionKey, resolveMainSessionAlias } from "./tools/sessions-helpers.js";
 
 const log = createSubsystemLogger("agents/acp-spawn");
@@ -792,6 +794,7 @@ export async function spawnAcpDirect(
   let binding: SessionBindingRecord | null = null;
   let sessionCreated = false;
   let initializedRuntime: AcpSpawnRuntimeCloseHandle | undefined;
+  let initializedMeta: SessionAcpMeta | undefined;
   try {
     await callGateway({
       method: "sessions.patch",
@@ -812,6 +815,7 @@ export async function spawnAcpDirect(
       cwd: params.cwd,
     });
     initializedRuntime = initializedSession.runtimeCloseHandle;
+    initializedMeta = initializedSession.initialized.meta;
 
     if (preparedBinding) {
       ({ binding } = await bindPreparedAcpThread({
@@ -910,6 +914,25 @@ export async function spawnAcpDirect(
         logPath: streamLogPath,
         emitStartNotice: false,
       });
+    }
+    try {
+      registerSubagentRun({
+        runId: childRunId,
+        childSessionKey: sessionKey,
+        controllerSessionKey: requesterInternalKey,
+        requesterSessionKey: requesterInternalKey,
+        requesterOrigin: requesterState.origin,
+        requesterDisplayKey: parentSessionKey,
+        task: params.task,
+        cleanup: "keep",
+        label: params.label || undefined,
+        workspaceDir: resolveAcpSessionCwd(initializedMeta) || params.cwd || undefined,
+        runTimeoutSeconds: 0,
+        expectsCompletionMessage: true,
+        spawnMode,
+      });
+    } catch (err) {
+      log.warn("registerSubagentRun failed", { runId: childRunId, err: String(err) });
     }
     parentRelay?.notifyStarted();
     return {

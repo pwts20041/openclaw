@@ -523,7 +523,7 @@ async function refreshFrozenResultFromSession(sessionKey: string): Promise<boole
   return changed;
 }
 
-async function completeSubagentRun(params: {
+export async function completeSubagentRun(params: {
   runId: string;
   endedAt?: number;
   outcome: SubagentRunOutcome;
@@ -538,17 +538,27 @@ async function completeSubagentRun(params: {
     return;
   }
 
-  let mutated = false;
   // If a late lifecycle completion arrives after an earlier kill marker, allow
   // completion cleanup/announce to run instead of staying permanently suppressed.
-  if (
+  const isRecoveryFromKill =
     params.reason === SUBAGENT_ENDED_REASON_COMPLETE &&
     entry.suppressAnnounceReason === "killed" &&
-    (entry.cleanupHandled || typeof entry.cleanupCompletedAt === "number")
-  ) {
+    (entry.cleanupHandled || typeof entry.cleanupCompletedAt === "number");
+
+  // Idempotency: bail only if completeSubagentRun already ran its full
+  // finalization path. Using entry.completionFinalized (not entry.endedAt)
+  // so that the normal first call from waitForSubagentCompletion — which
+  // populates endedAt before calling us — still executes cleanup/announce.
+  if (entry.completionFinalized && !isRecoveryFromKill) {
+    return;
+  }
+
+  let mutated = false;
+  if (isRecoveryFromKill) {
     entry.suppressAnnounceReason = undefined;
     entry.cleanupHandled = false;
     entry.cleanupCompletedAt = undefined;
+    entry.completionFinalized = false;
     mutated = true;
   }
 
@@ -569,6 +579,9 @@ async function completeSubagentRun(params: {
   if (await freezeRunResultAtCompletion(entry)) {
     mutated = true;
   }
+
+  // Mark finalization complete so duplicate calls are no-ops.
+  entry.completionFinalized = true;
 
   if (mutated) {
     persistSubagentRuns();
@@ -1305,6 +1318,7 @@ export function replaceSubagentRunAfterSteer(params: {
     accumulatedRuntimeMs,
     endedAt: undefined,
     endedReason: undefined,
+    completionFinalized: false,
     endedHookEmittedAt: undefined,
     wakeOnDescendantSettle: undefined,
     outcome: undefined,
