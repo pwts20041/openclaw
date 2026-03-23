@@ -19,6 +19,8 @@ export type AgentRunContext = {
   isHeartbeat?: boolean;
   /** Whether control UI clients should receive chat/agent updates for this run. */
   isControlUiVisible?: boolean;
+  /** Timestamp when this context was first registered (for TTL-based cleanup). */
+  registeredAt?: number;
 };
 
 type AgentEventState = {
@@ -41,7 +43,7 @@ export function registerAgentRunContext(runId: string, context: AgentRunContext)
   }
   const existing = state.runContextById.get(runId);
   if (!existing) {
-    state.runContextById.set(runId, { ...context });
+    state.runContextById.set(runId, { ...context, registeredAt: context.registeredAt ?? Date.now() });
     return;
   }
   if (context.sessionKey && existing.sessionKey !== context.sessionKey) {
@@ -64,6 +66,25 @@ export function getAgentRunContext(runId: string) {
 
 export function clearAgentRunContext(runId: string) {
   state.runContextById.delete(runId);
+}
+
+/**
+ * Sweep stale run contexts that exceeded the given TTL.
+ * Guards against orphaned entries when lifecycle "end"/"error" events are missed.
+ */
+export function sweepStaleRunContexts(maxAgeMs = 30 * 60 * 1000): number {
+  const now = Date.now();
+  let swept = 0;
+  for (const [runId, ctx] of state.runContextById.entries()) {
+    // Treat missing registeredAt (pre-deploy entries) as infinitely old.
+    const age = ctx.registeredAt ? now - ctx.registeredAt : Infinity;
+    if (age > maxAgeMs) {
+      state.runContextById.delete(runId);
+      state.seqByRun.delete(runId);
+      swept++;
+    }
+  }
+  return swept;
 }
 
 export function resetAgentRunContextForTest() {
