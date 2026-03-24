@@ -39,6 +39,71 @@ function supportsStrictMode(model: Model<Api>): boolean | undefined {
   return (model.compat as { supportsStrictMode?: boolean } | undefined)?.supportsStrictMode;
 }
 
+function supportsStore(model: Model<Api>): boolean | undefined {
+  return (model.compat as { supportsStore?: boolean } | undefined)?.supportsStore;
+}
+
+function supportsReasoningEffort(model: Model<Api>): boolean | undefined {
+  return (model.compat as { supportsReasoningEffort?: boolean } | undefined)?.supportsReasoningEffort;
+}
+
+function maxTokensField(model: Model<Api>): "max_completion_tokens" | "max_tokens" | undefined {
+  return (model.compat as { maxTokensField?: "max_completion_tokens" | "max_tokens" } | undefined)
+    ?.maxTokensField;
+}
+
+function createTemplateModel(provider: string, id: string): Model<Api> {
+  return {
+    id,
+    name: id,
+    provider,
+    api: "anthropic-messages",
+    input: ["text"],
+    reasoning: true,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 200_000,
+    maxTokens: 8_192,
+  } as Model<Api>;
+}
+
+function createOpenAITemplateModel(id: string): Model<Api> {
+  return {
+    id,
+    name: id,
+    provider: "openai",
+    api: "openai-responses",
+    baseUrl: "https://api.openai.com/v1",
+    input: ["text", "image"],
+    reasoning: true,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 400_000,
+    maxTokens: 32_768,
+  } as Model<Api>;
+}
+
+function createOpenAICodexTemplateModel(id: string): Model<Api> {
+  return {
+    id,
+    name: id,
+    provider: "openai-codex",
+    api: "openai-codex-responses",
+    baseUrl: "https://chatgpt.com/backend-api",
+    input: ["text", "image"],
+    reasoning: true,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 272_000,
+    maxTokens: 128_000,
+  } as Model<Api>;
+}
+
+function createRegistry(models: Record<string, Model<Api>>): ModelRegistry {
+  return {
+    find(provider: string, modelId: string) {
+      return models[`${provider}/${modelId}`] ?? null;
+    },
+  } as ModelRegistry;
+}
+
 function expectSupportsDeveloperRoleForcedOff(overrides?: Partial<Model<Api>>): void {
   const model = { ...baseModel(), ...overrides };
   delete (model as { compat?: unknown }).compat;
@@ -335,6 +400,79 @@ describe("normalizeModelCompat", () => {
     expect(supportsDeveloperRole(normalized)).toBe(true);
     expect(supportsUsageInStreaming(normalized)).toBe(true);
     expect(supportsStrictMode(normalized)).toBe(true);
+  });
+
+  it("applies Mistral-specific openai-compat flags for the official endpoint", () => {
+    const model = {
+      ...baseModel(),
+      id: "mistral-large-latest",
+      name: "Mistral Large",
+      provider: "mistral",
+      baseUrl: "https://api.mistral.ai/v1",
+      reasoning: false,
+    };
+    delete (model as { compat?: unknown }).compat;
+    const normalized = normalizeModelCompat(model as Model<Api>);
+    expect(supportsDeveloperRole(normalized)).toBe(false);
+    expect(supportsUsageInStreaming(normalized)).toBe(false);
+    expect(supportsStore(normalized)).toBe(false);
+    expect(supportsReasoningEffort(normalized)).toBe(false);
+    expect(maxTokensField(normalized)).toBe("max_tokens");
+  });
+
+  it("applies Mistral-specific openai-compat flags for custom Mistral-compatible endpoints", () => {
+    const model = {
+      ...baseModel(),
+      provider: "custom-cpa",
+      baseUrl: "https://api.mistral.ai/v1",
+    };
+    delete (model as { compat?: unknown }).compat;
+    const normalized = normalizeModelCompat(model as Model<Api>);
+    expect(supportsStore(normalized)).toBe(false);
+    expect(supportsReasoningEffort(normalized)).toBe(false);
+    expect(maxTokensField(normalized)).toBe("max_tokens");
+  });
+
+  it("overrides explicit Mistral compat values that would trigger 422s", () => {
+    const model = {
+      ...baseModel(),
+      id: "mistral-large-latest",
+      name: "Mistral Large",
+      provider: "mistral",
+      baseUrl: "https://api.mistral.ai/v1",
+      reasoning: false,
+      compat: {
+        supportsStore: true,
+        supportsReasoningEffort: true,
+        maxTokensField: "max_completion_tokens" as const,
+      },
+    };
+    const normalized = normalizeModelCompat(model as Model<Api>);
+    expect(supportsStore(normalized)).toBe(false);
+    expect(supportsReasoningEffort(normalized)).toBe(false);
+    expect(maxTokensField(normalized)).toBe("max_tokens");
+  });
+
+  it("still applies Mistral overrides when developer-role and usage flags are already set", () => {
+    const model = {
+      ...baseModel(),
+      id: "mistral-large-latest",
+      name: "Mistral Large",
+      provider: "mistral",
+      baseUrl: "https://api.mistral.ai/v1",
+      reasoning: false,
+      compat: {
+        supportsDeveloperRole: true,
+        supportsUsageInStreaming: true,
+        supportsStore: true,
+        supportsReasoningEffort: true,
+        maxTokensField: "max_completion_tokens" as const,
+      },
+    };
+    const normalized = normalizeModelCompat(model as Model<Api>);
+    expect(supportsStore(normalized)).toBe(false);
+    expect(supportsReasoningEffort(normalized)).toBe(false);
+    expect(maxTokensField(normalized)).toBe("max_tokens");
   });
 });
 
