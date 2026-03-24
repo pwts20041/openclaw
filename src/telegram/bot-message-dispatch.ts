@@ -670,6 +670,7 @@ export const dispatchTelegramMessage = async ({
             return;
           }
           if (
+            errorPolicy.policy === "once" &&
             shouldSuppressTelegramError({
               chatId,
               cooldownMs: errorPolicy.cooldownMs,

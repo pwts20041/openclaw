@@ -110,6 +110,15 @@ export function shouldSuppressTelegramError(params: {
 
   const entry = errorCooldownStore.get(chatIdStr);
 
+  // Periodic cleanup: evict stale entries on access
+  if (errorCooldownStore.size > 100) {
+    for (const [key, val] of errorCooldownStore) {
+      if (key !== chatIdStr && now - val.lastErrorTime >= cooldownMs) {
+        errorCooldownStore.delete(key);
+      }
+    }
+  }
+
   if (!entry) {
     // First error - record it and don't suppress
     errorCooldownStore.set(chatIdStr, {
@@ -119,13 +128,13 @@ export function shouldSuppressTelegramError(params: {
     return false;
   }
 
-  // Check if we're still within cooldown period
-  if (now - entry.lastErrorTime < cooldownMs) {
-    // Within cooldown - suppress this error
+  // Check if we're still within cooldown period AND it's the same error message
+  if (now - entry.lastErrorTime < cooldownMs && entry.errorMessage === errorMessage) {
+    // Within cooldown with same error - suppress this error
     return true;
   }
 
-  // Cooldown expired - record new error and don't suppress
+  // Cooldown expired or different error - record new error and don't suppress
   errorCooldownStore.set(chatIdStr, {
     lastErrorTime: now,
     errorMessage,
