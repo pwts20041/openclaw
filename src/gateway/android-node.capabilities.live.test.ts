@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { isLiveTestEnabled } from "../agents/live-test-helpers.js";
 import { loadConfig } from "../config/config.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { isTruthyEnvValue } from "../infra/env.js";
@@ -13,7 +14,7 @@ import { GatewayClient } from "./client.js";
 import { resolveGatewayCredentialsFromConfig } from "./credentials.js";
 import { resolveNodeCommandAllowlist } from "./node-command-policy.js";
 
-const LIVE = isTruthyEnvValue(process.env.LIVE) || isTruthyEnvValue(process.env.OPENCLAW_LIVE_TEST);
+const LIVE = isLiveTestEnabled();
 const LIVE_ANDROID_NODE = isTruthyEnvValue(process.env.OPENCLAW_LIVE_ANDROID_NODE);
 const describeLive = LIVE && LIVE_ANDROID_NODE ? describe : describe.skip;
 const SKIPPED_INTERACTIVE_COMMANDS = new Set<string>();
