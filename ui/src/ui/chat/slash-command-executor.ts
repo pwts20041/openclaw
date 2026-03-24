@@ -618,13 +618,13 @@ async function executeSteer(
   sessionKey: string,
   args: string,
 ): Promise<SlashCommandResult> {
-  const resolved = await resolveSteerTarget(client, sessionKey, args);
-  if ("error" in resolved) {
-    return {
-      content: resolved.error === "empty" ? "Usage: `/steer [id] <message>`" : resolved.error,
-    };
-  }
   try {
+    const resolved = await resolveSteerTarget(client, sessionKey, args);
+    if ("error" in resolved) {
+      return {
+        content: resolved.error === "empty" ? "Usage: `/steer [id] <message>`" : resolved.error,
+      };
+    }
     await client.request("chat.send", {
       sessionKey: resolved.key,
       message: resolved.message,
@@ -643,13 +643,13 @@ async function executeRedirect(
   sessionKey: string,
   args: string,
 ): Promise<SlashCommandResult> {
-  const resolved = await resolveSteerTarget(client, sessionKey, args);
-  if ("error" in resolved) {
-    return {
-      content: resolved.error === "empty" ? "Usage: `/redirect [id] <message>`" : resolved.error,
-    };
-  }
   try {
+    const resolved = await resolveSteerTarget(client, sessionKey, args);
+    if ("error" in resolved) {
+      return {
+        content: resolved.error === "empty" ? "Usage: `/redirect [id] <message>`" : resolved.error,
+      };
+    }
     await client.request("sessions.steer", { key: resolved.key, message: resolved.message });
     return { content: resolved.label ? `Redirected \`${resolved.label}\`.` : "Redirected." };
   } catch (err) {
