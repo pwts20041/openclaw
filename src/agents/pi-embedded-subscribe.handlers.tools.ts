@@ -4,6 +4,7 @@ import {
   buildExecApprovalPendingReplyPayload,
   buildExecApprovalUnavailableReplyPayload,
 } from "../infra/exec-approval-reply.js";
+import { isPlainObject } from "../infra/plain-object.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import type { PluginHookAfterToolCallEvent } from "../plugins/types.js";
 import { normalizeTextForComparison } from "./pi-embedded-helpers.js";
@@ -76,6 +77,26 @@ function extendExecMeta(toolName: string, args: unknown, meta?: string): string 
   }
   const suffix = flags.join(" · ");
   return meta ? `${meta} · ${suffix}` : suffix;
+}
+
+/**
+ * Build a circuit-breaker arg signature from raw tool args.
+ * Keys off command text for exec/bash; falls back to the first stable string field for other tools.
+ */
+function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
+  const record = isPlainObject(args) ? args : {};
+  const norm = toolName.trim().toLowerCase();
+  if (norm === "exec" || norm === "bash") {
+    const cmd = record.command ?? record.cmd;
+    return typeof cmd === "string" ? cmd.slice(0, 100) : "";
+  }
+  for (const key of ["path", "filePath", "id", "action", "query", "sessionKey"]) {
+    const val = record[key];
+    if (typeof val === "string" && val.trim()) {
+      return `${key}=${val.trim().slice(0, 100)}`;
+    }
+  }
+  return "";
 }
 
 function pushUniqueMediaUrl(urls: string[], seen: Set<string>, value: unknown): void {
@@ -501,11 +522,11 @@ export async function handleToolExecutionEnd(
   }
 
   // Circuit breaker: track consecutive identical tool errors and fire callback at threshold.
-  // Include actionFingerprint in the signature so calls with different params don't share a count.
+  // Include arg-derived signature so calls with different params don't share a count.
   const CONSECUTIVE_ERROR_THRESHOLD = 3;
   if (isToolError) {
-    const actionFp = callSummary?.actionFingerprint ?? "";
-    const errorSig = `${actionFp}|${(errorMessage ?? "").slice(0, 120)}`;
+    const argSig = buildCircuitBreakerArgSig(toolName, startData?.args);
+    const errorSig = `${argSig}|${(errorMessage ?? "").slice(0, 120)}`;
     const prev = ctx.state.consecutiveToolErrors;
     if (prev && prev.toolName === toolName && prev.errorSignature === errorSig) {
       prev.count += 1;
