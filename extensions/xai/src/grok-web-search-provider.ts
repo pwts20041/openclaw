@@ -1,10 +1,12 @@
 import { Type } from "@sinclair/typebox";
+import { normalizeXaiModelId } from "openclaw/plugin-sdk/provider-models";
 import {
   buildSearchCacheKey,
   buildUnsupportedSearchFilterResponse,
   DEFAULT_SEARCH_COUNT,
   getScopedCredentialValue,
   MAX_SEARCH_COUNT,
+  postTrustedWebToolsJson,
   readCachedSearchPayload,
   readConfiguredSecretString,
   readNumberParam,
@@ -17,19 +19,180 @@ import {
   resolveSearchTimeoutSeconds,
   setScopedCredentialValue,
   setProviderWebSearchPluginConfigValue,
+  wrapWebContent,
+  writeCachedSearchPayload,
   type SearchConfigRecord,
   type WebSearchProviderPlugin,
   type WebSearchProviderToolDefinition,
-  writeCachedSearchPayload,
 } from "openclaw/plugin-sdk/provider-web-search";
-import {
-  buildXaiWebSearchPayload,
-  extractXaiWebSearchContent,
-  requestXaiWebSearch,
-  resolveXaiInlineCitations,
-  resolveXaiSearchConfig,
-  resolveXaiWebSearchModel,
-} from "./web-search-shared.js";
+
+const XAI_DEFAULT_BASE_URL = "https://api.x.ai/v1";
+const XAI_DEFAULT_WEB_SEARCH_MODEL = "grok-4-1-fast";
+
+type XaiWebSearchResponse = {
+  output?: Array<{
+    type?: string;
+    text?: string;
+    content?: Array<{
+      type?: string;
+      text?: string;
+      annotations?: Array<{
+        type?: string;
+        url?: string;
+      }>;
+    }>;
+    annotations?: Array<{
+      type?: string;
+      url?: string;
+    }>;
+  }>;
+  output_text?: string;
+  citations?: string[];
+  inline_citations?: Array<{
+    start_index: number;
+    end_index: number;
+    url: string;
+  }>;
+};
+
+type XaiWebSearchConfig = Record<string, unknown> & {
+  model?: unknown;
+  inlineCitations?: unknown;
+  baseUrl?: unknown;
+};
+
+type XaiWebSearchResult = {
+  content: string;
+  citations: string[];
+  inlineCitations?: XaiWebSearchResponse["inline_citations"];
+};
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function resolveXaiSearchConfig(searchConfig?: Record<string, unknown>): XaiWebSearchConfig {
+  return (asRecord(searchConfig?.grok) as XaiWebSearchConfig | undefined) ?? {};
+}
+
+function resolveXaiWebSearchModel(searchConfig?: Record<string, unknown>): string {
+  const config = resolveXaiSearchConfig(searchConfig);
+  return typeof config.model === "string" && config.model.trim()
+    ? normalizeXaiModelId(config.model.trim())
+    : XAI_DEFAULT_WEB_SEARCH_MODEL;
+}
+
+function resolveXaiInlineCitations(searchConfig?: Record<string, unknown>): boolean {
+  return resolveXaiSearchConfig(searchConfig).inlineCitations === true;
+}
+
+function resolveXaiBaseUrl(searchConfig?: Record<string, unknown>): string {
+  const config = resolveXaiSearchConfig(searchConfig);
+  const baseUrl = typeof config.baseUrl === "string" ? config.baseUrl.trim() : "";
+  return baseUrl ? baseUrl.replace(/\/$/, "") : XAI_DEFAULT_BASE_URL;
+}
+
+function extractXaiWebSearchContent(data: XaiWebSearchResponse): {
+  text: string | undefined;
+  annotationCitations: string[];
+} {
+  for (const output of data.output ?? []) {
+    if (output.type === "message") {
+      for (const block of output.content ?? []) {
+        if (block.type === "output_text" && typeof block.text === "string" && block.text) {
+          const urls = (block.annotations ?? [])
+            .filter(
+              (annotation) =>
+                annotation.type === "url_citation" && typeof annotation.url === "string",
+            )
+            .map((annotation) => annotation.url as string);
+          return { text: block.text, annotationCitations: [...new Set(urls)] };
+        }
+      }
+    }
+
+    if (output.type === "output_text" && typeof output.text === "string" && output.text) {
+      const urls = (output.annotations ?? [])
+        .filter(
+          (annotation) => annotation.type === "url_citation" && typeof annotation.url === "string",
+        )
+        .map((annotation) => annotation.url as string);
+      return { text: output.text, annotationCitations: [...new Set(urls)] };
+    }
+  }
+
+  return {
+    text: typeof data.output_text === "string" ? data.output_text : undefined,
+    annotationCitations: [],
+  };
+}
+
+function buildXaiWebSearchPayload(params: {
+  query: string;
+  provider: string;
+  model: string;
+  tookMs: number;
+  content: string;
+  citations: string[];
+  inlineCitations?: XaiWebSearchResponse["inline_citations"];
+}): Record<string, unknown> {
+  return {
+    query: params.query,
+    provider: params.provider,
+    model: params.model,
+    tookMs: params.tookMs,
+    externalContent: {
+      untrusted: true,
+      source: "web_search",
+      provider: params.provider,
+      wrapped: true,
+    },
+    content: wrapWebContent(params.content, "web_search"),
+    citations: params.citations,
+    ...(params.inlineCitations ? { inlineCitations: params.inlineCitations } : {}),
+  };
+}
+
+async function requestXaiWebSearch(params: {
+  query: string;
+  model: string;
+  apiKey: string;
+  timeoutSeconds: number;
+  inlineCitations: boolean;
+  baseUrl: string;
+}): Promise<XaiWebSearchResult> {
+  return await postTrustedWebToolsJson(
+    {
+      url: `${params.baseUrl}/responses`,
+      timeoutSeconds: params.timeoutSeconds,
+      apiKey: params.apiKey,
+      body: {
+        model: params.model,
+        input: [{ role: "user", content: params.query }],
+        tools: [{ type: "web_search" }],
+      },
+      errorLabel: "xAI",
+    },
+    async (response) => {
+      const data = (await response.json()) as XaiWebSearchResponse;
+      const { text, annotationCitations } = extractXaiWebSearchContent(data);
+      const citations =
+        Array.isArray(data.citations) && data.citations.length > 0
+          ? data.citations
+          : annotationCitations;
+      return {
+        content: text ?? "No response",
+        citations,
+        inlineCitations:
+          params.inlineCitations && Array.isArray(data.inline_citations)
+            ? data.inline_citations
+            : undefined,
+      };
+    },
+  );
+}
 
 function resolveGrokApiKey(grok?: Record<string, unknown>): string | undefined {
   return (
@@ -88,10 +251,12 @@ function createGrokToolDefinition(
         undefined;
       const model = resolveXaiWebSearchModel(searchConfig);
       const inlineCitations = resolveXaiInlineCitations(searchConfig);
+      const baseUrl = resolveXaiBaseUrl(searchConfig);
       const cacheKey = buildSearchCacheKey([
         "grok",
         query,
         resolveSearchCount(count, DEFAULT_SEARCH_COUNT),
+        baseUrl,
         model,
         inlineCitations,
       ]);
@@ -107,6 +272,7 @@ function createGrokToolDefinition(
         model,
         timeoutSeconds: resolveSearchTimeoutSeconds(searchConfig),
         inlineCitations,
+        baseUrl,
       });
       const payload = buildXaiWebSearchPayload({
         query,
@@ -161,6 +327,7 @@ export const __testing = {
     resolveXaiWebSearchModel(grok ? { grok } : undefined),
   resolveGrokInlineCitations: (grok?: Record<string, unknown>) =>
     resolveXaiInlineCitations(grok ? { grok } : undefined),
+  resolveXaiBaseUrl,
   extractGrokContent: extractXaiWebSearchContent,
   extractXaiWebSearchContent,
   resolveXaiInlineCitations,
@@ -168,4 +335,5 @@ export const __testing = {
   resolveXaiWebSearchModel,
   requestXaiWebSearch,
   buildXaiWebSearchPayload,
+  XAI_DEFAULT_WEB_SEARCH_MODEL,
 } as const;
