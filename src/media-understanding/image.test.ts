@@ -95,6 +95,15 @@ describe("describeImageWithModel", () => {
       }),
       discoverModels: discoverModelsMock,
     }));
+    // Prevent plugin discovery filesystem scan (discoverOpenClawPlugins) from running on every
+    // vi.resetModules() cycle — that scan is expensive on Windows CI and causes test timeouts.
+    vi.doMock("../plugins/provider-runtime.js", () => ({
+      normalizeProviderResolvedModelWithPlugin: () => undefined,
+      runProviderDynamicModel: () => undefined,
+      prepareProviderDynamicModel: async () => {},
+      clearProviderRuntimeHookCache: () => {},
+      resolveProviderBuiltInModelSuppression: () => undefined,
+    }));
     ({ describeImageWithModel } = await import("./image.js"));
     vi.clearAllMocks();
     minimaxUnderstandImageMock.mockResolvedValue("portal ok");
