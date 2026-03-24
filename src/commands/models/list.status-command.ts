@@ -153,6 +153,7 @@ export async function modelsStatusCommand(
     "google",
     "groq",
     "cerebras",
+    "deepinfra",
     "xai",
     "openrouter",
     "zai",
