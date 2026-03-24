@@ -117,11 +117,32 @@ describe("before_tool_call hook integration", () => {
     const tool = wrapToolWithBeforeToolCallHook({ name: "exec", execute } as any);
     const extensionContext = {} as Parameters<typeof tool.execute>[3];
 
-    await tool.execute("call-2", { cmd: "ls" }, undefined, extensionContext);
+    await tool.execute("call-2", { command: "ls" }, undefined, extensionContext);
 
     expect(execute).toHaveBeenCalledWith(
       "call-2",
-      { cmd: "ls", mode: "safe" },
+      { command: "ls", mode: "safe" },
+      undefined,
+      extensionContext,
+    );
+  });
+
+  it("allows hook to supply missing command for exec before empty-command check", async () => {
+    // Hooks run before the empty-command guard so a hook can normalize legacy params.
+    beforeToolCallHook = installBeforeToolCallHook({
+      runBeforeToolCallImpl: async () => ({ params: { command: "ls" } }),
+    });
+    const execute = vi.fn().mockResolvedValue({ content: [], details: { ok: true } });
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const tool = wrapToolWithBeforeToolCallHook({ name: "exec", execute } as any);
+    const extensionContext = {} as Parameters<typeof tool.execute>[3];
+
+    // Params have no command; hook provides it — call must succeed.
+    await tool.execute("call-2b", { cmd: "ls" }, undefined, extensionContext);
+
+    expect(execute).toHaveBeenCalledWith(
+      "call-2b",
+      { cmd: "ls", command: "ls" },
       undefined,
       extensionContext,
     );

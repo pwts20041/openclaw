@@ -147,10 +147,54 @@ export async function runBeforeToolCallHook(args: {
     recordToolCall(sessionState, toolName, params, args.toolCallId, args.ctx.loopDetection);
   }
 
-  // Block exec/bash calls with an empty or missing command before they reach AJV validation.
+  // Run before_tool_call hooks first so they can normalize params (e.g. rewrite legacy args)
+  // before any validation. The empty-command guard below runs on the post-hook params.
+  let effectiveParams = params;
+  const hookRunner = getGlobalHookRunner();
+  if (hookRunner?.hasHooks("before_tool_call")) {
+    try {
+      const normalizedParams = isPlainObject(params) ? params : {};
+      const toolContext = {
+        toolName,
+        ...(args.ctx?.agentId ? { agentId: args.ctx.agentId } : {}),
+        ...(args.ctx?.sessionKey ? { sessionKey: args.ctx.sessionKey } : {}),
+        ...(args.ctx?.sessionId ? { sessionId: args.ctx.sessionId } : {}),
+        ...(args.ctx?.runId ? { runId: args.ctx.runId } : {}),
+        ...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
+      };
+      const hookResult = await hookRunner.runBeforeToolCall(
+        {
+          toolName,
+          params: normalizedParams,
+          ...(args.ctx?.runId ? { runId: args.ctx.runId } : {}),
+          ...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
+        },
+        toolContext,
+      );
+
+      if (hookResult?.block) {
+        return {
+          blocked: true,
+          reason: hookResult.blockReason || "Tool call blocked by plugin hook",
+        };
+      }
+
+      if (hookResult?.params && isPlainObject(hookResult.params)) {
+        effectiveParams = isPlainObject(params)
+          ? { ...params, ...hookResult.params }
+          : hookResult.params;
+      }
+    } catch (err) {
+      const toolCallId = args.toolCallId ? ` toolCallId=${args.toolCallId}` : "";
+      log.warn(`before_tool_call hook failed: tool=${toolName}${toolCallId} error=${String(err)}`);
+    }
+  }
+
+  // Block exec/bash calls with an empty or missing command (checked after hooks so that
+  // hook-based param normalization runs first and can supply a valid command).
   const toolNameNorm = toolName.trim().toLowerCase();
   if (toolNameNorm === "exec" || toolNameNorm === "bash") {
-    const record = isPlainObject(params) ? params : {};
+    const record = isPlainObject(effectiveParams) ? effectiveParams : {};
     const command = record.command;
     if (!command || typeof command !== "string" || !command.trim()) {
       const reason =
@@ -167,50 +211,7 @@ export async function runBeforeToolCallHook(args: {
     }
   }
 
-  const hookRunner = getGlobalHookRunner();
-  if (!hookRunner?.hasHooks("before_tool_call")) {
-    return { blocked: false, params: args.params };
-  }
-
-  try {
-    const normalizedParams = isPlainObject(params) ? params : {};
-    const toolContext = {
-      toolName,
-      ...(args.ctx?.agentId ? { agentId: args.ctx.agentId } : {}),
-      ...(args.ctx?.sessionKey ? { sessionKey: args.ctx.sessionKey } : {}),
-      ...(args.ctx?.sessionId ? { sessionId: args.ctx.sessionId } : {}),
-      ...(args.ctx?.runId ? { runId: args.ctx.runId } : {}),
-      ...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
-    };
-    const hookResult = await hookRunner.runBeforeToolCall(
-      {
-        toolName,
-        params: normalizedParams,
-        ...(args.ctx?.runId ? { runId: args.ctx.runId } : {}),
-        ...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
-      },
-      toolContext,
-    );
-
-    if (hookResult?.block) {
-      return {
-        blocked: true,
-        reason: hookResult.blockReason || "Tool call blocked by plugin hook",
-      };
-    }
-
-    if (hookResult?.params && isPlainObject(hookResult.params)) {
-      if (isPlainObject(params)) {
-        return { blocked: false, params: { ...params, ...hookResult.params } };
-      }
-      return { blocked: false, params: hookResult.params };
-    }
-  } catch (err) {
-    const toolCallId = args.toolCallId ? ` toolCallId=${args.toolCallId}` : "";
-    log.warn(`before_tool_call hook failed: tool=${toolName}${toolCallId} error=${String(err)}`);
-  }
-
-  return { blocked: false, params };
+  return { blocked: false, params: effectiveParams };
 }
 
 export function wrapToolWithBeforeToolCallHook(
