@@ -45,4 +45,30 @@ describe("sandbox explain command", () => {
     expect(parsed.fixIt).toContain("agents.defaults.sandbox.mode=off");
     expect(parsed.fixIt).toContain("tools.sandbox.tools.deny");
   });
+
+  it("uses Discord channel allowFrom fallback in elevated diagnostics", async () => {
+    mockCfg = {
+      channels: {
+        discord: {
+          allowFrom: ["123456"],
+        },
+      },
+      tools: {
+        elevated: { enabled: true },
+      },
+      session: { store: "/tmp/openclaw-test-sessions-{agentId}.json" },
+    };
+
+    const logs: string[] = [];
+    await sandboxExplainCommand({ json: true, session: "agent:main:discord:dm:123456" }, {
+      log: (msg: string) => logs.push(msg),
+      error: (msg: string) => logs.push(msg),
+      exit: (_code: number) => {},
+    } as unknown as Parameters<typeof sandboxExplainCommand>[1]);
+
+    const parsed = JSON.parse(logs.join(""));
+    expect(parsed.elevated.channel).toBe("discord");
+    expect(parsed.elevated.allowedByConfig).toBe(true);
+    expect(parsed.elevated.allowFrom.global).toEqual(["123456"]);
+  });
 });
