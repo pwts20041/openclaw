@@ -458,9 +458,9 @@ function validateConfigObjectWithPluginsBase(
         }
       }
       if (!allowedChannels.has(trimmed)) {
-        issues.push({
+        warnings.push({
           path: `channels.${trimmed}`,
-          message: `unknown channel id: ${trimmed}`,
+          message: `unknown channel id: ${trimmed} (channel skipped; install the plugin or remove the channel config)`,
         });
       }
     }
