@@ -7,6 +7,7 @@ const modelsListCommandMock = vi.hoisted(() => vi.fn(async () => {}));
 const modelsStatusCommandMock = vi.hoisted(() => vi.fn(async () => {}));
 const runDaemonStatusMock = vi.hoisted(() => vi.fn(async () => {}));
 const statusJsonCommandMock = vi.hoisted(() => vi.fn(async () => {}));
+const runPairingListMock = vi.hoisted(() => vi.fn(async () => {}));
 
 vi.mock("../config-cli.js", () => ({
   runConfigGet: runConfigGetMock,
@@ -24,6 +25,10 @@ vi.mock("../daemon-cli/status.js", () => ({
 
 vi.mock("../../commands/status-json.js", () => ({
   statusJsonCommand: statusJsonCommandMock,
+}));
+
+vi.mock("../pairing-list.js", () => ({
+  runPairingList: runPairingListMock,
 }));
 
 describe("program routes", () => {
@@ -296,6 +301,55 @@ describe("program routes", () => {
       ["models", "status"],
       ["node", "openclaw", "models", "status", "--probe-profile"],
     );
+  });
+
+  it("matches pairing list route with plugin preload", () => {
+    const route = expectRoute(["pairing", "list"]);
+    expect(route?.loadPlugins).toBe(true);
+  });
+
+  it("passes pairing list flags and positional channel to run action", async () => {
+    const route = expectRoute(["pairing", "list"]);
+    await expect(
+      route?.run([
+        "node",
+        "openclaw",
+        "pairing",
+        "list",
+        "--channel",
+        "telegram",
+        "--account",
+        "bot2",
+        "--json",
+      ]),
+    ).resolves.toBe(true);
+    expect(runPairingListMock).toHaveBeenCalledWith({
+      channel: "telegram",
+      channelArg: undefined,
+      account: "bot2",
+      json: true,
+    });
+  });
+
+  it("passes positional channel arg for pairing list", async () => {
+    const route = expectRoute(["pairing", "list"]);
+    await expect(route?.run(["node", "openclaw", "pairing", "list", "discord"])).resolves.toBe(
+      true,
+    );
+    expect(runPairingListMock).toHaveBeenCalledWith({
+      channel: undefined,
+      channelArg: "discord",
+      account: undefined,
+      json: false,
+    });
+  });
+
+  it("returns false for pairing list route when --channel value is missing", async () => {
+    await expectRunFalse(["pairing", "list"], ["node", "openclaw", "pairing", "list", "--channel"]);
+  });
+
+  it("returns false for pairing list route when --account value is missing", async () => {
+    await expectRunFalse(["pairing", "list"], ["node", "openclaw", "pairing", "list", "--account"]);
   });
 
   it("accepts negative-number probe profile values", async () => {
