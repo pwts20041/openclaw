@@ -226,7 +226,7 @@ function evaluateSegments(
       candidatePath && segment.resolution
         ? { ...segment.resolution, resolvedPath: candidatePath }
         : segment.resolution;
-    const executableMatch = matchAllowlist(params.allowlist, candidateResolution);
+    const executableMatch = matchAllowlist(params.allowlist, candidateResolution, effectiveArgv);
     const inlineCommand = extractShellWrapperInlineCommand(allowlistSegment.argv);
     const shellPositionalArgvCandidatePath = resolveShellWrapperPositionalArgvCandidatePath({
       segment: allowlistSegment,
@@ -248,11 +248,15 @@ function evaluateSegments(
           })
         : undefined;
     const shellScriptMatch = shellScriptCandidatePath
-      ? matchAllowlist(params.allowlist, {
-          rawExecutable: shellScriptCandidatePath,
-          resolvedPath: shellScriptCandidatePath,
-          executableName: path.basename(shellScriptCandidatePath),
-        })
+      ? matchAllowlist(
+          params.allowlist,
+          {
+            rawExecutable: shellScriptCandidatePath,
+            resolvedPath: shellScriptCandidatePath,
+            executableName: path.basename(shellScriptCandidatePath),
+          },
+          effectiveArgv,
+        )
       : null;
     const match = executableMatch ?? shellPositionalArgvMatch ?? shellScriptMatch;
     if (match) {
@@ -424,6 +428,15 @@ function resolveShellWrapperScriptCandidatePath(params: {
   return path.resolve(base, expanded);
 }
 
+export type AllowAlwaysResolvedEntry = {
+  pattern: string;
+  args: string[] | null;
+};
+
+function allowAlwaysEntryKey(entry: AllowAlwaysResolvedEntry): string {
+  return entry.args != null ? `${entry.pattern}\0${JSON.stringify(entry.args)}` : entry.pattern;
+}
+
 function resolveShellWrapperPositionalArgvCandidatePath(params: {
   segment: ExecCommandSegment;
   cwd?: string;
@@ -482,17 +495,28 @@ function isDirectShellPositionalCarrierInvocation(command: string): boolean {
   ).test(trimmed);
 }
 
-function collectAllowAlwaysPatterns(params: {
+function collectAllowAlwaysEntries(params: {
   segment: ExecCommandSegment;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   platform?: string | null;
   depth: number;
-  out: Set<string>;
+  out: AllowAlwaysResolvedEntry[];
+  seen: Set<string>;
 }) {
   if (params.depth >= 3) {
     return;
   }
+
+  const addEntry = (pattern: string, argv: string[]): void => {
+    const args = argv.length > 1 ? argv.slice(1) : null;
+    const entry: AllowAlwaysResolvedEntry = { pattern, args };
+    const key = allowAlwaysEntryKey(entry);
+    if (!params.seen.has(key)) {
+      params.seen.add(key);
+      params.out.push(entry);
+    }
+  };
 
   const trustPlan = resolveExecWrapperTrustPlan(params.segment.argv);
   if (trustPlan.policyBlocked) {
@@ -511,8 +535,14 @@ function collectAllowAlwaysPatterns(params: {
   if (!candidatePath) {
     return;
   }
+  // Resolve the effective argv for the segment (after trust-plan unwrapping).
+  const effectiveArgv =
+    segment.resolution?.effectiveArgv && segment.resolution.effectiveArgv.length > 0
+      ? segment.resolution.effectiveArgv
+      : segment.argv;
+
   if (!trustPlan.shellWrapperExecutable) {
-    params.out.add(candidatePath);
+    addEntry(candidatePath, effectiveArgv);
     return;
   }
   const positionalArgvPath = resolveShellWrapperPositionalArgvCandidatePath({
@@ -521,7 +551,9 @@ function collectAllowAlwaysPatterns(params: {
     env: params.env,
   });
   if (positionalArgvPath) {
-    params.out.add(positionalArgvPath);
+    // Shell positional-argv carried executables: the approval is for the
+    // carried binary, not the shell wrapper, so args are not meaningful.
+    addEntry(positionalArgvPath, [positionalArgvPath]);
     return;
   }
   const inlineCommand =
@@ -532,7 +564,10 @@ function collectAllowAlwaysPatterns(params: {
       cwd: params.cwd,
     });
     if (scriptPath) {
-      params.out.add(scriptPath);
+      // For shell script wrapper invocations (e.g. `bash scripts/foo.sh`),
+      // the pattern is the script path itself. Args are not meaningful here
+      // because the approval is for the script, not the shell binary.
+      addEntry(scriptPath, [scriptPath]);
     }
     return;
   }
@@ -546,40 +581,47 @@ function collectAllowAlwaysPatterns(params: {
     return;
   }
   for (const nestedSegment of nested.segments) {
-    collectAllowAlwaysPatterns({
+    collectAllowAlwaysEntries({
       segment: nestedSegment,
       cwd: params.cwd,
       env: params.env,
       platform: params.platform,
       depth: params.depth + 1,
       out: params.out,
+      seen: params.seen,
     });
   }
 }
 
 /**
- * Derive persisted allowlist patterns for an "allow always" decision.
+ * Derive persisted allowlist entries for an "allow always" decision.
  * When a command is wrapped in a shell (for example `zsh -lc "<cmd>"`),
  * persist the inner executable(s) rather than the shell binary.
+ *
+ * Each entry includes the binary path and the frozen argument tail so that
+ * "allow always" for `python3 safe.py` does NOT blanket-allow all `python3`
+ * invocations.
  */
 export function resolveAllowAlwaysPatterns(params: {
   segments: ExecCommandSegment[];
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   platform?: string | null;
-}): string[] {
-  const patterns = new Set<string>();
+}): AllowAlwaysResolvedEntry[] {
+  const out: AllowAlwaysResolvedEntry[] = [];
+  const seen = new Set<string>();
   for (const segment of params.segments) {
-    collectAllowAlwaysPatterns({
+    collectAllowAlwaysEntries({
       segment,
       cwd: params.cwd,
       env: params.env,
       platform: params.platform,
       depth: 0,
-      out: patterns,
+      out,
+      seen,
     });
   }
-  return Array.from(patterns);
+  return out;
 }
 
 /**

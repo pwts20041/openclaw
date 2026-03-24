@@ -145,7 +145,10 @@ final class ExecApprovalsGatewayPrompter {
             return askFallback == .full ? .allowOnce : .deny
         }
         let resolution = self.fallbackResolution(for: request)
-        let match = ExecAllowlistMatcher.match(entries: allowlist, resolution: resolution)
+        let match = ExecAllowlistMatcher.match(
+            entries: allowlist,
+            resolution: resolution,
+            command: request.commandArgv)
         return match == nil ? .deny : .allowOnce
     }
 
@@ -223,6 +226,7 @@ extension ExecApprovalsGatewayPrompter {
 
     static func _testFallbackDecision(
         command: String,
+        commandArgv: [String]? = nil,
         resolvedPath: String?,
         askFallback: ExecSecurity,
         allowlistPatterns: [String]) -> ExecApprovalDecision
@@ -230,6 +234,7 @@ extension ExecApprovalsGatewayPrompter {
         self.fallbackDecision(
             request: ExecApprovalPromptRequest(
                 command: command,
+                commandArgv: commandArgv,
                 cwd: nil,
                 host: nil,
                 security: nil,

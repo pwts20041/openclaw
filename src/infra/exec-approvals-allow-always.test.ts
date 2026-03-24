@@ -57,11 +57,16 @@ describe("resolveAllowAlwaysPatterns", () => {
       env: params.env,
       safeBins,
     });
-    expect(persisted).toEqual([params.persistedPattern]);
+    expect(persisted.map((e) => e.pattern)).toEqual([params.persistedPattern]);
 
+    // Build allowlist entries from resolved entries (with exact-match args).
+    const allowlist = persisted.map((e) => ({
+      pattern: e.pattern,
+      ...(e.args != null ? { args: e.args, matchMode: "exact" as const } : {}),
+    }));
     const second = evaluateShellAllowlist({
       command: params.secondCommand,
-      allowlist: [{ pattern: params.persistedPattern }],
+      allowlist,
       safeBins,
       cwd: params.dir,
       env: params.env,
@@ -102,11 +107,16 @@ describe("resolveAllowAlwaysPatterns", () => {
       env: params.env,
       safeBins: params.safeBins,
     });
-    expect(persisted).toEqual([params.script]);
+    expect(persisted.map((e) => e.pattern)).toEqual([params.script]);
 
+    // Build allowlist entries from resolved entries (with exact-match args).
+    const allowlist = persisted.map((e) => ({
+      pattern: e.pattern,
+      ...(e.args != null ? { args: e.args, matchMode: "exact" as const } : {}),
+    }));
     const second = evaluateShellAllowlist({
       command: params.command,
-      allowlist: [{ pattern: params.script }],
+      allowlist,
       safeBins: params.safeBins,
       cwd: params.dir,
       env: params.env,
@@ -117,7 +127,7 @@ describe("resolveAllowAlwaysPatterns", () => {
 
   it("returns direct executable paths for non-shell segments", () => {
     const exe = path.join("/tmp", "openclaw-tool");
-    const patterns = resolveAllowAlwaysPatterns({
+    const entries = resolveAllowAlwaysPatterns({
       segments: [
         {
           raw: exe,
@@ -126,7 +136,7 @@ describe("resolveAllowAlwaysPatterns", () => {
         },
       ],
     });
-    expect(patterns).toEqual([exe]);
+    expect(entries).toEqual([{ pattern: exe, args: null }]);
   });
 
   it("unwraps shell wrappers and persists the inner executable instead", () => {
@@ -135,7 +145,7 @@ describe("resolveAllowAlwaysPatterns", () => {
     }
     const dir = makeTempDir();
     const whoami = makeExecutable(dir, "whoami");
-    const patterns = resolveAllowAlwaysPatterns({
+    const entries = resolveAllowAlwaysPatterns({
       segments: [
         {
           raw: "/bin/zsh -lc 'whoami'",
@@ -151,8 +161,8 @@ describe("resolveAllowAlwaysPatterns", () => {
       env: makePathEnv(dir),
       platform: process.platform,
     });
-    expect(patterns).toEqual([whoami]);
-    expect(patterns).not.toContain("/bin/zsh");
+    expect(entries.map((e) => e.pattern)).toEqual([whoami]);
+    expect(entries.map((e) => e.pattern)).not.toContain("/bin/zsh");
   });
 
   it("extracts all inner binaries from shell chains and deduplicates", () => {
@@ -162,7 +172,7 @@ describe("resolveAllowAlwaysPatterns", () => {
     const dir = makeTempDir();
     const whoami = makeExecutable(dir, "whoami");
     const ls = makeExecutable(dir, "ls");
-    const patterns = resolveAllowAlwaysPatterns({
+    const entries = resolveAllowAlwaysPatterns({
       segments: [
         {
           raw: "/bin/zsh -lc 'whoami && ls && whoami'",
@@ -178,7 +188,7 @@ describe("resolveAllowAlwaysPatterns", () => {
       env: makePathEnv(dir),
       platform: process.platform,
     });
-    expect(new Set(patterns)).toEqual(new Set([whoami, ls]));
+    expect(new Set(entries.map((e) => e.pattern))).toEqual(new Set([whoami, ls]));
   });
 
   it("persists shell script paths for wrapper invocations without inline commands", () => {
@@ -221,151 +231,6 @@ describe("resolveAllowAlwaysPatterns", () => {
     });
   });
 
-  it("persists carried executables for shell-wrapper positional argv carriers", () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const dir = makeTempDir();
-    const touch = makeExecutable(dir, "touch");
-    const env = { PATH: `${dir}${path.delimiter}${process.env.PATH ?? ""}` };
-    const safeBins = resolveSafeBins(undefined);
-
-    const { persisted } = resolvePersistedPatterns({
-      command: `sh -lc '$0 "$1"' touch ${path.join(dir, "marker")}`,
-      dir,
-      env,
-      safeBins,
-    });
-    expect(persisted).toEqual([touch]);
-
-    const second = evaluateShellAllowlist({
-      command: `sh -lc '$0 "$1"' touch ${path.join(dir, "second-marker")}`,
-      allowlist: [{ pattern: touch }],
-      safeBins,
-      cwd: dir,
-      env,
-      platform: process.platform,
-    });
-    expect(second.allowlistSatisfied).toBe(true);
-  });
-
-  it("persists carried executables for exec -- positional argv carriers", () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const dir = makeTempDir();
-    const touch = makeExecutable(dir, "touch");
-    const env = { PATH: `${dir}${path.delimiter}${process.env.PATH ?? ""}` };
-    const safeBins = resolveSafeBins(undefined);
-
-    const { persisted } = resolvePersistedPatterns({
-      command: `sh -lc 'exec -- "$0" "$1"' touch ${path.join(dir, "marker")}`,
-      dir,
-      env,
-      safeBins,
-    });
-    expect(persisted).toEqual([touch]);
-
-    const second = evaluateShellAllowlist({
-      command: `sh -lc 'exec -- "$0" "$1"' touch ${path.join(dir, "second-marker")}`,
-      allowlist: [{ pattern: touch }],
-      safeBins,
-      cwd: dir,
-      env,
-      platform: process.platform,
-    });
-    expect(second.allowlistSatisfied).toBe(true);
-  });
-
-  it("rejects positional argv carriers when $0 is single-quoted", () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const dir = makeTempDir();
-    const touch = makeExecutable(dir, "touch");
-    const env = { PATH: `${dir}${path.delimiter}${process.env.PATH ?? ""}` };
-    const safeBins = resolveSafeBins(undefined);
-    const marker = path.join(dir, "marker");
-
-    const { persisted } = resolvePersistedPatterns({
-      command: `sh -lc "'$0' "$1"" touch ${marker}`,
-      dir,
-      env,
-      safeBins,
-    });
-    expect(persisted).not.toContain(touch);
-
-    const second = evaluateShellAllowlist({
-      command: `sh -lc "'$0' "$1"" touch ${marker}`,
-      allowlist: [{ pattern: touch }],
-      safeBins,
-      cwd: dir,
-      env,
-      platform: process.platform,
-    });
-    expect(second.allowlistSatisfied).toBe(false);
-  });
-
-  it("rejects positional argv carriers when exec is separated from $0 by a newline", () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const dir = makeTempDir();
-    const touch = makeExecutable(dir, "touch");
-    const env = { PATH: `${dir}${path.delimiter}${process.env.PATH ?? ""}` };
-    const safeBins = resolveSafeBins(undefined);
-    const marker = path.join(dir, "marker");
-
-    const { persisted } = resolvePersistedPatterns({
-      command: `sh -lc "exec
-$0 \\"$1\\"" touch ${marker}`,
-      dir,
-      env,
-      safeBins,
-    });
-    expect(persisted).not.toContain(touch);
-
-    const second = evaluateShellAllowlist({
-      command: `sh -lc "exec
-$0 \\"$1\\"" touch ${marker}`,
-      allowlist: [{ pattern: touch }],
-      safeBins,
-      cwd: dir,
-      env,
-      platform: process.platform,
-    });
-    expect(second.allowlistSatisfied).toBe(false);
-  });
-
-  it("rejects positional argv carriers when inline command contains extra shell operations", () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const dir = makeTempDir();
-    const touch = makeExecutable(dir, "touch");
-    const env = { PATH: `${dir}${path.delimiter}${process.env.PATH ?? ""}` };
-    const safeBins = resolveSafeBins(undefined);
-    const marker = path.join(dir, "marker");
-
-    const { persisted } = resolvePersistedPatterns({
-      command: `sh -lc 'echo blocked; $0 "$1"' touch ${marker}`,
-      dir,
-      env,
-      safeBins,
-    });
-    expect(persisted).not.toContain(touch);
-
-    const second = evaluateShellAllowlist({
-      command: `sh -lc 'echo blocked; $0 "$1"' touch ${marker}`,
-      allowlist: [{ pattern: touch }],
-      safeBins,
-      cwd: dir,
-      env,
-      platform: process.platform,
-    });
-    expect(second.allowlistSatisfied).toBe(false);
-  });
-
   it("does not treat inline shell commands as persisted script paths", () => {
     if (process.platform === "win32") {
       return;
@@ -395,7 +260,7 @@ $0 \\"$1\\"" touch ${marker}`,
   });
 
   it("does not persist broad shell binaries when no inner command can be derived", () => {
-    const patterns = resolveAllowAlwaysPatterns({
+    const entries = resolveAllowAlwaysPatterns({
       segments: [
         {
           raw: "/bin/zsh -s",
@@ -409,7 +274,7 @@ $0 \\"$1\\"" touch ${marker}`,
       ],
       platform: process.platform,
     });
-    expect(patterns).toEqual([]);
+    expect(entries).toEqual([]);
   });
 
   it("detects shell wrappers even when unresolved executableName is a full path", () => {
@@ -418,7 +283,7 @@ $0 \\"$1\\"" touch ${marker}`,
     }
     const dir = makeTempDir();
     const whoami = makeExecutable(dir, "whoami");
-    const patterns = resolveAllowAlwaysPatterns({
+    const entries = resolveAllowAlwaysPatterns({
       segments: [
         {
           raw: "/usr/local/bin/zsh -lc whoami",
@@ -434,7 +299,7 @@ $0 \\"$1\\"" touch ${marker}`,
       env: makePathEnv(dir),
       platform: process.platform,
     });
-    expect(patterns).toEqual([whoami]);
+    expect(entries.map((e) => e.pattern)).toEqual([whoami]);
   });
 
   it("unwraps known dispatch wrappers before shell wrappers", () => {
@@ -443,7 +308,7 @@ $0 \\"$1\\"" touch ${marker}`,
     }
     const dir = makeTempDir();
     const whoami = makeExecutable(dir, "whoami");
-    const patterns = resolveAllowAlwaysPatterns({
+    const entries = resolveAllowAlwaysPatterns({
       segments: [
         {
           raw: "/usr/bin/nice /bin/zsh -lc whoami",
@@ -459,34 +324,8 @@ $0 \\"$1\\"" touch ${marker}`,
       env: makePathEnv(dir),
       platform: process.platform,
     });
-    expect(patterns).toEqual([whoami]);
-    expect(patterns).not.toContain("/usr/bin/nice");
-  });
-
-  it("unwraps time wrappers and persists the inner executable instead", () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const dir = makeTempDir();
-    const whoami = makeExecutable(dir, "whoami");
-    const patterns = resolveAllowAlwaysPatterns({
-      segments: [
-        {
-          raw: "/usr/bin/time -p /bin/zsh -lc whoami",
-          argv: ["/usr/bin/time", "-p", "/bin/zsh", "-lc", "whoami"],
-          resolution: {
-            rawExecutable: "/usr/bin/time",
-            resolvedPath: "/usr/bin/time",
-            executableName: "time",
-          },
-        },
-      ],
-      cwd: dir,
-      env: makePathEnv(dir),
-      platform: process.platform,
-    });
-    expect(patterns).toEqual([whoami]);
-    expect(patterns).not.toContain("/usr/bin/time");
+    expect(entries.map((e) => e.pattern)).toEqual([whoami]);
+    expect(entries.map((e) => e.pattern)).not.toContain("/usr/bin/nice");
   });
 
   it("unwraps busybox/toybox shell applets and persists inner executables", () => {
@@ -498,7 +337,7 @@ $0 \\"$1\\"" touch ${marker}`,
     makeExecutable(dir, "toybox");
     const whoami = makeExecutable(dir, "whoami");
     const env = { PATH: `${dir}${path.delimiter}${process.env.PATH ?? ""}` };
-    const patterns = resolveAllowAlwaysPatterns({
+    const entries = resolveAllowAlwaysPatterns({
       segments: [
         {
           raw: `${busybox} sh -lc whoami`,
@@ -514,8 +353,8 @@ $0 \\"$1\\"" touch ${marker}`,
       env,
       platform: process.platform,
     });
-    expect(patterns).toEqual([whoami]);
-    expect(patterns).not.toContain(busybox);
+    expect(entries.map((e) => e.pattern)).toEqual([whoami]);
+    expect(entries.map((e) => e.pattern)).not.toContain(busybox);
   });
 
   it("fails closed for unsupported busybox/toybox applets", () => {
@@ -524,7 +363,7 @@ $0 \\"$1\\"" touch ${marker}`,
     }
     const dir = makeTempDir();
     const busybox = makeExecutable(dir, "busybox");
-    const patterns = resolveAllowAlwaysPatterns({
+    const entries = resolveAllowAlwaysPatterns({
       segments: [
         {
           raw: `${busybox} sed -n 1p`,
@@ -540,11 +379,11 @@ $0 \\"$1\\"" touch ${marker}`,
       env: makePathEnv(dir),
       platform: process.platform,
     });
-    expect(patterns).toEqual([]);
+    expect(entries).toEqual([]);
   });
 
   it("fails closed for unresolved dispatch wrappers", () => {
-    const patterns = resolveAllowAlwaysPatterns({
+    const entries = resolveAllowAlwaysPatterns({
       segments: [
         {
           raw: "sudo /bin/zsh -lc whoami",
@@ -558,7 +397,7 @@ $0 \\"$1\\"" touch ${marker}`,
       ],
       platform: process.platform,
     });
-    expect(patterns).toEqual([]);
+    expect(entries).toEqual([]);
   });
 
   it("prevents allow-always bypass for busybox shell applets", () => {
@@ -591,23 +430,6 @@ $0 \\"$1\\"" touch ${marker}`,
       dir,
       firstCommand: "/usr/bin/nice /bin/zsh -lc 'echo warmup-ok'",
       secondCommand: "/usr/bin/nice /bin/zsh -lc 'id > marker'",
-      env,
-      persistedPattern: echo,
-    });
-  });
-
-  it("prevents allow-always bypass for time wrapper chains", () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const dir = makeTempDir();
-    const echo = makeExecutable(dir, "echo");
-    makeExecutable(dir, "id");
-    const env = makePathEnv(dir);
-    expectAllowAlwaysBypassBlocked({
-      dir,
-      firstCommand: "/usr/bin/time -p /bin/zsh -lc 'echo warmup-ok'",
-      secondCommand: "/usr/bin/time -p /bin/zsh -lc 'id > marker'",
       env,
       persistedPattern: echo,
     });

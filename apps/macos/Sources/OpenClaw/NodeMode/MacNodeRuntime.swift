@@ -524,7 +524,8 @@ actor MacNodeRuntime {
             persistAllowlist: persistAllowlist,
             security: evaluation.security,
             agentId: evaluation.agentId,
-            allowAlwaysPatterns: evaluation.allowAlwaysPatterns)
+            command: evaluation.command,
+            allowlistResolutions: evaluation.allowlistResolutions)
 
         if evaluation.security == .allowlist, !evaluation.allowlistSatisfied, !evaluation.skillAllow, !approvedByAsk {
             await self.emitExecEvent(
@@ -811,13 +812,26 @@ extension MacNodeRuntime {
         persistAllowlist: Bool,
         security: ExecSecurity,
         agentId: String?,
-        allowAlwaysPatterns: [String])
+        command: [String],
+        allowlistResolutions: [ExecCommandResolution])
     {
         guard persistAllowlist, security == .allowlist else { return }
-        var seenPatterns = Set<String>()
-        for pattern in allowAlwaysPatterns {
-            if seenPatterns.insert(pattern).inserted {
-                ExecApprovalsStore.addAllowlistEntry(agentId: agentId, pattern: pattern)
+        var seenKeys = Set<String>()
+        for candidate in allowlistResolutions {
+            guard let entry = ExecApprovalHelpers.allowlistEntry(command: command, resolution: candidate) else {
+                continue
+            }
+            let key: String
+            if let args = entry.args {
+                key = "\(entry.pattern)\0\(args.joined(separator: "\0"))"
+            } else {
+                key = entry.pattern
+            }
+            if seenKeys.insert(key).inserted {
+                ExecApprovalsStore.addAllowlistEntry(
+                    agentId: agentId,
+                    pattern: entry.pattern,
+                    args: entry.args)
             }
         }
     }
@@ -831,15 +845,18 @@ extension MacNodeRuntime {
         displayCommand: String)
     {
         guard security == .allowlist, allowlistSatisfied else { return }
-        var seenPatterns = Set<String>()
+        // Dedup by pattern+args so distinct exact-match entries update independently.
+        var seenKeys = Set<String>()
         for (idx, match) in allowlistMatches.enumerated() {
-            if !seenPatterns.insert(match.pattern).inserted {
+            let key = match.pattern + "\0" + (match.args.map { $0.joined(separator: "\0") } ?? "")
+            if !seenKeys.insert(key).inserted {
                 continue
             }
             let resolvedPath = idx < allowlistResolutions.count ? allowlistResolutions[idx].resolvedPath : nil
             ExecApprovalsStore.recordAllowlistUse(
                 agentId: agentId,
                 pattern: match.pattern,
+                args: match.args,
                 command: displayCommand,
                 resolvedPath: resolvedPath)
         }

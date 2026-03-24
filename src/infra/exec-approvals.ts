@@ -106,9 +106,13 @@ export type ExecApprovalsDefaults = {
 export type ExecAllowlistEntry = {
   id?: string;
   pattern: string;
+  args?: string[] | null;
+  matchMode?: "path-only" | "exact";
   lastUsedAt?: number;
   lastUsedCommand?: string;
   lastResolvedPath?: string;
+  createdAt?: number;
+  createdFrom?: "allow-always" | "manual" | "rule-promotion";
 };
 
 export type ExecApprovalsAgent = ExecApprovalsDefaults & {
@@ -180,8 +184,12 @@ function mergeLegacyAgent(
   const allowlist: ExecAllowlistEntry[] = [];
   const seen = new Set<string>();
   const pushEntry = (entry: ExecAllowlistEntry) => {
-    const key = normalizeAllowlistPattern(entry.pattern);
-    if (!key || seen.has(key)) {
+    const patternKey = normalizeAllowlistPattern(entry.pattern);
+    if (!patternKey) {
+      return;
+    }
+    const key = entry.args != null ? `${patternKey}\0${JSON.stringify(entry.args)}` : patternKey;
+    if (seen.has(key)) {
       return;
     }
     seen.add(key);
@@ -526,6 +534,7 @@ export function addAllowlistEntry(
   approvals: ExecApprovalsFile,
   agentId: string | undefined,
   pattern: string,
+  args?: string[] | null,
 ) {
   const target = agentId ?? DEFAULT_AGENT_ID;
   const agents = approvals.agents ?? {};
@@ -535,10 +544,33 @@ export function addAllowlistEntry(
   if (!trimmed) {
     return;
   }
-  if (allowlist.some((entry) => entry.pattern === trimmed)) {
+  // Dedup key always includes args so `python3 foo.py` and `python3 bar.py`
+  // produce distinct entries, and bare `python3` is distinct from `python3 foo.py`.
+  const effectiveArgs = args ?? [];
+  const dedupKey = `${trimmed}\0${JSON.stringify(effectiveArgs)}`;
+  if (
+    allowlist.some((entry) => {
+      const entryKey =
+        entry.args != null ? `${entry.pattern}\0${JSON.stringify(entry.args)}` : entry.pattern;
+      return entryKey === dedupKey;
+    })
+  ) {
     return;
   }
-  allowlist.push({ id: crypto.randomUUID(), pattern: trimmed, lastUsedAt: Date.now() });
+  const now = Date.now();
+  // Always create exact-match entries from allow-always approvals.
+  // Use empty args array for bare commands so `python3` doesn't also
+  // match `python3 evil.py`.
+  const newEntry: ExecAllowlistEntry = {
+    id: crypto.randomUUID(),
+    pattern: trimmed,
+    args: args ?? [],
+    matchMode: "exact",
+    lastUsedAt: now,
+    createdAt: now,
+    createdFrom: "allow-always",
+  };
+  allowlist.push(newEntry);
   agents[target] = { ...existing, allowlist };
   approvals.agents = agents;
   saveExecApprovals(approvals);

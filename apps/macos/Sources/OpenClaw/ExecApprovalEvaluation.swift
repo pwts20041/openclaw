@@ -45,7 +45,7 @@ enum ExecApprovalEvaluator {
             cwd: cwd,
             env: env)
         let allowlistMatches = security == .allowlist
-            ? ExecAllowlistMatcher.matchAll(entries: approvals.allowlist, resolutions: allowlistResolutions)
+            ? ExecAllowlistMatcher.matchAll(entries: approvals.allowlist, resolutions: allowlistResolutions, command: command)
             : []
         let allowlistSatisfied = security == .allowlist &&
             !allowlistResolutions.isEmpty &&
