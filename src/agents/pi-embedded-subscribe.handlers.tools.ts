@@ -466,6 +466,7 @@ export async function handleToolExecutionEnd(
   const result = evt.result;
   const isToolError = isError || isToolResultError(result);
   const sanitizedResult = sanitizeToolResult(result);
+  const errorMessage = isToolError ? extractToolErrorMessage(sanitizedResult) : undefined;
   const toolStartKey = buildToolStartKey(runId, toolCallId);
   const startData = toolStartData.get(toolStartKey);
   toolStartData.delete(toolStartKey);
@@ -475,7 +476,6 @@ export async function handleToolExecutionEnd(
   ctx.state.toolMetaById.delete(toolCallId);
   ctx.state.toolSummaryById.delete(toolCallId);
   if (isToolError) {
-    const errorMessage = extractToolErrorMessage(sanitizedResult);
     ctx.state.lastToolError = {
       toolName,
       meta,
@@ -503,8 +503,7 @@ export async function handleToolExecutionEnd(
   // Circuit breaker: track consecutive identical tool errors and fire callback at threshold.
   const CONSECUTIVE_ERROR_THRESHOLD = 3;
   if (isToolError) {
-    const errorMessage2 = extractToolErrorMessage(sanitizedResult);
-    const errorSig = (errorMessage2 ?? "").slice(0, 120);
+    const errorSig = (errorMessage ?? "").slice(0, 120);
     const prev = ctx.state.consecutiveToolErrors;
     if (prev && prev.toolName === toolName && prev.errorSignature === errorSig) {
       prev.count += 1;
@@ -512,8 +511,8 @@ export async function handleToolExecutionEnd(
       ctx.state.consecutiveToolErrors = { toolName, errorSignature: errorSig, count: 1 };
     }
     const consecutive = ctx.state.consecutiveToolErrors;
-    if (consecutive && consecutive.count >= CONSECUTIVE_ERROR_THRESHOLD) {
-      ctx.params.onConsecutiveToolError?.(toolName, consecutive.count, errorMessage2 ?? "");
+    if (consecutive && consecutive.count === CONSECUTIVE_ERROR_THRESHOLD) {
+      ctx.params.onConsecutiveToolError?.(toolName, consecutive.count, errorMessage ?? "");
     }
   } else {
     ctx.state.consecutiveToolErrors = null;
