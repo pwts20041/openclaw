@@ -11144,7 +11144,7 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
           hookTimeoutMs: {
             type: "integer",
             minimum: 0,
-            maximum: 9007199254740991,
+            maximum: 2147483647,
           },
           allow: {
             type: "array",
