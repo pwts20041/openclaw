@@ -501,9 +501,11 @@ export async function handleToolExecutionEnd(
   }
 
   // Circuit breaker: track consecutive identical tool errors and fire callback at threshold.
+  // Include actionFingerprint in the signature so calls with different params don't share a count.
   const CONSECUTIVE_ERROR_THRESHOLD = 3;
   if (isToolError) {
-    const errorSig = (errorMessage ?? "").slice(0, 120);
+    const actionFp = callSummary?.actionFingerprint ?? "";
+    const errorSig = `${actionFp}|${(errorMessage ?? "").slice(0, 120)}`;
     const prev = ctx.state.consecutiveToolErrors;
     if (prev && prev.toolName === toolName && prev.errorSignature === errorSig) {
       prev.count += 1;
