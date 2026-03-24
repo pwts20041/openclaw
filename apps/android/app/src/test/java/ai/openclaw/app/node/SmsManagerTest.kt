@@ -726,6 +726,30 @@ class SmsManagerTest {
   }
 
   @Test
+  fun resolveMixedByPhoneRowAddressPreservesProviderAddressWhenPresent() {
+    assertEquals(
+      "+12107588120",
+      SmsManager.resolveMixedByPhoneRowAddress("+12107588120", "12107588120"),
+    )
+  }
+
+  @Test
+  fun resolveMixedByPhoneRowAddressFallsBackToLookupNumberWhenProviderAddressMissing() {
+    assertEquals(
+      "12107588120",
+      SmsManager.resolveMixedByPhoneRowAddress(null, "12107588120"),
+    )
+  }
+
+  @Test
+  fun resolveMixedByPhoneRowAddressCanPreserveLookupNumberWhenProviderAlreadyReturnsIt() {
+    assertEquals(
+      "12107588120",
+      SmsManager.resolveMixedByPhoneRowAddress("12107588120", "12107588120"),
+    )
+  }
+
+  @Test
   fun isExplicitPhoneInputInvalidTrueWhenCallerSuppliesOnlyFormatting() {
     val normalized = SmsManager.normalizePhoneNumberOrNull(" + ")
     assertTrue(SmsManager.isExplicitPhoneInputInvalid(" + ", normalized))
