@@ -754,31 +754,38 @@ export async function compactEmbeddedPiSessionDirect(
 
   const model = finalModel;
   const error = finalError;
-  const authStorage = finalAuthStorage;
-  const modelRegistry = finalModelRegistry;
+  let authStorage = finalAuthStorage;
+  let modelRegistry = finalModelRegistry;
   if (!model) {
     const reason = error ?? `Unknown model: ${provider}/${modelId}`;
     return fail(reason);
   }
   let runtimeModel = model;
-  let apiKeyInfo: Awaited<ReturnType<typeof getApiKeyForModel>> | null = null;
-  try {
-    apiKeyInfo = await getApiKeyForModel({
-      model: runtimeModel,
+
+  // Attempt auth resolution for a given model, returning the authenticated runtimeModel or throwing.
+  const tryAuthForModel = async (
+    targetModel: typeof model,
+    targetModelId: string,
+    targetAuthStorage: typeof authStorage,
+    targetAuthProfileId: string | undefined,
+  ) => {
+    let authModel = targetModel;
+    const keyInfo = await getApiKeyForModel({
+      model: authModel,
       cfg: params.config,
-      profileId: authProfileId,
+      profileId: targetAuthProfileId,
       agentDir,
     });
 
-    if (!apiKeyInfo.apiKey) {
-      if (apiKeyInfo.mode !== "aws-sdk") {
+    if (!keyInfo.apiKey) {
+      if (keyInfo.mode !== "aws-sdk") {
         throw new Error(
-          `No API key resolved for provider "${runtimeModel.provider}" (auth mode: ${apiKeyInfo.mode}).`,
+          `No API key resolved for provider "${authModel.provider}" (auth mode: ${keyInfo.mode}).`,
         );
       }
     } else {
       const preparedAuth = await prepareProviderRuntimeAuth({
-        provider: runtimeModel.provider,
+        provider: authModel.provider,
         config: params.config,
         workspaceDir: resolvedWorkspace,
         env: process.env,
@@ -787,26 +794,88 @@ export async function compactEmbeddedPiSessionDirect(
           agentDir,
           workspaceDir: resolvedWorkspace,
           env: process.env,
-          provider: runtimeModel.provider,
-          modelId,
-          model: runtimeModel,
-          apiKey: apiKeyInfo.apiKey,
-          authMode: apiKeyInfo.mode,
-          profileId: apiKeyInfo.profileId,
+          provider: authModel.provider,
+          modelId: targetModelId,
+          model: authModel,
+          apiKey: keyInfo.apiKey,
+          authMode: keyInfo.mode,
+          profileId: keyInfo.profileId,
         },
       });
       if (preparedAuth?.baseUrl) {
-        runtimeModel = { ...runtimeModel, baseUrl: preparedAuth.baseUrl };
+        authModel = { ...authModel, baseUrl: preparedAuth.baseUrl };
       }
-      const runtimeApiKey = preparedAuth?.apiKey ?? apiKeyInfo.apiKey;
+      const runtimeApiKey = preparedAuth?.apiKey ?? keyInfo.apiKey;
       if (!runtimeApiKey) {
-        throw new Error(`Provider "${runtimeModel.provider}" runtime auth returned no apiKey.`);
+        throw new Error(`Provider "${authModel.provider}" runtime auth returned no apiKey.`);
       }
-      authStorage.setRuntimeApiKey(runtimeModel.provider, runtimeApiKey);
+      targetAuthStorage.setRuntimeApiKey(authModel.provider, runtimeApiKey);
     }
+    return authModel;
+  };
+
+  try {
+    runtimeModel = await tryAuthForModel(runtimeModel, modelId, authStorage, authProfileId);
   } catch (err) {
-    const reason = describeUnknownError(err);
-    return fail(reason);
+    // If auth fails for the primary model, try configured fallbacks before giving up.
+    const fallbacks = params.config?.agents?.defaults?.compaction?.modelFallbacks;
+    if (fallbacks && Array.isArray(fallbacks) && fallbacks.length > 0) {
+      const triedModels = [`${provider}/${modelId}`];
+      let authResolved = false;
+      for (const fallbackSpec of fallbacks) {
+        const trimmed = fallbackSpec?.trim();
+        if (!trimmed) continue;
+        let fbProvider: string;
+        let fbModelId: string;
+        const slashIdx = trimmed.indexOf("/");
+        if (slashIdx > 0) {
+          fbProvider = trimmed.slice(0, slashIdx).trim();
+          fbModelId = trimmed.slice(slashIdx + 1).trim() || DEFAULT_MODEL;
+        } else {
+          fbProvider = effectiveProvider;
+          fbModelId = trimmed;
+        }
+        triedModels.push(`${fbProvider}/${fbModelId}`);
+        log.info(
+          `[compaction] Primary model auth failed, trying fallback: ${fbProvider}/${fbModelId}`,
+        );
+        try {
+          const fbResult = await resolveModelAsync(fbProvider, fbModelId, agentDir, params.config);
+          if (!fbResult.model) continue;
+          const fbAuthProfileId =
+            fbProvider.toLowerCase() !== effectiveProvider.toLowerCase()
+              ? undefined
+              : params.authProfileId;
+          const fbRuntimeModel = await tryAuthForModel(
+            fbResult.model,
+            fbModelId,
+            fbResult.authStorage,
+            fbAuthProfileId,
+          );
+          // Fallback succeeded — adopt its model and auth state.
+          runtimeModel = fbRuntimeModel;
+          finalAuthStorage = fbResult.authStorage;
+          finalModelRegistry = fbResult.modelRegistry;
+          provider = fbProvider;
+          modelId = fbModelId;
+          authResolved = true;
+          log.info(`[compaction] Using fallback model (auth): ${fbProvider}/${fbModelId}`);
+          break;
+        } catch (fbErr) {
+          log.warn(
+            `[compaction] Fallback model auth ${fbProvider}/${fbModelId} threw: ${describeUnknownError(fbErr)}`,
+          );
+        }
+      }
+      if (!authResolved) {
+        return fail(
+          `All compaction models failed auth (tried: ${triedModels.join(", ")}). Primary error: ${describeUnknownError(err)}`,
+        );
+      }
+    } else {
+      const reason = describeUnknownError(err);
+      return fail(reason);
+    }
   }
 
   await fs.mkdir(resolvedWorkspace, { recursive: true });
