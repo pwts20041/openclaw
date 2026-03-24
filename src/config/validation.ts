@@ -458,10 +458,20 @@ function validateConfigObjectWithPluginsBase(
         }
       }
       if (!allowedChannels.has(trimmed)) {
-        warnings.push({
-          path: `channels.${trimmed}`,
-          message: `unknown channel id: ${trimmed} (channel skipped; install the plugin or remove the channel config)`,
-        });
+        const referencedByPluginConfig =
+          (isRecord(config.plugins?.entries) && trimmed in (config.plugins?.entries ?? {})) ||
+          (Array.isArray(config.plugins?.allow) && config.plugins.allow.includes(trimmed));
+        if (referencedByPluginConfig) {
+          warnings.push({
+            path: `channels.${trimmed}`,
+            message: `unknown channel id: ${trimmed} (channel skipped; install the plugin or remove the channel config)`,
+          });
+        } else {
+          issues.push({
+            path: `channels.${trimmed}`,
+            message: `unknown channel id: ${trimmed}`,
+          });
+        }
       }
     }
   }
