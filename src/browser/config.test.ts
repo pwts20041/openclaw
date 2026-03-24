@@ -377,3 +377,20 @@ describe("browser config", () => {
     });
   });
 });
+
+describe("per-profile executablePath", () => {
+  it("resolveProfile passes executablePath:undefined when not set", () => {
+    const profile = resolveProfile("test", { cdpPort: 19200, color: "#FF4500" }, defaultResolved());
+    expect(profile?.executablePath).toBeUndefined();
+  });
+
+  it("resolveProfile passes executablePath from config", () => {
+    const profile = resolveProfile("test", { cdpPort: 19200, color: "#FF4500", executablePath: "/opt/chromium" } as any, defaultResolved());
+    expect(profile?.executablePath).toBe("/opt/chromium");
+  });
+
+  it("trims empty executablePath to undefined", () => {
+    const profile = resolveProfile("test", { cdpPort: 19200, color: "#FF4500", executablePath: "  " } as any, defaultResolved());
+    expect(profile?.executablePath).toBeUndefined();
+  });
+});
