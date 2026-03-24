@@ -90,7 +90,7 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
     const cmd = record.command ?? record.cmd;
     return typeof cmd === "string" ? cmd.slice(0, 100) : "";
   }
-  for (const key of ["path", "filePath", "id", "action", "query", "sessionKey"]) {
+  for (const key of ["path", "filePath", "url", "id", "action", "query", "sessionKey"]) {
     const val = record[key];
     if (typeof val === "string" && val.trim()) {
       return `${key}=${val.trim().slice(0, 100)}`;
