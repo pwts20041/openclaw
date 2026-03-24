@@ -1,5 +1,6 @@
 import type { StreamFn } from "@mariozechner/pi-agent-core";
 import { computeBackoff, sleepWithAbort, type BackoffPolicy } from "../../infra/backoff.js";
+import { resolveFailoverReasonFromError } from "../failover-error.js";
 import { log } from "./logger.js";
 
 const RATE_LIMIT_RETRY_POLICY: BackoffPolicy = {
@@ -11,33 +12,6 @@ const RATE_LIMIT_RETRY_POLICY: BackoffPolicy = {
 
 const MAX_RETRIES = 3;
 const MAX_RETRY_AFTER_MS = 30_000;
-
-/**
- * Detect whether an error represents an HTTP 429 (rate limit) response.
- *
- * Provider SDK error shapes vary, so we check:
- *  - `err.status === 429`  (OpenAI SDK, Anthropic SDK)
- *  - `err.statusCode === 429 | "429"`  (some providers use string codes)
- *  - `err.response?.status === 429`  (Axios-style wrappers)
- */
-function isRateLimitError(err: unknown): boolean {
-  if (!err || typeof err !== "object") {
-    return false;
-  }
-  const obj = err as Record<string, unknown>;
-  if (obj.status === 429 || obj.statusCode === 429 || obj.statusCode === "429") {
-    return true;
-  }
-  const response = obj.response;
-  if (
-    response &&
-    typeof response === "object" &&
-    (response as Record<string, unknown>).status === 429
-  ) {
-    return true;
-  }
-  return false;
-}
 
 /**
  * Extract the raw `retry-after` string from a headers-like object.
@@ -90,36 +64,43 @@ function parseRetryAfterMs(err: unknown): number | undefined {
         ? (obj.response as Record<string, unknown>).headers
         : undefined,
     );
-  if (!raw) {
-    return undefined;
+  if (raw) {
+    // Try delta-seconds first (most common).
+    const seconds = Number(raw);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return seconds * 1_000;
+    }
+    // Try HTTP-date.
+    const date = new Date(raw);
+    if (!Number.isNaN(date.getTime())) {
+      const delta = date.getTime() - Date.now();
+      return delta > 0 ? delta : 0;
+    }
   }
-  // Try delta-seconds first (most common).
-  const seconds = Number(raw);
-  if (Number.isFinite(seconds) && seconds >= 0) {
-    return seconds * 1_000;
-  }
-  // Try HTTP-date.
-  const date = new Date(raw);
-  if (!Number.isNaN(date.getTime())) {
-    const delta = date.getTime() - Date.now();
-    return delta > 0 ? delta : 0;
+  // Walk cause chain for wrapped errors (e.g. AbortError wrapping a 429).
+  const cause = obj.cause;
+  if (cause && typeof cause === "object" && cause !== err) {
+    return parseRetryAfterMs(cause);
   }
   return undefined;
 }
 
 /**
- * Wrap a `StreamFn` to transparently retry on HTTP 429 (rate limit) errors
- * thrown during stream establishment.
+ * Wrap a `StreamFn` to transparently retry on rate-limit errors thrown during
+ * stream establishment.
+ *
+ * Rate-limit detection delegates to `resolveFailoverReasonFromError` from
+ * `failover-error.ts`, so the retry boundary recognizes the same error shapes
+ * as the run-loop failover path: HTTP 429, symbolic codes (RESOURCE_EXHAUSTED,
+ * THROTTLING, etc.), message-based heuristics, and nested cause chains.
  *
  * Applied to **all** providers at the stream-call boundary in `attempt.ts`.
  * Retries up to `MAX_RETRIES` times with exponential backoff, honoring the
  * `Retry-After` header when present.
  *
- * Known limitation: 429s that arrive mid-stream (as errors during EventStream
- * iteration, after the initial connection succeeds) are not caught here —
- * those are consumed by the agent loop in pi-agent-core. In practice, tested
- * providers (Kimi/Moonshot) return 429 as a connection-level error before any
- * stream body is emitted, so this boundary is sufficient for the common case.
+ * Known limitation: rate-limit errors that arrive mid-stream (as errors during
+ * EventStream iteration, after the initial connection succeeds) are not caught
+ * here — those are consumed by the agent loop in pi-agent-core.
  */
 export function createRateLimitRetryStreamWrapper(
   baseStreamFn: StreamFn,
@@ -132,7 +113,7 @@ export function createRateLimitRetryStreamWrapper(
         // StreamFn can return either sync (EventStream) or async (Promise<EventStream>).
         return await result;
       } catch (err) {
-        if (!isRateLimitError(err) || retryCount >= MAX_RETRIES) {
+        if (resolveFailoverReasonFromError(err) !== "rate_limit" || retryCount >= MAX_RETRIES) {
           if (retryCount > 0) {
             log.warn(
               `[rate-limit-retry] exhausted ${retryCount}/${MAX_RETRIES} retries for ${model.provider}/${model.id}`,
@@ -153,7 +134,7 @@ export function createRateLimitRetryStreamWrapper(
             ? Math.min(Math.max(retryAfterMs, backoffMs), MAX_RETRY_AFTER_MS)
             : backoffMs;
         log.warn(
-          `[rate-limit-retry] 429 from ${model.provider}/${model.id}, retry ${retryCount + 1}/${MAX_RETRIES} in ${delayMs}ms`,
+          `[rate-limit-retry] rate-limit from ${model.provider}/${model.id}, retry ${retryCount + 1}/${MAX_RETRIES} in ${delayMs}ms`,
         );
         try {
           await sleepWithAbort(delayMs, abortSignal);

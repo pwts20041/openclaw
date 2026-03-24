@@ -4,9 +4,57 @@ import { createAssistantMessageEventStream } from "@mariozechner/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Mock sleepWithAbort so tests don't wait real delays, and log.warn for observability checks.
-const { sleepWithAbortMock, logWarnMock } = vi.hoisted(() => ({
+const { sleepWithAbortMock, logWarnMock, resolveFailoverReasonMock } = vi.hoisted(() => ({
   sleepWithAbortMock: vi.fn(async (_ms: number, _signal?: AbortSignal) => {}),
   logWarnMock: vi.fn(),
+  resolveFailoverReasonMock: vi.fn((err: unknown): string | null => {
+    if (!err || typeof err !== "object") {
+      return null;
+    }
+    const obj = err as Record<string, unknown>;
+    // Simulate real resolveFailoverReasonFromError behavior for test error shapes.
+    if (obj.status === 429 || obj.statusCode === 429 || obj.statusCode === "429") {
+      return "rate_limit";
+    }
+    if (
+      obj.response &&
+      typeof obj.response === "object" &&
+      (obj.response as Record<string, unknown>).status === 429
+    ) {
+      return "rate_limit";
+    }
+    if (obj.status === 503) {
+      return "overloaded";
+    }
+    if (obj.status === 401) {
+      return "auth";
+    }
+    if (obj.status === 500) {
+      return null;
+    }
+    // Symbolic codes (check both .code and non-numeric .status, matching readDirectErrorCode)
+    const rawCode =
+      typeof obj.code === "string"
+        ? obj.code
+        : typeof obj.status === "string" && !/^\d+$/.test(obj.status)
+          ? obj.status
+          : "";
+    const code = rawCode.toUpperCase();
+    if (["RESOURCE_EXHAUSTED", "THROTTLING", "THROTTLINGEXCEPTION"].includes(code)) {
+      return "rate_limit";
+    }
+    // Cause chain
+    const cause = obj.cause;
+    if (cause && typeof cause === "object" && cause !== err) {
+      return resolveFailoverReasonMock(cause);
+    }
+    // Message heuristic
+    const msg = obj.message ?? (err instanceof Error ? err.message : "");
+    if (typeof msg === "string" && /too many requests|rate.limit/i.test(msg)) {
+      return "rate_limit";
+    }
+    return null;
+  }),
 }));
 vi.mock("./logger.js", () => ({
   log: { warn: (...args: unknown[]) => logWarnMock(...args) },
@@ -21,6 +69,9 @@ vi.mock("../../infra/backoff.js", () => ({
     return Math.min(policy.maxMs, Math.round(base + jitter));
   },
   sleepWithAbort: (ms: number, signal?: AbortSignal) => sleepWithAbortMock(ms, signal),
+}));
+vi.mock("../failover-error.js", () => ({
+  resolveFailoverReasonFromError: (err: unknown) => resolveFailoverReasonMock(err),
 }));
 
 import { createRateLimitRetryStreamWrapper } from "./rate-limit-retry-stream-wrapper.js";
@@ -48,6 +99,7 @@ describe("createRateLimitRetryStreamWrapper", () => {
     vi.restoreAllMocks();
     sleepWithAbortMock.mockClear();
     logWarnMock.mockClear();
+    resolveFailoverReasonMock.mockClear();
   });
 
   it("passes through on success without retrying", async () => {
@@ -271,7 +323,7 @@ describe("createRateLimitRetryStreamWrapper", () => {
     await expect(wrapped(model, context, {})).rejects.toBe(error);
     // 3 retry warnings + 1 exhaustion warning
     expect(logWarnMock).toHaveBeenCalledTimes(4);
-    expect(logWarnMock.mock.calls[0][0]).toMatch(/retry 1\/3/);
+    expect(logWarnMock.mock.calls[0][0]).toMatch(/rate-limit from.*retry 1\/3/);
     expect(logWarnMock.mock.calls[3][0]).toMatch(/exhausted 3\/3/);
   });
 
@@ -284,5 +336,73 @@ describe("createRateLimitRetryStreamWrapper", () => {
     await expect(wrapped(model, context, {})).rejects.toBe(error);
     expect(inner).toHaveBeenCalledTimes(1);
     expect(sleepWithAbortMock).not.toHaveBeenCalled();
+  });
+
+  // --- Unified detection: symbolic codes, cause chains, message heuristics ---
+
+  it("retries on RESOURCE_EXHAUSTED symbolic code (Gemini)", async () => {
+    const err = Object.assign(new Error("Resource has been exhausted"), {
+      code: "RESOURCE_EXHAUSTED",
+    });
+    const inner = makeStreamFn([
+      () => Promise.reject(err) as unknown as ReturnType<StreamFn>,
+      () => createAssistantMessageEventStream(),
+    ]);
+    const wrapped = createRateLimitRetryStreamWrapper(inner);
+    await wrapped(model, context, {});
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries on RESOURCE_EXHAUSTED wrapped in AbortError (Gemini cause chain)", async () => {
+    const cause = Object.assign(new Error("Resource has been exhausted"), {
+      status: "RESOURCE_EXHAUSTED",
+    });
+    const err = new DOMException("signal is aborted", "AbortError");
+    Object.defineProperty(err, "cause", { value: cause, writable: false });
+    const inner = makeStreamFn([
+      () => Promise.reject(err) as unknown as ReturnType<StreamFn>,
+      () => createAssistantMessageEventStream(),
+    ]);
+    const wrapped = createRateLimitRetryStreamWrapper(inner);
+    await wrapped(model, context, {});
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries on THROTTLING symbolic code (AWS Bedrock)", async () => {
+    const err = Object.assign(new Error("Rate exceeded"), { code: "THROTTLING" });
+    const inner = makeStreamFn([
+      () => Promise.reject(err) as unknown as ReturnType<StreamFn>,
+      () => createAssistantMessageEventStream(),
+    ]);
+    const wrapped = createRateLimitRetryStreamWrapper(inner);
+    await wrapped(model, context, {});
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries on message-based rate limit without 429 status", async () => {
+    const err = new Error("too many requests, please slow down");
+    const inner = makeStreamFn([
+      () => Promise.reject(err) as unknown as ReturnType<StreamFn>,
+      () => createAssistantMessageEventStream(),
+    ]);
+    const wrapped = createRateLimitRetryStreamWrapper(inner);
+    await wrapped(model, context, {});
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry on 503 overloaded errors", async () => {
+    const err = Object.assign(new Error("Service Unavailable"), { status: 503 });
+    const inner = makeStreamFn([() => Promise.reject(err) as unknown as ReturnType<StreamFn>]);
+    const wrapped = createRateLimitRetryStreamWrapper(inner);
+    await expect(wrapped(model, context, {})).rejects.toBe(err);
+    expect(inner).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry on 401 auth errors", async () => {
+    const err = Object.assign(new Error("Unauthorized"), { status: 401 });
+    const inner = makeStreamFn([() => Promise.reject(err) as unknown as ReturnType<StreamFn>]);
+    const wrapped = createRateLimitRetryStreamWrapper(inner);
+    await expect(wrapped(model, context, {})).rejects.toBe(err);
+    expect(inner).toHaveBeenCalledTimes(1);
   });
 });
