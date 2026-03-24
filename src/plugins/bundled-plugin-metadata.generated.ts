@@ -862,6 +862,48 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
     },
   },
   {
+    dirName: "ernie",
+    idHint: "ernie",
+    source: {
+      source: "./index.ts",
+      built: "index.js",
+    },
+    packageName: "@openclaw/ernie-provider",
+    packageVersion: "2026.3.14",
+    packageDescription: "OpenClaw ERNIE provider plugin",
+    packageManifest: {
+      extensions: ["./index.ts"],
+    },
+    manifest: {
+      id: "ernie",
+      configSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {},
+      },
+      enabledByDefault: true,
+      providers: ["ernie"],
+      providerAuthEnvVars: {
+        ernie: ["ERNIE_API_KEY"],
+      },
+      providerAuthChoices: [
+        {
+          provider: "ernie",
+          method: "api-key",
+          choiceId: "ernie-api-key",
+          choiceLabel: "ERNIE API key (Baidu Wenxin)",
+          groupId: "ernie",
+          groupLabel: "ERNIE",
+          groupHint: "Qianfan API for ERNIE models",
+          optionKey: "ernieApiKey",
+          cliFlag: "--ernie-api-key",
+          cliOption: "--ernie-api-key <key>",
+          cliDescription: "ERNIE API key",
+        },
+      ],
+    },
+  },
+  {
     dirName: "exa",
     idHint: "exa-plugin",
     source: {
