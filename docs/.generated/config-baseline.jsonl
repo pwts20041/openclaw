@@ -1,4 +1,4 @@
-{"generatedBy":"scripts/generate-config-doc-baseline.ts","recordType":"meta","totalPaths":5628}
+{"generatedBy":"scripts/generate-config-doc-baseline.ts","recordType":"meta","totalPaths":5632}
 {"recordType":"path","path":"acp","kind":"core","type":"object","required":false,"deprecated":false,"sensitive":false,"tags":["advanced"],"label":"ACP","help":"ACP runtime controls for enabling dispatch, selecting backends, constraining allowed agent targets, and tuning streamed turn projection behavior.","hasChildren":true}
 {"recordType":"path","path":"acp.allowedAgents","kind":"core","type":"array","required":false,"deprecated":false,"sensitive":false,"tags":["access"],"label":"ACP Allowed Agents","help":"Allowlist of ACP target agent ids permitted for ACP runtime sessions. Empty means no additional allowlist restriction.","hasChildren":true}
 {"recordType":"path","path":"acp.allowedAgents.*","kind":"core","type":"string","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
@@ -2467,10 +2467,12 @@
 {"recordType":"path","path":"channels.signal.accounts.*.httpUrl","kind":"channel","type":"string","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
 {"recordType":"path","path":"channels.signal.accounts.*.ignoreAttachments","kind":"channel","type":"boolean","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
 {"recordType":"path","path":"channels.signal.accounts.*.ignoreStories","kind":"channel","type":"boolean","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
+{"recordType":"path","path":"channels.signal.accounts.*.injectLinkPreviews","kind":"channel","type":"boolean","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
 {"recordType":"path","path":"channels.signal.accounts.*.markdown","kind":"channel","type":"object","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":true}
 {"recordType":"path","path":"channels.signal.accounts.*.markdown.tables","kind":"channel","type":"string","required":false,"enumValues":["off","bullets","code"],"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
 {"recordType":"path","path":"channels.signal.accounts.*.mediaMaxMb","kind":"channel","type":"integer","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
 {"recordType":"path","path":"channels.signal.accounts.*.name","kind":"channel","type":"string","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
+{"recordType":"path","path":"channels.signal.accounts.*.preserveTextStyles","kind":"channel","type":"boolean","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
 {"recordType":"path","path":"channels.signal.accounts.*.reactionAllowlist","kind":"channel","type":"array","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":true}
 {"recordType":"path","path":"channels.signal.accounts.*.reactionAllowlist.*","kind":"channel","type":["number","string"],"required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
 {"recordType":"path","path":"channels.signal.accounts.*.reactionLevel","kind":"channel","type":"string","required":false,"enumValues":["off","ack","minimal","extensive"],"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
@@ -2537,10 +2539,12 @@
 {"recordType":"path","path":"channels.signal.httpUrl","kind":"channel","type":"string","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
 {"recordType":"path","path":"channels.signal.ignoreAttachments","kind":"channel","type":"boolean","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
 {"recordType":"path","path":"channels.signal.ignoreStories","kind":"channel","type":"boolean","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
+{"recordType":"path","path":"channels.signal.injectLinkPreviews","kind":"channel","type":"boolean","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
 {"recordType":"path","path":"channels.signal.markdown","kind":"channel","type":"object","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":true}
 {"recordType":"path","path":"channels.signal.markdown.tables","kind":"channel","type":"string","required":false,"enumValues":["off","bullets","code"],"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
 {"recordType":"path","path":"channels.signal.mediaMaxMb","kind":"channel","type":"integer","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
 {"recordType":"path","path":"channels.signal.name","kind":"channel","type":"string","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
+{"recordType":"path","path":"channels.signal.preserveTextStyles","kind":"channel","type":"boolean","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
 {"recordType":"path","path":"channels.signal.reactionAllowlist","kind":"channel","type":"array","required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":true}
 {"recordType":"path","path":"channels.signal.reactionAllowlist.*","kind":"channel","type":["number","string"],"required":false,"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}
 {"recordType":"path","path":"channels.signal.reactionLevel","kind":"channel","type":"string","required":false,"enumValues":["off","ack","minimal","extensive"],"deprecated":false,"sensitive":false,"tags":[],"hasChildren":false}

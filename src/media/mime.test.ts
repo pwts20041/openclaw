@@ -128,6 +128,7 @@ describe("mediaKindFromMime", () => {
     { mime: "text/plain", expected: "document" },
     { mime: "text/csv", expected: "document" },
     { mime: "text/html; charset=utf-8", expected: "document" },
+    { mime: " Audio/Ogg; codecs=opus ", expected: "audio" },
     { mime: "model/gltf+json", expected: undefined },
     { mime: null, expected: undefined },
     { mime: undefined, expected: undefined },

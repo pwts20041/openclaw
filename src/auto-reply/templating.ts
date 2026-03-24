@@ -90,6 +90,10 @@ export type MsgContext = {
   MediaUrl?: string;
   MediaType?: string;
   MediaDir?: string;
+  MediaCaption?: string;
+  MediaCaptions?: string[];
+  MediaDimension?: { width?: number; height?: number };
+  MediaDimensions?: Array<{ width?: number; height?: number }>;
   MediaPaths?: string[];
   MediaUrls?: string[];
   MediaTypes?: string[];
@@ -128,6 +132,8 @@ export type MsgContext = {
   SenderTag?: string;
   SenderE164?: string;
   Timestamp?: number;
+  /** Provider-specific timestamp/id of message being edited. */
+  EditTargetTimestamp?: number;
   /** Provider label (e.g. whatsapp, telegram). */
   Provider?: string;
   /** Provider surface label (e.g. discord, slack). Prefer this over `Provider` when available. */

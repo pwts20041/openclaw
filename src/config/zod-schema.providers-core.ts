@@ -1056,6 +1056,8 @@ export const SignalAccountSchemaBase = z
       .strict()
       .optional(),
     reactionLevel: z.enum(["off", "ack", "minimal", "extensive"]).optional(),
+    injectLinkPreviews: z.boolean().optional(),
+    preserveTextStyles: z.boolean().optional(),
     heartbeat: ChannelHeartbeatVisibilitySchema,
     healthMonitor: ChannelHealthMonitorSchema,
     responsePrefix: z.string().optional(),
