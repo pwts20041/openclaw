@@ -181,6 +181,10 @@
       "destination": "/providers/qianfan"
     },
     {
+      "source": "/ernie",
+      "destination": "/providers/ernie"
+    },
+    {
       "source": "/mattermost",
       "destination": "/channels/mattermost"
     },
@@ -1185,6 +1189,7 @@
                   "providers/cloudflare-ai-gateway",
                   "providers/deepgram",
                   "providers/deepseek",
+                  "providers/ernie",
                   "providers/github-copilot",
                   "providers/glm",
                   "providers/google",

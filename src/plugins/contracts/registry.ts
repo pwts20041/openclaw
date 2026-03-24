@@ -7,6 +7,7 @@ import copilotProxyPlugin from "../../../extensions/copilot-proxy/index.js";
 import deepgramPlugin from "../../../extensions/deepgram/index.js";
 import deepseekPlugin from "../../../extensions/deepseek/index.js";
 import elevenLabsPlugin from "../../../extensions/elevenlabs/index.js";
+import erniePlugin from "../../../extensions/ernie/index.js";
 import falPlugin from "../../../extensions/fal/index.js";
 import githubCopilotPlugin from "../../../extensions/github-copilot/index.js";
 import googlePlugin from "../../../extensions/google/index.js";
@@ -359,6 +360,7 @@ const bundledProviderPlugins = dedupePlugins([
   cloudflareAiGatewayPlugin,
   copilotProxyPlugin,
   deepseekPlugin,
+  erniePlugin,
   githubCopilotPlugin,
   falPlugin,
   googlePlugin,
