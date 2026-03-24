@@ -1,5 +1,6 @@
+import * as fs from "node:fs";
 import type { MSTeamsAdapter } from "./messenger.js";
-import type { MSTeamsCredentials } from "./token.js";
+import type { MSTeamsCredentials, MSTeamsFederatedCredentials } from "./token.js";
 import { buildUserAgent } from "./user-agent.js";
 
 /**
@@ -61,10 +62,73 @@ export async function loadMSTeamsSdk(): Promise<MSTeamsTeamsSdk> {
  * from @microsoft/agents-hosting.
  */
 export function createMSTeamsApp(creds: MSTeamsCredentials, sdk: MSTeamsTeamsSdk): MSTeamsApp {
+  if (creds.type === "secret") {
+    return new sdk.App({
+      clientId: creds.appId,
+      clientSecret: creds.appPassword,
+      tenantId: creds.tenantId,
+    });
+  }
+  return createFederatedApp(creds, sdk);
+}
+
+function createFederatedApp(
+  creds: MSTeamsFederatedCredentials,
+  sdk: MSTeamsTeamsSdk,
+): MSTeamsApp {
+  if (creds.useManagedIdentity) {
+    return createManagedIdentityApp(creds, sdk);
+  }
+
+  // Certificate-based auth
+  if (!creds.certificatePath) {
+    throw new Error(
+      "Federated credentials require either a certificate path or managed identity.",
+    );
+  }
+
+  const privateKey = fs.readFileSync(creds.certificatePath, "utf-8");
+
   return new sdk.App({
     clientId: creds.appId,
-    clientSecret: creds.appPassword,
     tenantId: creds.tenantId,
+    clientCertificate: {
+      thumbprint: creds.certificateThumbprint ?? "",
+      privateKey,
+    },
+  });
+}
+
+function createManagedIdentityApp(
+  creds: MSTeamsFederatedCredentials,
+  sdk: MSTeamsTeamsSdk,
+): MSTeamsApp {
+  const tokenProvider = async (): Promise<string> => {
+    const azureIdentity: typeof import("@azure/identity") = await import(
+      "@azure/identity"
+    );
+
+    const credential = creds.managedIdentityClientId
+      ? new azureIdentity.ManagedIdentityCredential(
+          creds.managedIdentityClientId,
+        )
+      : new azureIdentity.DefaultAzureCredential();
+
+    const token = await credential.getToken(
+      "https://api.botframework.com/.default",
+    );
+
+    if (!token?.token) {
+      throw new Error("Failed to acquire token via managed identity.");
+    }
+
+    return token.token;
+  };
+
+  return new sdk.App({
+    clientId: creds.appId,
+    tenantId: creds.tenantId,
+    tokenProvider,
   });
 }
 

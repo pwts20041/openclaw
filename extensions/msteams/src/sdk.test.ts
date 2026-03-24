@@ -1,79 +1,94 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { createMSTeamsAdapter, type MSTeamsTeamsSdk } from "./sdk.js";
-import type { MSTeamsCredentials } from "./token.js";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { MSTeamsSecretCredentials, MSTeamsFederatedCredentials } from "./token.js";
 
-const originalFetch = globalThis.fetch;
+vi.mock("node:fs", () => ({
+  readFileSync: vi.fn(() => "-----BEGIN RSA PRIVATE KEY-----\nfake-key\n-----END RSA PRIVATE KEY-----"),
+}));
 
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-  vi.restoreAllMocks();
-});
+const mockGetToken = vi.fn().mockResolvedValue({ token: "mock-managed-token" });
+vi.mock("@azure/identity", () => ({
+  ManagedIdentityCredential: vi.fn().mockImplementation(() => ({ getToken: mockGetToken })),
+  DefaultAzureCredential: vi.fn().mockImplementation(() => ({ getToken: mockGetToken })),
+}));
 
-function createSdkStub(): MSTeamsTeamsSdk {
-  class AppStub {
-    async getBotToken() {
-      return {
-        toString() {
-          return "bot-token";
-        },
-      };
+import { createMSTeamsApp } from "./sdk.js";
+import * as fs from "node:fs";
+
+function makeFakeSdk() {
+  const appInstances: Record<string, unknown>[] = [];
+  const FakeApp = class {
+    opts: Record<string, unknown>;
+    constructor(opts: Record<string, unknown>) {
+      this.opts = opts;
+      appInstances.push(opts);
     }
-  }
-
-  class ClientStub {
-    constructor(_serviceUrl: string, _options: unknown) {}
-
-    conversations = {
-      activities: (_conversationId: string) => ({
-        create: async (_activity: unknown) => ({ id: "created" }),
-      }),
-    };
-  }
-
-  return {
-    App: AppStub as unknown as MSTeamsTeamsSdk["App"],
-    Client: ClientStub as unknown as MSTeamsTeamsSdk["Client"],
   };
+  return { sdk: { App: FakeApp as any }, appInstances, FakeApp };
 }
 
-describe("createMSTeamsAdapter", () => {
-  it("provides deleteActivity in proactive continueConversation contexts", async () => {
-    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+describe("createMSTeamsApp – secret credentials", () => {
+  it("passes clientId, clientSecret, tenantId to sdk.App", () => {
+    const { sdk, appInstances } = makeFakeSdk();
+    const creds: MSTeamsSecretCredentials = { type: "secret", appId: "my-app-id", appPassword: "my-secret", tenantId: "my-tenant" };
+    const app = createMSTeamsApp(creds, sdk);
+    expect(app).toBeDefined();
+    expect(appInstances[0]).toEqual({ clientId: "my-app-id", clientSecret: "my-secret", tenantId: "my-tenant" });
+  });
+});
 
-    const creds = {
-      appId: "app-id",
-      appPassword: "secret",
-      tenantId: "tenant-id",
-    } satisfies MSTeamsCredentials;
-    const sdk = createSdkStub();
-    const app = new sdk.App({
-      clientId: creds.appId,
-      clientSecret: creds.appPassword,
-      tenantId: creds.tenantId,
-    });
-    const adapter = createMSTeamsAdapter(app, sdk);
+describe("createMSTeamsApp – federated certificate credentials", () => {
+  beforeEach(() => {
+    vi.mocked(fs.readFileSync).mockReturnValue("-----BEGIN RSA PRIVATE KEY-----\nfake-key\n-----END RSA PRIVATE KEY-----");
+  });
 
-    await adapter.continueConversation(
-      creds.appId,
-      {
-        serviceUrl: "https://service.example.com/",
-        conversation: { id: "19:conversation@thread.tacv2" },
-        channelId: "msteams",
-      },
-      async (ctx) => {
-        await ctx.deleteActivity("activity-123");
-      },
-    );
+  it("reads the certificate and passes clientCertificate to sdk.App", () => {
+    const { sdk, appInstances } = makeFakeSdk();
+    const creds: MSTeamsFederatedCredentials = { type: "federated", appId: "fed-app-id", tenantId: "fed-tenant", certificatePath: "/certs/bot.pem", certificateThumbprint: "AABB1122" };
+    createMSTeamsApp(creds, sdk);
+    expect(fs.readFileSync).toHaveBeenCalledWith("/certs/bot.pem", "utf-8");
+    expect(appInstances[0]).toEqual({ clientId: "fed-app-id", tenantId: "fed-tenant", clientCertificate: { thumbprint: "AABB1122", privateKey: "-----BEGIN RSA PRIVATE KEY-----\nfake-key\n-----END RSA PRIVATE KEY-----" } });
+  });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://service.example.com/v3/conversations/19%3Aconversation%40thread.tacv2/activities/activity-123",
-      expect.objectContaining({
-        method: "DELETE",
-        headers: expect.objectContaining({
-          Authorization: "Bearer bot-token",
-        }),
-      }),
-    );
+  it("uses empty string for thumbprint when not provided", () => {
+    const { sdk, appInstances } = makeFakeSdk();
+    const creds: MSTeamsFederatedCredentials = { type: "federated", appId: "fed-app-id", tenantId: "fed-tenant", certificatePath: "/certs/bot.pem" };
+    createMSTeamsApp(creds, sdk);
+    expect(appInstances[0]).toMatchObject({ clientCertificate: { thumbprint: "", privateKey: expect.any(String) } });
+  });
+
+  it("throws when federated but no certificatePath and no managedIdentity", () => {
+    const { sdk } = makeFakeSdk();
+    const creds: MSTeamsFederatedCredentials = { type: "federated", appId: "fed-app-id", tenantId: "fed-tenant" };
+    expect(() => createMSTeamsApp(creds, sdk)).toThrow(/certificate path or managed identity/i);
+  });
+});
+
+describe("createMSTeamsApp – federated managed identity", () => {
+  it("creates app with tokenProvider for user-assigned MI", async () => {
+    const { sdk, appInstances } = makeFakeSdk();
+    const creds: MSTeamsFederatedCredentials = { type: "federated", appId: "mi-app-id", tenantId: "mi-tenant", useManagedIdentity: true, managedIdentityClientId: "mi-client-id" };
+    createMSTeamsApp(creds, sdk);
+    expect(appInstances[0]).toMatchObject({ clientId: "mi-app-id", tenantId: "mi-tenant" });
+    expect(typeof appInstances[0].tokenProvider).toBe("function");
+    const token = await (appInstances[0].tokenProvider as () => Promise<string>)();
+    expect(token).toBe("mock-managed-token");
+  });
+
+  it("creates app with tokenProvider for system-assigned MI", async () => {
+    const { sdk, appInstances } = makeFakeSdk();
+    const creds: MSTeamsFederatedCredentials = { type: "federated", appId: "mi-app-id", tenantId: "mi-tenant", useManagedIdentity: true };
+    createMSTeamsApp(creds, sdk);
+    expect(typeof appInstances[0].tokenProvider).toBe("function");
+    const token = await (appInstances[0].tokenProvider as () => Promise<string>)();
+    expect(token).toBe("mock-managed-token");
+  });
+
+  it("throws from tokenProvider when token acquisition fails", async () => {
+    mockGetToken.mockResolvedValueOnce(null);
+    const { sdk, appInstances } = makeFakeSdk();
+    const creds: MSTeamsFederatedCredentials = { type: "federated", appId: "mi-app-id", tenantId: "mi-tenant", useManagedIdentity: true };
+    createMSTeamsApp(creds, sdk);
+    const tokenProvider = appInstances[0].tokenProvider as () => Promise<string>;
+    await expect(tokenProvider()).rejects.toThrow(/failed to acquire token/i);
   });
 });

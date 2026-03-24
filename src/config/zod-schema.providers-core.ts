@@ -1503,6 +1503,11 @@ export const MSTeamsConfigSchema = z
     appId: z.string().optional(),
     appPassword: SecretInputSchema.optional().register(sensitive),
     tenantId: z.string().optional(),
+    authType: z.enum(["secret", "federated"]).optional(),
+    certificatePath: z.string().optional(),
+    certificateThumbprint: z.string().optional(),
+    useManagedIdentity: z.boolean().optional(),
+    managedIdentityClientId: z.string().optional(),
     webhook: z
       .object({
         port: z.number().int().positive().optional(),
@@ -1558,4 +1563,30 @@ export const MSTeamsConfigSchema = z
       message:
         'channels.msteams.dmPolicy="allowlist" requires channels.msteams.allowFrom to contain at least one sender ID',
     });
+
+    // Federated auth cross-field validation
+    const authType = value.authType ?? "secret";
+    if (authType === "federated") {
+      if (!value.appId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "appId is required for federated authentication.",
+          path: ["appId"],
+        });
+      }
+      if (!value.tenantId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "tenantId is required for federated authentication.",
+          path: ["tenantId"],
+        });
+      }
+      if (!value.certificatePath && !value.useManagedIdentity) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'When authType is "federated", either certificatePath or useManagedIdentity must be provided.',
+          path: ["authType"],
+        });
+      }
+    }
   });
