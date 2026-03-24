@@ -1546,7 +1546,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
   },
   {
     dirName: "matrix",
-    idHint: "matrix",
+    idHint: "matrix/index",
     source: {
       source: "./index.ts",
       built: "index.js",
@@ -1559,7 +1559,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
     packageVersion: "2026.3.22",
     packageDescription: "OpenClaw Matrix channel plugin",
     packageManifest: {
-      extensions: ["./index.ts"],
+      extensions: ["./index.ts", "./src/plugin-entry.runtime.ts"],
       setupEntry: "./setup-entry.ts",
       channel: {
         id: "matrix",
