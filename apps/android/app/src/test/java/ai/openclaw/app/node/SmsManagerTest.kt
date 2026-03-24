@@ -750,6 +750,51 @@ class SmsManagerTest {
   }
 
   @Test
+  fun resolveMixedByPhoneRowAddressPreservesNonMatchingProviderAddress() {
+    assertEquals(
+      "+13105550123",
+      SmsManager.resolveMixedByPhoneRowAddress("+13105550123", "12107588120"),
+    )
+  }
+
+  @Test
+  fun resolveMixedByPhoneRowAddressPrefersResolvedMmsParticipantAddress() {
+    assertEquals(
+      "+13105550123",
+      SmsManager.resolveMixedByPhoneRowAddress("insert-address-token", "12107588120", "+13105550123"),
+    )
+  }
+
+  @Test
+  fun selectPreferredMmsAddressPrefersType137AddressThatDoesNotMatchLookup() {
+    assertEquals(
+      "+13105550123",
+      SmsManager.selectPreferredMmsAddress(
+        listOf(
+          "+12107588120" to 151,
+          "+13105550123" to 137,
+          "+12107588120" to 130,
+        ),
+        "12107588120",
+      ),
+    )
+  }
+
+  @Test
+  fun selectPreferredMmsAddressFallsBackToFirstNormalizedAddressWhenOnlyLookupMatchesExist() {
+    assertEquals(
+      "+12107588120",
+      SmsManager.selectPreferredMmsAddress(
+        listOf(
+          "insert-address-token" to 137,
+          "+12107588120" to 151,
+        ),
+        "12107588120",
+      ),
+    )
+  }
+
+  @Test
   fun isExplicitPhoneInputInvalidTrueWhenCallerSuppliesOnlyFormatting() {
     val normalized = SmsManager.normalizePhoneNumberOrNull(" + ")
     assertTrue(SmsManager.isExplicitPhoneInputInvalid(" + ", normalized))

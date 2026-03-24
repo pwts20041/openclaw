@@ -300,6 +300,44 @@ class SmsManager(private val context: Context) {
             return if (transportType.equals("mms", ignoreCase = true)) -1 else (smsStatus ?: 0)
         }
 
+        internal fun resolveMixedByPhoneRowAddress(
+            providerAddress: String?,
+            phoneNumber: String,
+            mmsAddress: String? = null,
+        ): String? {
+            val resolvedMmsAddress = normalizePhoneNumberOrNull(mmsAddress)
+            if (resolvedMmsAddress != null) {
+                return resolvedMmsAddress
+            }
+
+            val resolvedProviderAddress = normalizePhoneNumberOrNull(providerAddress)
+            return resolvedProviderAddress ?: phoneNumber
+        }
+
+        internal fun selectPreferredMmsAddress(
+            addressRows: List<Pair<String?, Int?>>,
+            lookupNumber: String,
+        ): String? {
+            val lookupDigits = toByPhoneLookupNumber(lookupNumber)
+            val normalizedRows = addressRows.mapNotNull { (address, type) ->
+                val normalized = normalizePhoneNumberOrNull(address) ?: return@mapNotNull null
+                val digits = toByPhoneLookupNumber(normalized)
+                if (digits.isBlank()) return@mapNotNull null
+                Triple(normalized, digits, type)
+            }
+
+            fun firstPreferred(vararg types: Int): String? {
+                return normalizedRows.firstOrNull { row ->
+                    (types.isEmpty() || types.contains(row.third ?: -1)) && row.second != lookupDigits
+                }?.first
+            }
+
+            return firstPreferred(137)
+                ?: firstPreferred(151, 130, 129)
+                ?: firstPreferred()
+                ?: normalizedRows.firstOrNull()?.first
+        }
+
         internal fun shouldUseConversationReviewByPhoneMode(
             params: QueryParams,
             resolvedPhoneNumbers: List<String> = emptyList(),
@@ -973,7 +1011,9 @@ class SmsManager(private val context: Context) {
 
                 val threadId = if (threadIdIndex >= 0 && !it.isNull(threadIdIndex)) it.getLong(threadIdIndex) else 0L
                 val transportType = if (transportTypeIndex >= 0 && !it.isNull(transportTypeIndex)) it.getString(transportTypeIndex) else null
-                val address = if (addressIndex >= 0 && !it.isNull(addressIndex)) it.getString(addressIndex) else phoneNumber
+                val providerAddress = if (addressIndex >= 0 && !it.isNull(addressIndex)) it.getString(addressIndex) else null
+                val mmsAddress = if (transportType.equals("mms", ignoreCase = true)) getMmsAddress(id, phoneNumber) else null
+                val address = resolveMixedByPhoneRowAddress(providerAddress, phoneNumber, mmsAddress)
                 var read = if (readIndex >= 0 && !it.isNull(readIndex)) it.getInt(readIndex) == 1 else true
                 var type = if (typeIndex >= 0 && !it.isNull(typeIndex)) it.getInt(typeIndex) else 0
                 var body = if (bodyIndex >= 0 && !it.isNull(bodyIndex)) it.getString(bodyIndex) else null
@@ -1080,5 +1120,34 @@ class SmsManager(private val context: Context) {
         }
 
         return null to null
+    }
+
+    private fun getMmsAddress(messageId: Long, phoneNumber: String): String? {
+        val lookupNumber = toByPhoneLookupNumber(phoneNumber)
+        if (lookupNumber.isBlank()) {
+            return null
+        }
+
+        val cursor = context.contentResolver.query(
+            Uri.parse("$MMS_CONTENT_BASE/$messageId/addr"),
+            arrayOf("address", "type"),
+            null,
+            null,
+            null,
+        )
+
+        cursor?.use {
+            val addressIndex = it.getColumnIndex("address")
+            val typeIndex = it.getColumnIndex("type")
+            val addressRows = mutableListOf<Pair<String?, Int?>>()
+            while (it.moveToNext()) {
+                val address = if (addressIndex >= 0 && !it.isNull(addressIndex)) it.getString(addressIndex) else null
+                val type = if (typeIndex >= 0 && !it.isNull(typeIndex)) it.getInt(typeIndex) else null
+                addressRows.add(address to type)
+            }
+            return selectPreferredMmsAddress(addressRows, lookupNumber)
+        }
+
+        return null
     }
 }
