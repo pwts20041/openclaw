@@ -63,6 +63,7 @@ import { resolveOwnerDisplaySetting } from "../../owner-display.js";
 import { createBundleLspToolRuntime } from "../../pi-bundle-lsp-runtime.js";
 import { createBundleMcpToolRuntime } from "../../pi-bundle-mcp-tools.js";
 import {
+  classifyFailoverReason,
   downgradeOpenAIFunctionCallReasoningPairs,
   isCloudCodeAssistFormatError,
   resolveBootstrapMaxChars,
@@ -112,7 +113,7 @@ import { getDmHistoryLimitFromSessionKey, limitHistoryTurns } from "../history.j
 import { log } from "../logger.js";
 import { buildEmbeddedMessageActionDiscoveryInput } from "../message-action-discovery-input.js";
 import { buildModelAliasLines } from "../model.js";
-import { createRateLimitRetryStreamWrapper } from "../rate-limit-retry-stream-wrapper.js";
+import { retryPromptOnRateLimit } from "../rate-limit-retry.js";
 import {
   clearActiveEmbeddedRun,
   type EmbeddedPiQueueHandle,
@@ -1031,16 +1032,6 @@ export async function runEmbeddedAttempt(
         );
       }
 
-      // Outermost wrapper: transparently retry on HTTP 429 (rate limit) before
-      // the error propagates to the agent loop / run loop. Applied to all
-      // providers — the wrapper is a no-op for non-429 errors.
-      // Use runAbortController.signal (not params.abortSignal) so that the
-      // backoff sleep is interrupted by both timeout and user-triggered abort.
-      activeSession.agent.streamFn = createRateLimitRetryStreamWrapper(
-        activeSession.agent.streamFn,
-        runAbortController.signal,
-      );
-
       try {
         const prior = await sanitizeSessionHistory({
           messages: activeSession.messages,
@@ -1496,13 +1487,45 @@ export async function runEmbeddedAttempt(
             inFlightPrompt: effectivePrompt,
           });
 
-          // Only pass images option if there are actually images to pass
-          // This avoids potential issues with models that don't expect the images parameter
-          if (imageResult.images.length > 0) {
-            await abortable(activeSession.prompt(effectivePrompt, { images: imageResult.images }));
-          } else {
-            await abortable(activeSession.prompt(effectivePrompt));
-          }
+          const preRetryMessages = activeSession.messages.slice();
+          await retryPromptOnRateLimit({
+            prompt: () =>
+              imageResult.images.length > 0
+                ? abortable(activeSession.prompt(effectivePrompt, { images: imageResult.images }))
+                : abortable(activeSession.prompt(effectivePrompt)),
+            classifyTerminalFailure: () => {
+              const messages = activeSession.messages;
+              if (messages.length <= preRetryMessages.length) {
+                return null;
+              }
+              const last = messages[messages.length - 1];
+              if (last?.role !== "assistant") {
+                return null;
+              }
+              const assistant = last;
+              if (assistant.stopReason !== "error") {
+                return null;
+              }
+              const reason = classifyFailoverReason(assistant.errorMessage ?? "");
+              return {
+                isRateLimit: reason === "rate_limit",
+                rawError: assistant,
+              };
+            },
+            isReplaySafe: () =>
+              assistantTexts.length === 0 &&
+              toolMetas.length === 0 &&
+              !didSendViaMessagingTool() &&
+              getSuccessfulCronAdds() === 0,
+            rewind: () => {
+              if (activeSession.messages.length !== preRetryMessages.length) {
+                activeSession.agent.replaceMessages(preRetryMessages);
+              }
+            },
+            abortSignal: runAbortController.signal,
+            provider: params.provider,
+            modelId: params.modelId,
+          });
         } catch (err) {
           // Yield-triggered abort is intentional — treat as clean stop, not error.
           // Check the abort reason to distinguish from external aborts (timeout, user cancel)
