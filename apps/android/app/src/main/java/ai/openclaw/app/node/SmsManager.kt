@@ -362,7 +362,7 @@ class SmsManager(private val context: Context) {
         }
 
         internal fun normalizeProviderDateMillis(rawDate: Long): Long {
-            return if (rawDate in 1..999_999_999_999L) rawDate * 1000L else rawDate
+            return if (rawDate in 1..99_999_999_999L) rawDate * 1000L else rawDate
         }
 
         internal fun canonicalizeMixedPathPhoneFilters(phoneNumbers: List<String>): List<String> {

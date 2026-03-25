@@ -709,6 +709,11 @@ class SmsManagerTest {
   }
 
   @Test
+  fun normalizeProviderDateMillisKeepsHistoricMillisUnchanged() {
+    assertEquals(946684800000L, SmsManager.normalizeProviderDateMillis(946684800000L))
+  }
+
+  @Test
   fun resolveMixedByPhoneRowStatusPreservesRealSmsStatus() {
     assertEquals(64, SmsManager.resolveMixedByPhoneRowStatus("sms", 64))
     assertEquals(32, SmsManager.resolveMixedByPhoneRowStatus(null, 32))
