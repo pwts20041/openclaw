@@ -647,9 +647,12 @@ describe("deliverReplies", () => {
       );
     const bot = createBot({ sendMessage });
 
-    // Should not throw — empty-text 400s are silently skipped.
+    // Use non-whitespace text so the chunk passes shouldSkipChunk and reaches sendMessage.
+    // The mock then rejects with the 400 "text must be non-empty" error, exercising the
+    // silent-skip path in sendTelegramText. With whitespace-only text the chunk is skipped
+    // before sendMessage is called and the 400 handler is never reached.
     const result = await deliverReplies({
-      replies: [{ text: "   " }],
+      replies: [{ text: "hello" }],
       chatId: "123",
       token: "tok",
       runtime,
@@ -657,6 +660,8 @@ describe("deliverReplies", () => {
       replyToMode: "off",
       textLimit: 4000,
     });
+    // sendMessage was called and threw 400; silently skipped → not delivered.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(result.delivered).toBe(false);
   });
 
