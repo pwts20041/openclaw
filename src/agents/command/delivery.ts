@@ -293,6 +293,7 @@ export async function deliverAgentCommandResult(params: {
   }
   let deliveryAttempted = false;
   let deliverySucceeded = false;
+  let deliveryThrewError = false;
   if (deliver && deliveryChannel && !isInternalMessageChannel(deliveryChannel)) {
     if (deliveryTarget) {
       deliveryAttempted = true;
@@ -316,6 +317,7 @@ export async function deliverAgentCommandResult(params: {
         if (!bestEffortDeliver) {
           throw err;
         }
+        deliveryThrewError = true;
         logDeliveryError(err);
       }
     }
@@ -332,7 +334,9 @@ export async function deliverAgentCommandResult(params: {
         ? "channel resolved to internal"
         : !deliveryTarget
           ? "no delivery target resolved"
-          : "delivery returned zero results";
+          : deliveryThrewError
+            ? "delivery threw an error"
+            : "delivery returned zero results";
     runtime.log(
       `[delivery] delivery requested but not completed: ${reason} ` +
         `(session=${effectiveSessionKey ?? "unknown"} channel=${deliveryChannel ?? "none"} ` +
@@ -344,7 +348,12 @@ export async function deliverAgentCommandResult(params: {
     payloads: normalizedPayloads,
     meta: result.meta,
     deliveryStatus: deliver
-      ? { requested: true, attempted: deliveryAttempted, succeeded: deliverySucceeded }
+      ? {
+          requested: true,
+          attempted: deliveryAttempted,
+          succeeded: deliverySucceeded,
+          ...(deliveryThrewError ? { error: true } : {}),
+        }
       : undefined,
   };
 }

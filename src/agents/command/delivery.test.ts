@@ -371,12 +371,15 @@ describe("deliverAgentCommandResult — delivery status tracking", () => {
       requested: true,
       attempted: true,
       succeeded: false,
+      error: true,
     });
     // Error should be logged via logDeliveryError -> runtime.error or runtime.log
     const allOutput = [...runtime.error.mock.calls, ...runtime.log.mock.calls].map((c) =>
       String(c[0]),
     );
     expect(allOutput.some((msg) => msg.includes("Discord API timeout"))).toBe(true);
+    // Structured log should report "threw an error", not "zero results"
+    expect(allOutput.some((msg) => msg.includes("delivery threw an error"))).toBe(true);
   });
 
   it("re-throws error when bestEffort is false", async () => {
