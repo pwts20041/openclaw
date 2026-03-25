@@ -57,6 +57,11 @@ export async function enforceTelegramDmAccess(params: {
   if (isGroup) {
     return true;
   }
+  // Skip DM access checks for bot's own messages — the bot should never
+  // trigger pairing against itself when its outbound message is echoed back.
+  if (msg.from?.is_bot) {
+    return true;
+  }
   if (dmPolicy === "disabled") {
     return false;
   }

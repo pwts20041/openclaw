@@ -62,6 +62,24 @@ describe("enforceTelegramDmAccess", () => {
     expect(bot.api.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("allows bot messages without triggering pairing", async () => {
+    const allowed = await enforceTelegramDmAccess({
+      isGroup: false,
+      dmPolicy: "pairing",
+      msg: createDmMessage({
+        from: { id: 99999, is_bot: true, first_name: "MyBot", username: "mybot" },
+      }),
+      chatId: 42,
+      effectiveDmAllow: normalizeAllowFrom([]),
+      accountId: "main",
+      bot: { api: { sendMessage: vi.fn(async () => undefined) } } as never,
+      logger: { info: vi.fn() },
+    });
+
+    expect(allowed).toBe(true);
+    expect(createChannelPairingChallengeIssuerMock).not.toHaveBeenCalled();
+  });
+
   it("blocks DMs when policy is disabled", async () => {
     const allowed = await enforceTelegramDmAccess({
       isGroup: false,
