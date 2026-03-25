@@ -3,6 +3,7 @@ import {
   resolveSandboxConfigForAgent,
   resolveSandboxToolPolicyForAgent,
 } from "../agents/sandbox.js";
+import { resolveElevatedChannelFallbackAllowFrom } from "../auto-reply/reply/reply-elevated.js";
 import { normalizeAnyChannelId } from "../channels/registry.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { loadConfig } from "../config/config.js";
@@ -174,11 +175,18 @@ export async function sandboxExplainCommand(
   const elevatedEnabled = elevatedGlobalEnabled && elevatedAgentEnabled;
 
   const globalAllow = channel ? elevatedGlobal?.allowFrom?.[channel] : undefined;
+  const globalFallbackAllow = channel
+    ? resolveElevatedChannelFallbackAllowFrom({
+        cfg,
+        provider: channel,
+      })
+    : undefined;
+  const effectiveGlobalAllow = globalAllow ?? globalFallbackAllow;
   const agentAllow = channel ? elevatedAgent?.allowFrom?.[channel] : undefined;
 
   const allowTokens = (values?: Array<string | number>) =>
     (values ?? []).map((v) => String(v).trim()).filter(Boolean);
-  const globalAllowTokens = allowTokens(globalAllow);
+  const globalAllowTokens = allowTokens(effectiveGlobalAllow);
   const agentAllowTokens = allowTokens(agentAllow);
 
   const elevatedAllowedByConfig =
