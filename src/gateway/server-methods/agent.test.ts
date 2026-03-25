@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   registerAgentRunContext: vi.fn(),
   performGatewaySessionReset: vi.fn(),
   getSubagentRunByChildSessionKey: vi.fn(),
+  getLatestSubagentRunByChildSessionKey: vi.fn(),
   replaceSubagentRunAfterSteer: vi.fn(),
   loadConfigReturn: {} as Record<string, unknown>,
   loadVoiceWakeRoutingConfig: vi.fn(),
@@ -73,6 +74,7 @@ vi.mock("../../infra/agent-events.js", () => ({
 
 vi.mock("../../agents/subagent-registry.js", () => ({
   getSubagentRunByChildSessionKey: mocks.getSubagentRunByChildSessionKey,
+  getLatestSubagentRunByChildSessionKey: mocks.getLatestSubagentRunByChildSessionKey,
   replaceSubagentRunAfterSteer: mocks.replaceSubagentRunAfterSteer,
 }));
 
@@ -495,6 +497,7 @@ describe("gateway agent handler", () => {
       return await updater(store);
     });
     mocks.getSubagentRunByChildSessionKey.mockReturnValueOnce(completedRun);
+    mocks.getLatestSubagentRunByChildSessionKey.mockReturnValueOnce(completedRun);
     mocks.replaceSubagentRunAfterSteer.mockReturnValueOnce(true);
     mocks.loadGatewaySessionRow.mockReturnValueOnce({
       status: "running",
