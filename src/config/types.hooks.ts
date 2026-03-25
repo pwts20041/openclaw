@@ -16,6 +16,8 @@ export type HookMappingConfig = {
   name?: string;
   /** Route this hook to a specific agent (unknown ids fall back to the default agent). */
   agentId?: string;
+  /** Session target for the hook dispatch ("isolated" | "main" | "current" | "session:<id>"). Defaults to "isolated". */
+  sessionTarget?: "main" | "isolated" | "current" | `session:${string}`;
   sessionKey?: string;
   messageTemplate?: string;
   textTemplate?: string;

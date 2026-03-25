@@ -42639,6 +42639,16 @@
       "hasChildren": false
     },
     {
+      "path": "hooks.mappings.*.sessionTarget",
+      "kind": "core",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
       "path": "hooks.mappings.*.textTemplate",
       "kind": "core",
       "type": "string",

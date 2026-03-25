@@ -704,6 +704,7 @@ export function createHooksRequestHandler(
             idempotencyKey,
             agentId: targetAgentId,
             wakeMode: mapped.action.wakeMode,
+            sessionTarget: mapped.action.sessionTarget,
             sessionKey: normalizedDispatchSessionKey,
             deliver: resolveHookDeliver(mapped.action.deliver),
             channel,
