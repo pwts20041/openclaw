@@ -44,7 +44,8 @@ function supportsStore(model: Model<Api>): boolean | undefined {
 }
 
 function supportsReasoningEffort(model: Model<Api>): boolean | undefined {
-  return (model.compat as { supportsReasoningEffort?: boolean } | undefined)?.supportsReasoningEffort;
+  return (model.compat as { supportsReasoningEffort?: boolean } | undefined)
+    ?.supportsReasoningEffort;
 }
 
 function maxTokensField(model: Model<Api>): "max_completion_tokens" | "max_tokens" | undefined {
