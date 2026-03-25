@@ -509,10 +509,10 @@ export async function runMemoryFlushIfNeeded(params: {
   const hasFreshPersistedPromptTokens =
     typeof persistedPromptTokens === "number" && entry?.totalTokensFresh === true;
 
+  const maxReserve = Math.floor(contextWindowTokens * 0.75);
+  const clampedReserveFloor = Math.min(memoryFlushSettings.reserveTokensFloor, maxReserve);
   const flushThreshold =
-    contextWindowTokens -
-    memoryFlushSettings.reserveTokensFloor -
-    memoryFlushSettings.softThresholdTokens;
+    contextWindowTokens - clampedReserveFloor - memoryFlushSettings.softThresholdTokens;
 
   // When totals are stale/unknown, derive prompt + last output from transcript so memory
   // flush can still be evaluated against projected next-input size.

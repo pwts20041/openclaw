@@ -200,7 +200,8 @@ export function shouldRunMemoryFlush(params: {
     return false;
   }
   const contextWindow = Math.max(1, Math.floor(params.contextWindowTokens));
-  const reserveTokens = Math.max(0, Math.floor(params.reserveTokensFloor));
+  const maxReserve = Math.floor(contextWindow * 0.75);
+  const reserveTokens = Math.min(Math.max(0, Math.floor(params.reserveTokensFloor)), maxReserve);
   const softThreshold = Math.max(0, Math.floor(params.softThresholdTokens));
   const threshold = Math.max(0, contextWindow - reserveTokens - softThreshold);
   if (threshold <= 0) {

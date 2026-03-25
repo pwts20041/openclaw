@@ -377,6 +377,28 @@ describe("shouldRunMemoryFlush", () => {
     ).toBe(true);
   });
 
+  it("clamps reserveTokensFloor when it equals contextWindowTokens", () => {
+    expect(
+      shouldRunMemoryFlush({
+        entry: { totalTokens: 180_000, totalTokensFresh: true, compactionCount: 0 },
+        contextWindowTokens: 200_000,
+        reserveTokensFloor: 200_000,
+        softThresholdTokens: 5_000,
+      }),
+    ).toBe(true);
+  });
+
+  it("clamps reserveTokensFloor when it exceeds contextWindowTokens", () => {
+    expect(
+      shouldRunMemoryFlush({
+        entry: { totalTokens: 180_000, totalTokensFresh: true, compactionCount: 0 },
+        contextWindowTokens: 200_000,
+        reserveTokensFloor: 300_000,
+        softThresholdTokens: 5_000,
+      }),
+    ).toBe(true);
+  });
+
   it("ignores stale cached totals", () => {
     expect(
       shouldRunMemoryFlush({
