@@ -12,14 +12,17 @@ const { mockGetToken } = vi.hoisted(() => {
   return { mockGetToken };
 });
 vi.mock("@azure/identity", () => {
-  // Use function constructors so `new ManagedIdentityCredential()` works
+  // Use function constructors so `new ...Credential()` works
   function ManagedIdentityCredential() {
     return { getToken: mockGetToken };
   }
   function DefaultAzureCredential() {
     return { getToken: mockGetToken };
   }
-  return { ManagedIdentityCredential, DefaultAzureCredential };
+  function ClientCertificateCredential() {
+    return { getToken: mockGetToken };
+  }
+  return { ManagedIdentityCredential, DefaultAzureCredential, ClientCertificateCredential };
 });
 
 import * as fs from "node:fs";
@@ -34,7 +37,7 @@ function makeFakeSdk() {
       appInstances.push(opts);
     }
   };
-  return { sdk: { App: FakeApp as any }, appInstances, FakeApp };
+  return { sdk: { App: FakeApp as any, Client: class {} as any }, appInstances, FakeApp };
 }
 
 describe("createMSTeamsApp – secret credentials", () => {
@@ -63,7 +66,7 @@ describe("createMSTeamsApp – federated certificate credentials", () => {
     );
   });
 
-  it("reads the certificate and passes clientCertificate to sdk.App", () => {
+  it("reads the certificate and creates app with token function", async () => {
     const { sdk, appInstances } = makeFakeSdk();
     const creds: MSTeamsFederatedCredentials = {
       type: "federated",
@@ -74,28 +77,31 @@ describe("createMSTeamsApp – federated certificate credentials", () => {
     };
     createMSTeamsApp(creds, sdk);
     expect(fs.readFileSync).toHaveBeenCalledWith("/certs/bot.pem", "utf-8");
-    expect(appInstances[0]).toEqual({
+    expect(appInstances[0]).toMatchObject({
       clientId: "fed-app-id",
       tenantId: "fed-tenant",
-      clientCertificate: {
-        thumbprint: "AABB1122",
-        privateKey: "-----BEGIN RSA PRIVATE KEY-----\nfake-key\n-----END RSA PRIVATE KEY-----",
-      },
     });
+    expect(typeof appInstances[0].token).toBe("function");
+    const token = await (appInstances[0].token as (scope: string) => Promise<string>)(
+      "https://api.botframework.com/.default",
+    );
+    expect(token).toBe("mock-managed-token");
   });
 
-  it("uses empty string for thumbprint when not provided", () => {
-    const { sdk, appInstances } = makeFakeSdk();
+  it("wraps readFileSync errors with descriptive message", () => {
+    vi.mocked(fs.readFileSync).mockImplementation(() => {
+      throw new Error("ENOENT: no such file or directory");
+    });
+    const { sdk } = makeFakeSdk();
     const creds: MSTeamsFederatedCredentials = {
       type: "federated",
       appId: "fed-app-id",
       tenantId: "fed-tenant",
-      certificatePath: "/certs/bot.pem",
+      certificatePath: "/missing/cert.pem",
     };
-    createMSTeamsApp(creds, sdk);
-    expect(appInstances[0]).toMatchObject({
-      clientCertificate: { thumbprint: "", privateKey: expect.any(String) },
-    });
+    expect(() => createMSTeamsApp(creds, sdk)).toThrow(
+      /Failed to read certificate file at '\/missing\/cert\.pem'/,
+    );
   });
 
   it("throws when federated but no certificatePath and no managedIdentity", () => {
@@ -122,7 +128,9 @@ describe("createMSTeamsApp – federated managed identity", () => {
     createMSTeamsApp(creds, sdk);
     expect(appInstances[0]).toMatchObject({ clientId: "mi-app-id", tenantId: "mi-tenant" });
     expect(typeof appInstances[0].token).toBe("function");
-    const token = await (appInstances[0].token as () => Promise<string>)();
+    const token = await (appInstances[0].token as (scope: string) => Promise<string>)(
+      "https://api.botframework.com/.default",
+    );
     expect(token).toBe("mock-managed-token");
   });
 
@@ -136,7 +144,9 @@ describe("createMSTeamsApp – federated managed identity", () => {
     };
     createMSTeamsApp(creds, sdk);
     expect(typeof appInstances[0].token).toBe("function");
-    const token = await (appInstances[0].token as () => Promise<string>)();
+    const token = await (appInstances[0].token as (scope: string) => Promise<string>)(
+      "https://api.botframework.com/.default",
+    );
     expect(token).toBe("mock-managed-token");
   });
 
@@ -150,7 +160,9 @@ describe("createMSTeamsApp – federated managed identity", () => {
       useManagedIdentity: true,
     };
     createMSTeamsApp(creds, sdk);
-    const tokenFn = appInstances[0].token as () => Promise<string>;
-    await expect(tokenFn()).rejects.toThrow(/failed to acquire token/i);
+    const tokenFn = appInstances[0].token as (scope: string) => Promise<string>;
+    await expect(tokenFn("https://api.botframework.com/.default")).rejects.toThrow(
+      /failed to acquire token/i,
+    );
   });
 });
