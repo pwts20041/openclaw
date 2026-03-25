@@ -551,3 +551,71 @@ describe("messaging tool media URL tracking", () => {
     expect(ctx.state.pendingMessagingMediaUrls.has("tool-m3")).toBe(false);
   });
 });
+
+describe("circuit breaker probe-reset prevention", () => {
+  async function runExec(ctx: ToolHandlerContext, command: string, isError: boolean, id: string) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "exec",
+      toolCallId: id,
+      args: { command },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "exec",
+      toolCallId: id,
+      isError,
+      result: isError
+        ? { type: "text", text: "Error: permission denied" }
+        : { type: "text", text: "ok" },
+    });
+  }
+
+  it("does not reset circuit after probe command when already tripped", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    // Trip the circuit with 3 failures of the same command
+    await runExec(ctx, "ls /restricted", true, "t1");
+    await runExec(ctx, "ls /restricted", true, "t2");
+    await runExec(ctx, "ls /restricted", true, "t3");
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    // Model probes with a trivial echo command — should NOT reset circuit
+    await runExec(ctx, "echo test", false, "t4");
+    expect(ctx.state.consecutiveToolErrors).not.toBeNull();
+    expect(ctx.state.consecutiveToolErrors?.tripped).toBe(true);
+
+    // Original failing command recurs — should re-fire steer
+    await runExec(ctx, "ls /restricted", true, "t5");
+    expect(onError).toHaveBeenCalledTimes(2);
+  });
+
+  it("resets circuit when a different tool succeeds after trip", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runExec(ctx, "ls /restricted", true, "t1");
+    await runExec(ctx, "ls /restricted", true, "t2");
+    await runExec(ctx, "ls /restricted", true, "t3");
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    // A different tool succeeds — agent found a real alternative
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "write",
+      toolCallId: "t4",
+      args: { path: "/tmp/out.txt", content: "hello" },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "write",
+      toolCallId: "t4",
+      isError: false,
+      result: { type: "text", text: "ok" },
+    });
+    expect(ctx.state.consecutiveToolErrors).toBeNull();
+  });
+});

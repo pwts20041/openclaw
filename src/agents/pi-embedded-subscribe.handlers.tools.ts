@@ -531,14 +531,42 @@ export async function handleToolExecutionEnd(
     if (prev && prev.toolName === toolName && prev.errorSignature === errorSig) {
       prev.count += 1;
     } else {
-      ctx.state.consecutiveToolErrors = { toolName, errorSignature: errorSig, count: 1 };
+      ctx.state.consecutiveToolErrors = {
+        toolName,
+        errorSignature: errorSig,
+        count: 1,
+        tripped: false,
+      };
     }
     const consecutive = ctx.state.consecutiveToolErrors;
-    if (consecutive && consecutive.count === CONSECUTIVE_ERROR_THRESHOLD) {
-      ctx.params.onConsecutiveToolError?.(toolName, consecutive.count, errorMessage ?? "");
+    if (consecutive) {
+      if (!consecutive.tripped && consecutive.count === CONSECUTIVE_ERROR_THRESHOLD) {
+        // First trip: fire once.
+        consecutive.tripped = true;
+        ctx.params.onConsecutiveToolError?.(toolName, consecutive.count, errorMessage ?? "");
+      } else if (consecutive.tripped && consecutive.count > CONSECUTIVE_ERROR_THRESHOLD) {
+        // Re-fire: circuit was kept armed through a probe and the error recurred.
+        ctx.params.onConsecutiveToolError?.(toolName, consecutive.count, errorMessage ?? "");
+      }
     }
   } else {
-    ctx.state.consecutiveToolErrors = null;
+    if (ctx.state.consecutiveToolErrors) {
+      const {
+        toolName: prevTool,
+        errorSignature: prevErrSig,
+        tripped,
+      } = ctx.state.consecutiveToolErrors;
+      // After tripping, a probe command on the same tool (e.g. "echo test" after exec failed)
+      // must not reset the circuit — the original problem isn't solved yet.
+      // Only reset when: a different tool succeeds (real change of approach), OR
+      // the exact same tool+args that was failing now succeeds (problem resolved).
+      const prevArgSig = prevErrSig.split("|")[0];
+      const argSig = buildCircuitBreakerArgSig(toolName, startData?.args);
+      const isProbe = tripped && toolName === prevTool && argSig !== prevArgSig;
+      if (!isProbe) {
+        ctx.state.consecutiveToolErrors = null;
+      }
+    }
   }
 
   // Commit messaging tool text on success, discard on error.

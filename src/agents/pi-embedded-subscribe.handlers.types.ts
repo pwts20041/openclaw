@@ -29,6 +29,8 @@ export type ConsecutiveToolErrorState = {
   toolName: string;
   errorSignature: string;
   count: number;
+  /** True after the threshold was first hit; prevents probe commands from resetting the circuit. */
+  tripped: boolean;
 };
 
 export type ToolCallSummary = {
