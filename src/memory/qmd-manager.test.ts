@@ -1628,6 +1628,56 @@ describe("QmdMemoryManager", () => {
     await manager.close();
   });
 
+  it("uses qmd.query with structured searches when searchMode=query", async () => {
+    cfg = {
+      ...cfg,
+      memory: {
+        backend: "qmd",
+        qmd: {
+          includeDefaultMemory: false,
+          searchMode: "query",
+          update: { interval: "0s", debounceMs: 60_000, onBoot: false },
+          paths: [{ path: workspaceDir, pattern: "**/*.md", name: "workspace" }],
+          mcporter: { enabled: true, serverName: "qmd", startDaemon: false },
+        },
+      },
+    } as OpenClawConfig;
+
+    spawnMock.mockImplementation((cmd: string, args: string[]) => {
+      const child = createMockChild({ autoClose: false });
+      if (isMcporterCommand(cmd) && args[0] === "call") {
+        emitAndClose(child, "stdout", JSON.stringify({ results: [] }));
+        return child;
+      }
+      emitAndClose(child, "stdout", "[]");
+      return child;
+    });
+
+    const { manager, resolved } = await createManager();
+    await expect(
+      manager.search("hello", { sessionKey: "agent:main:slack:dm:u123" }),
+    ).resolves.toEqual([]);
+
+    const mcporterCall = spawnMock.mock.calls.find(
+      (call: unknown[]) => isMcporterCommand(call[0]) && (call[1] as string[])[0] === "call",
+    );
+    expect(mcporterCall).toBeDefined();
+    const mcporterArgs = mcporterCall?.[1] as string[];
+    expect(mcporterArgs[1]).toBe("qmd.query");
+    const parsedArgs = JSON.parse(mcporterArgs[3] ?? "{}");
+    expect(parsedArgs).toEqual({
+      searches: [
+        { type: "lex", query: "hello" },
+        { type: "vec", query: "hello" },
+      ],
+      limit: resolved.qmd?.limits.maxResults,
+      minScore: 0,
+      collections: [resolved.qmd?.collections[0]?.name],
+    });
+
+    await manager.close();
+  });
+
   it("resolves mcporter to a direct Windows entrypoint without enabling shell mode", async () => {
     const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
     const previousPath = process.env.PATH;
