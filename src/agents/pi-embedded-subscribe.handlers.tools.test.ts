@@ -592,6 +592,22 @@ describe("circuit breaker probe-reset prevention", () => {
     expect(onError).toHaveBeenCalledTimes(2);
   });
 
+  it("resets circuit when exact same pipe-containing command succeeds after trip", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    // Trip with a command that contains "|"
+    await runExec(ctx, "cat /etc/hosts | grep foo", true, "t1");
+    await runExec(ctx, "cat /etc/hosts | grep foo", true, "t2");
+    await runExec(ctx, "cat /etc/hosts | grep foo", true, "t3");
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    // Exact same command now succeeds — problem resolved, circuit should reset
+    await runExec(ctx, "cat /etc/hosts | grep foo", false, "t4");
+    expect(ctx.state.consecutiveToolErrors).toBeNull();
+  });
+
   it("resets circuit when a different tool succeeds after trip", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();

@@ -534,6 +534,7 @@ export async function handleToolExecutionEnd(
       ctx.state.consecutiveToolErrors = {
         toolName,
         errorSignature: errorSig,
+        argSig,
         count: 1,
         tripped: false,
       };
@@ -551,16 +552,11 @@ export async function handleToolExecutionEnd(
     }
   } else {
     if (ctx.state.consecutiveToolErrors) {
-      const {
-        toolName: prevTool,
-        errorSignature: prevErrSig,
-        tripped,
-      } = ctx.state.consecutiveToolErrors;
+      const { toolName: prevTool, argSig: prevArgSig, tripped } = ctx.state.consecutiveToolErrors;
       // After tripping, a probe command on the same tool (e.g. "echo test" after exec failed)
       // must not reset the circuit — the original problem isn't solved yet.
       // Only reset when: a different tool succeeds (real change of approach), OR
       // the exact same tool+args that was failing now succeeds (problem resolved).
-      const prevArgSig = prevErrSig.split("|")[0];
       const argSig = buildCircuitBreakerArgSig(toolName, startData?.args);
       const isProbe = tripped && toolName === prevTool && argSig !== prevArgSig;
       if (!isProbe) {

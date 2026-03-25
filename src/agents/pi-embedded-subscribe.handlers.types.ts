@@ -28,6 +28,9 @@ export type ToolErrorSummary = {
 export type ConsecutiveToolErrorState = {
   toolName: string;
   errorSignature: string;
+  /** Arg signature derived at error time; stored separately to avoid re-splitting errorSignature,
+   *  which would break on commands containing "|" (e.g. "cat a | grep b"). */
+  argSig: string;
   count: number;
   /** True after the threshold was first hit; prevents probe commands from resetting the circuit. */
   tripped: boolean;
