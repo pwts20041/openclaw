@@ -35,6 +35,7 @@ import {
   FailoverError,
   resolveFailoverStatus,
 } from "../failover-error.js";
+import { shouldAllowCooldownProbeForReason } from "../failover-policy.js";
 import {
   applyLocalNoAuthHeaderOverride,
   ensureAuthProfileStore,
@@ -63,6 +64,7 @@ import {
   type FailoverReason,
 } from "../pi-embedded-helpers.js";
 import { ensureRuntimePluginsLoaded } from "../runtime-plugins.js";
+import { isLikelyMutatingToolName } from "../tool-mutation.js";
 import { derivePromptTokens, normalizeUsage, type UsageLike } from "../usage.js";
 import { redactRunIdentifier, resolveRunWorkspaceDir } from "../workspace-run.js";
 import { buildEmbeddedCompactionRuntimeContext } from "./compaction-runtime-context.js";
@@ -79,6 +81,13 @@ import {
   sessionLikelyHasOversizedToolResults,
 } from "./tool-result-truncation.js";
 import type { EmbeddedPiAgentMeta, EmbeddedPiRunResult } from "./types.js";
+import {
+  createUsageAccumulator,
+  mergeUsageIntoAccumulator,
+  resolveLastCallUsage,
+  toNormalizedUsage,
+  type UsageAccumulator,
+} from "./usage-accumulator.js";
 import { describeUnknownError } from "./utils.js";
 
 type ApiKeyInfo = ResolvedProviderAuth;
@@ -117,30 +126,6 @@ function scrubAnthropicRefusalMagic(prompt: string): string {
     ANTHROPIC_MAGIC_STRING_REPLACEMENT,
   );
 }
-
-type UsageAccumulator = {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-  total: number;
-  /** Cache fields from the most recent API call (not accumulated). */
-  lastCacheRead: number;
-  lastCacheWrite: number;
-  lastInput: number;
-};
-
-const createUsageAccumulator = (): UsageAccumulator => ({
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  total: 0,
-  lastCacheRead: 0,
-  lastCacheWrite: 0,
-  lastInput: 0,
-});
-
 function createCompactionDiagId(): string {
   return `ovf-${Date.now().toString(36)}-${generateSecureToken(4)}`;
 }
@@ -158,64 +143,6 @@ function resolveMaxRunRetryIterations(profileCandidateCount: number): number {
   return Math.min(MAX_RUN_RETRY_ITERATIONS, Math.max(MIN_RUN_RETRY_ITERATIONS, scaled));
 }
 
-const hasUsageValues = (
-  usage: ReturnType<typeof normalizeUsage>,
-): usage is NonNullable<ReturnType<typeof normalizeUsage>> =>
-  !!usage &&
-  [usage.input, usage.output, usage.cacheRead, usage.cacheWrite, usage.total].some(
-    (value) => typeof value === "number" && Number.isFinite(value) && value > 0,
-  );
-
-const mergeUsageIntoAccumulator = (
-  target: UsageAccumulator,
-  usage: ReturnType<typeof normalizeUsage>,
-) => {
-  if (!hasUsageValues(usage)) {
-    return;
-  }
-  target.input += usage.input ?? 0;
-  target.output += usage.output ?? 0;
-  target.cacheRead += usage.cacheRead ?? 0;
-  target.cacheWrite += usage.cacheWrite ?? 0;
-  target.total +=
-    usage.total ??
-    (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
-  // Track the most recent API call's cache fields for accurate context-size reporting.
-  // Accumulated cache totals inflate context size when there are multiple tool-call round-trips,
-  // since each call reports cacheRead ≈ current_context_size.
-  target.lastCacheRead = usage.cacheRead ?? 0;
-  target.lastCacheWrite = usage.cacheWrite ?? 0;
-  target.lastInput = usage.input ?? 0;
-};
-
-const toNormalizedUsage = (usage: UsageAccumulator) => {
-  const hasUsage =
-    usage.input > 0 ||
-    usage.output > 0 ||
-    usage.cacheRead > 0 ||
-    usage.cacheWrite > 0 ||
-    usage.total > 0;
-  if (!hasUsage) {
-    return undefined;
-  }
-  // Use the LAST API call's cache fields for context-size calculation.
-  // The accumulated cacheRead/cacheWrite inflate context size because each tool-call
-  // round-trip reports cacheRead ≈ current_context_size, and summing N calls gives
-  // N × context_size which gets clamped to contextWindow (e.g. 200k).
-  // See: https://github.com/openclaw/openclaw/issues/13698
-  //
-  // We use lastInput/lastCacheRead/lastCacheWrite (from the most recent API call) for
-  // cache-related fields, but keep accumulated output (total generated text this turn).
-  const lastPromptTokens = usage.lastInput + usage.lastCacheRead + usage.lastCacheWrite;
-  return {
-    input: usage.lastInput || undefined,
-    output: usage.output || undefined,
-    cacheRead: usage.lastCacheRead || undefined,
-    cacheWrite: usage.lastCacheWrite || undefined,
-    total: lastPromptTokens + usage.output || undefined,
-  };
-};
-
 function resolveActiveErrorContext(params: {
   lastAssistant: { provider?: string; model?: string } | undefined;
   provider: string;
@@ -224,6 +151,28 @@ function resolveActiveErrorContext(params: {
   return {
     provider: params.lastAssistant?.provider ?? params.provider,
     model: params.lastAssistant?.model ?? params.model,
+  };
+}
+
+function buildUsageAgentMetaFields(params: {
+  usageAccumulator: UsageAccumulator;
+  lastAssistantUsage?: UsageLike | null;
+  lastRunPromptUsage: ReturnType<typeof normalizeUsage> | undefined;
+  /** API-reported total from the most recent call, mirroring the success path correction. */
+  lastTurnTotal?: number;
+}): Pick<EmbeddedPiAgentMeta, "usage" | "lastCallUsage" | "promptTokens"> {
+  const usage = toNormalizedUsage(params.usageAccumulator);
+  // Keep `usage.total` aligned with the API-reported latest-call total when
+  // available; accumulated totals are for billing, not context display.
+  if (usage && params.lastTurnTotal && params.lastTurnTotal > 0) {
+    usage.total = params.lastTurnTotal;
+  }
+  const lastCallUsage = resolveLastCallUsage(params.lastAssistantUsage, params.usageAccumulator);
+  const promptTokens = derivePromptTokens(params.lastRunPromptUsage);
+  return {
+    usage,
+    lastCallUsage,
+    promptTokens,
   };
 }
 
@@ -243,24 +192,20 @@ function buildErrorAgentMeta(params: {
   /** API-reported total from the most recent call, mirroring the success path correction. */
   lastTurnTotal?: number;
 }): EmbeddedPiAgentMeta {
-  const usage = toNormalizedUsage(params.usageAccumulator);
-  // Apply the same lastTurnTotal correction the success path uses so
-  // usage.total reflects the API-reported context size, not accumulated totals.
-  if (usage && params.lastTurnTotal && params.lastTurnTotal > 0) {
-    usage.total = params.lastTurnTotal;
-  }
-  const lastCallUsage = params.lastAssistant
-    ? normalizeUsage(params.lastAssistant.usage as UsageLike)
-    : undefined;
-  const promptTokens = derivePromptTokens(params.lastRunPromptUsage);
+  const usageMeta = buildUsageAgentMetaFields({
+    usageAccumulator: params.usageAccumulator,
+    lastAssistantUsage: params.lastAssistant?.usage as UsageLike | undefined,
+    lastRunPromptUsage: params.lastRunPromptUsage,
+    lastTurnTotal: params.lastTurnTotal,
+  });
   return {
     sessionId: params.sessionId,
     provider: params.provider,
     model: params.model,
     // Only include usage fields when we have actual data from prior API calls.
-    ...(usage ? { usage } : {}),
-    ...(lastCallUsage ? { lastCallUsage } : {}),
-    ...(promptTokens ? { promptTokens } : {}),
+    ...(usageMeta.usage ? { usage: usageMeta.usage } : {}),
+    ...(usageMeta.lastCallUsage ? { lastCallUsage: usageMeta.lastCallUsage } : {}),
+    ...(usageMeta.promptTokens ? { promptTokens: usageMeta.promptTokens } : {}),
   };
 }
 
@@ -306,7 +251,6 @@ export async function runEmbeddedPiAgent(
         workspaceDir: resolvedWorkspace,
         allowGatewaySubagentBinding: params.allowGatewaySubagentBinding,
       });
-      const prevCwd = process.cwd();
 
       let provider = (params.provider ?? DEFAULT_PROVIDER).trim() || DEFAULT_PROVIDER;
       let modelId = (params.model ?? DEFAULT_MODEL).trim() || DEFAULT_MODEL;
@@ -754,10 +698,7 @@ export async function runEmbeddedPiAgent(
         const allowTransientCooldownProbe =
           params.allowTransientCooldownProbe === true &&
           allAutoProfilesInCooldown &&
-          (unavailableReason === "rate_limit" ||
-            unavailableReason === "overloaded" ||
-            unavailableReason === "billing" ||
-            unavailableReason === "unknown");
+          shouldAllowCooldownProbeForReason(unavailableReason);
         let didTransientCooldownProbe = false;
 
         while (profileIndex < profileCandidates.length) {
@@ -961,6 +902,7 @@ export async function runEmbeddedPiAgent(
             skillsSnapshot: params.skillsSnapshot,
             prompt,
             images: params.images,
+            clientTools: params.clientTools,
             disableTools: params.disableTools,
             provider,
             modelId,
@@ -1593,24 +1535,19 @@ export async function runEmbeddedPiAgent(
             logAssistantFailoverDecision("surface_error");
           }
 
-          const usage = toNormalizedUsage(usageAccumulator);
-          if (usage && lastTurnTotal && lastTurnTotal > 0) {
-            usage.total = lastTurnTotal;
-          }
-          // Extract the last individual API call's usage for context-window
-          // utilization display. The accumulated `usage` sums input tokens
-          // across all calls (tool-use loops, compaction retries), which
-          // overstates the actual context size. `lastCallUsage` reflects only
-          // the final call, giving an accurate snapshot of current context.
-          const lastCallUsage = normalizeUsage(lastAssistant?.usage as UsageLike);
-          const promptTokens = derivePromptTokens(lastRunPromptUsage);
+          const usageMeta = buildUsageAgentMetaFields({
+            usageAccumulator,
+            lastAssistantUsage: lastAssistant?.usage as UsageLike | undefined,
+            lastRunPromptUsage,
+            lastTurnTotal,
+          });
           const agentMeta: EmbeddedPiAgentMeta = {
             sessionId: sessionIdUsed,
             provider: lastAssistant?.provider ?? provider,
             model: lastAssistant?.model ?? model.id,
-            usage,
-            lastCallUsage: lastCallUsage ?? undefined,
-            promptTokens,
+            usage: usageMeta.usage,
+            lastCallUsage: usageMeta.lastCallUsage,
+            promptTokens: usageMeta.promptTokens,
             compactionCount: autoCompactionCount > 0 ? autoCompactionCount : undefined,
           };
 
@@ -1658,6 +1595,82 @@ export async function runEmbeddedPiAgent(
               messagingToolSentTargets: attempt.messagingToolSentTargets,
               successfulCronAdds: attempt.successfulCronAdds,
             };
+          }
+
+          // Detect incomplete turns where prompt() resolved prematurely due to
+          // pi-agent-core's auto-retry timing issue: when a mid-turn 429/overload
+          // triggers an internal retry, waitForRetry() resolves on the next
+          // assistant message *before* tool execution completes in the retried
+          // loop (see #8643). The captured lastAssistant has a non-terminal
+          // stopReason (e.g. "toolUse") with no text content, producing empty
+          // payloads. Surface an error instead of silently dropping the reply.
+          //
+          // Exclusions:
+          //  - didSendDeterministicApprovalPrompt: approval-prompt turns
+          //    intentionally produce empty payloads with stopReason=toolUse
+          //  - lastToolError: suppressed/recoverable tool failures also produce
+          //    empty payloads with stopReason=toolUse; those are handled by
+          //    buildEmbeddedRunPayloads' own warning policy
+          if (
+            payloads.length === 0 &&
+            !aborted &&
+            !timedOut &&
+            !attempt.clientToolCall &&
+            !attempt.yieldDetected &&
+            !attempt.didSendDeterministicApprovalPrompt &&
+            !attempt.lastToolError
+          ) {
+            const incompleteStopReason = lastAssistant?.stopReason;
+            // Only trigger for non-terminal stop reasons (toolUse, etc.) to
+            // avoid false positives when the model legitimately produces no text.
+            // StopReason union: "aborted" | "error" | "length" | "toolUse"
+            // "toolUse" is the key signal that prompt() resolved mid-turn.
+            if (incompleteStopReason === "toolUse" || incompleteStopReason === "error") {
+              log.warn(
+                `incomplete turn detected: runId=${params.runId} sessionId=${params.sessionId} ` +
+                  `stopReason=${incompleteStopReason} payloads=0 — surfacing error to user`,
+              );
+
+              // Mark the failing profile for cooldown so multi-profile setups
+              // rotate away from the exhausted credential on the next turn.
+              if (lastProfileId) {
+                const failoverReason = classifyFailoverReason(lastAssistant?.errorMessage ?? "");
+                await maybeMarkAuthProfileFailure({
+                  profileId: lastProfileId,
+                  reason: resolveAuthProfileFailureReason(failoverReason),
+                });
+              }
+
+              // Warn about potential side-effects when mutating tools executed
+              // before the turn was interrupted, so users don't blindly retry.
+              const hadMutatingTools = attempt.toolMetas.some((t) =>
+                isLikelyMutatingToolName(t.toolName),
+              );
+              const errorText = hadMutatingTools
+                ? "⚠️ Agent couldn't generate a response. Note: some tool actions may have already been executed — please verify before retrying."
+                : "⚠️ Agent couldn't generate a response. Please try again.";
+
+              return {
+                payloads: [
+                  {
+                    text: errorText,
+                    isError: true,
+                  },
+                ],
+                meta: {
+                  durationMs: Date.now() - started,
+                  agentMeta,
+                  aborted,
+                  systemPromptReport: attempt.systemPromptReport,
+                },
+                didSendViaMessagingTool: attempt.didSendViaMessagingTool,
+                didSendDeterministicApprovalPrompt: attempt.didSendDeterministicApprovalPrompt,
+                messagingToolSentTexts: attempt.messagingToolSentTexts,
+                messagingToolSentMediaUrls: attempt.messagingToolSentMediaUrls,
+                messagingToolSentTargets: attempt.messagingToolSentTargets,
+                successfulCronAdds: attempt.successfulCronAdds,
+              };
+            }
           }
 
           log.debug(
@@ -1712,7 +1725,6 @@ export async function runEmbeddedPiAgent(
       } finally {
         await contextEngine.dispose?.();
         stopRuntimeAuthRefreshTimer();
-        process.chdir(prevCwd);
       }
     }),
   );

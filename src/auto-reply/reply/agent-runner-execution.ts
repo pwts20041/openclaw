@@ -1,6 +1,9 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
+import {
+  hasOutboundReplyContent,
+  resolveSendableOutboundReplyParts,
+} from "openclaw/plugin-sdk/reply-payload";
 import { resolveBootstrapWarningSignaturesSeen } from "../../agents/bootstrap-budget.js";
 import { runCliAgent } from "../../agents/cli-runner.js";
 import { getCliSessionId } from "../../agents/cli-session.js";
@@ -12,6 +15,8 @@ import {
   isContextOverflowError,
   isBillingErrorMessage,
   isLikelyContextOverflowError,
+  isOverloadedErrorMessage,
+  isRateLimitErrorMessage,
   isTransientHttpError,
   sanitizeUserFacingText,
 } from "../../agents/pi-embedded-helpers.js";
@@ -47,7 +52,7 @@ import {
 import { type BlockReplyPipeline } from "./block-reply-pipeline.js";
 import type { FollowupRun } from "./queue.js";
 import { createBlockReplyDeliveryHandler } from "./reply-delivery.js";
-import { createReplyMediaPathNormalizer } from "./reply-media-paths.js";
+import { createReplyMediaPathNormalizer } from "./reply-media-paths.runtime.js";
 import type { TypingSignaler } from "./typing-mode.js";
 
 export type RuntimeFallbackAttempt = {
@@ -199,6 +204,23 @@ export async function runAgentTurnWithFallback(params: {
         return text;
       };
       const blockReplyPipeline = params.blockReplyPipeline;
+      // Build the delivery handler once so both onAgentEvent (compaction start
+      // notice) and the onBlockReply field share the same instance.  This
+      // ensures replyToId threading (replyToMode=all|first) is applied to
+      // compaction notices just like every other block reply.
+      const blockReplyHandler = params.opts?.onBlockReply
+        ? createBlockReplyDeliveryHandler({
+            onBlockReply: params.opts.onBlockReply,
+            currentMessageId: params.sessionCtx.MessageSidFull ?? params.sessionCtx.MessageSid,
+            normalizeStreamingText,
+            applyReplyToMode: params.applyReplyToMode,
+            normalizeMediaPaths: normalizeReplyMediaPaths,
+            typingSignals: params.typingSignals,
+            blockStreamingEnabled: params.blockStreamingEnabled,
+            blockReplyPipeline,
+            directlySentBlockKeys,
+          })
+        : undefined;
       const onToolResult = params.opts?.onToolResult;
       const fallbackResult = await runWithModelFallback({
         ...resolveModelFallbackOptions(params.followupRun.run),
@@ -394,11 +416,34 @@ export async function runAgentTurnWithFallback(params: {
                       await params.opts?.onToolStart?.({ name, phase });
                     }
                   }
-                  // Track auto-compaction completion and notify UI layer.
+                  // Track auto-compaction and notify higher layers.
                   if (evt.stream === "compaction") {
                     const phase = typeof evt.data.phase === "string" ? evt.data.phase : "";
                     if (phase === "start") {
-                      await params.opts?.onCompactionStart?.();
+                      if (params.opts?.onCompactionStart) {
+                        await params.opts.onCompactionStart();
+                      } else if (params.opts?.onBlockReply) {
+                        // Send directly via opts.onBlockReply (bypassing the
+                        // pipeline) so the notice does not cause final payloads
+                        // to be discarded on non-streaming model paths.
+                        const currentMessageId =
+                          params.sessionCtx.MessageSidFull ?? params.sessionCtx.MessageSid;
+                        const noticePayload = params.applyReplyToMode({
+                          text: "🧹 Compacting context...",
+                          replyToId: currentMessageId,
+                          replyToCurrent: true,
+                          isCompactionNotice: true,
+                        });
+                        try {
+                          await params.opts.onBlockReply(noticePayload);
+                        } catch (err) {
+                          // Non-critical notice delivery failure should not
+                          // bubble out of the fire-and-forget event handler.
+                          logVerbose(
+                            `compaction start notice delivery failed (non-fatal): ${String(err)}`,
+                          );
+                        }
+                      }
                     }
                     const completed = evt.data?.completed === true;
                     if (phase === "end" && completed) {
@@ -410,20 +455,7 @@ export async function runAgentTurnWithFallback(params: {
                 // Always pass onBlockReply so flushBlockReplyBuffer works before tool execution,
                 // even when regular block streaming is disabled. The handler sends directly
                 // via opts.onBlockReply when the pipeline isn't available.
-                onBlockReply: params.opts?.onBlockReply
-                  ? createBlockReplyDeliveryHandler({
-                      onBlockReply: params.opts.onBlockReply,
-                      currentMessageId:
-                        params.sessionCtx.MessageSidFull ?? params.sessionCtx.MessageSid,
-                      normalizeStreamingText,
-                      applyReplyToMode: params.applyReplyToMode,
-                      normalizeMediaPaths: normalizeReplyMediaPaths,
-                      typingSignals: params.typingSignals,
-                      blockStreamingEnabled: params.blockStreamingEnabled,
-                      blockReplyPipeline,
-                      directlySentBlockKeys,
-                    })
-                  : undefined,
+                onBlockReply: blockReplyHandler,
                 onBlockReplyFlush:
                   params.blockStreamingEnabled && blockReplyPipeline
                     ? async () => {
@@ -451,7 +483,9 @@ export async function runAgentTurnWithFallback(params: {
                             if (skip) {
                               return;
                             }
-                            await params.typingSignals.signalTextDelta(text);
+                            if (text !== undefined) {
+                              await params.typingSignals.signalTextDelta(text);
+                            }
                             await onToolResult({
                               ...payload,
                               text,
@@ -651,13 +685,54 @@ export async function runAgentTurnWithFallback(params: {
   // overflow errors were returned as embedded error payloads.
   const finalEmbeddedError = runResult?.meta?.error;
   const hasPayloadText = runResult?.payloads?.some((p) => p.text?.trim());
-  if (finalEmbeddedError && isContextOverflowError(finalEmbeddedError.message) && !hasPayloadText) {
-    return {
-      kind: "final",
-      payload: {
-        text: "⚠️ Context overflow — this conversation is too large for the model. Use /new to start a fresh session.",
-      },
-    };
+  if (finalEmbeddedError && !hasPayloadText) {
+    const errorMsg = finalEmbeddedError.message ?? "";
+    if (isContextOverflowError(errorMsg)) {
+      return {
+        kind: "final",
+        payload: {
+          text: "⚠️ Context overflow — this conversation is too large for the model. Use /new to start a fresh session.",
+        },
+      };
+    }
+  }
+
+  // Surface rate limit and overload errors that occur mid-turn (after tool
+  // calls) instead of silently returning an empty response. See #36142.
+  // Only applies when the assistant produced no valid (non-error) reply text,
+  // so tool-level rate-limit messages don't override a successful turn.
+  // Prioritize metaErrorMsg (raw upstream error) over errorPayloadText to
+  // avoid self-matching on pre-formatted "⚠️" messages from run.ts, and
+  // skip already-formatted payloads so tool-specific 429 errors (e.g.
+  // browser/search tool failures) are preserved rather than overwritten.
+  //
+  // Instead of early-returning kind:"final" (which would bypass
+  // buildReplyPayloads() filtering and session bookkeeping), inject the
+  // error payload into runResult so it flows through the normal
+  // kind:"success" path — preserving streaming dedup, message_send
+  // suppression, and usage/model metadata updates.
+  if (runResult) {
+    const hasNonErrorContent = runResult.payloads?.some(
+      (p) => !p.isError && !p.isReasoning && hasOutboundReplyContent(p, { trimText: true }),
+    );
+    if (!hasNonErrorContent) {
+      const metaErrorMsg = finalEmbeddedError?.message ?? "";
+      const rawErrorPayloadText =
+        runResult.payloads?.find((p) => p.isError && p.text?.trim() && !p.text.startsWith("⚠️"))
+          ?.text ?? "";
+      const errorCandidate = metaErrorMsg || rawErrorPayloadText;
+      if (
+        errorCandidate &&
+        (isRateLimitErrorMessage(errorCandidate) || isOverloadedErrorMessage(errorCandidate))
+      ) {
+        runResult.payloads = [
+          {
+            text: "⚠️ API rate limit reached — the model couldn't generate a response. Please try again in a moment.",
+            isError: true,
+          },
+        ];
+      }
+    }
   }
 
   return {
