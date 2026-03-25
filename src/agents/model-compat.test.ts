@@ -52,58 +52,6 @@ function maxTokensField(model: Model<Api>): "max_completion_tokens" | "max_token
     ?.maxTokensField;
 }
 
-function createTemplateModel(provider: string, id: string): Model<Api> {
-  return {
-    id,
-    name: id,
-    provider,
-    api: "anthropic-messages",
-    input: ["text"],
-    reasoning: true,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 200_000,
-    maxTokens: 8_192,
-  } as Model<Api>;
-}
-
-function createOpenAITemplateModel(id: string): Model<Api> {
-  return {
-    id,
-    name: id,
-    provider: "openai",
-    api: "openai-responses",
-    baseUrl: "https://api.openai.com/v1",
-    input: ["text", "image"],
-    reasoning: true,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 400_000,
-    maxTokens: 32_768,
-  } as Model<Api>;
-}
-
-function createOpenAICodexTemplateModel(id: string): Model<Api> {
-  return {
-    id,
-    name: id,
-    provider: "openai-codex",
-    api: "openai-codex-responses",
-    baseUrl: "https://chatgpt.com/backend-api",
-    input: ["text", "image"],
-    reasoning: true,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 272_000,
-    maxTokens: 128_000,
-  } as Model<Api>;
-}
-
-function createRegistry(models: Record<string, Model<Api>>): ModelRegistry {
-  return {
-    find(provider: string, modelId: string) {
-      return models[`${provider}/${modelId}`] ?? null;
-    },
-  } as ModelRegistry;
-}
-
 function expectSupportsDeveloperRoleForcedOff(overrides?: Partial<Model<Api>>): void {
   const model = { ...baseModel(), ...overrides };
   delete (model as { compat?: unknown }).compat;

@@ -159,7 +159,7 @@ export function normalizeModelCompat(model: Model<Api>): Model<Api> {
     return model;
   }
 
-  const normalizedCompat = compat
+  const normalizedCompat: ModelCompatConfig = compat
     ? {
         ...compat,
         supportsDeveloperRole: forcedDeveloperRole || false,
