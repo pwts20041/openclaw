@@ -362,7 +362,8 @@ class SmsManager(private val context: Context) {
             normalizedPhoneNumber: String?,
             resolvedPhoneNumbers: List<String> = emptyList(),
         ): QueryParams {
-            val normalizedParams = params.copy(phoneNumber = normalizedPhoneNumber)
+            val effectivePhoneNumber = normalizedPhoneNumber ?: resolvedPhoneNumbers.singleOrNull()
+            val normalizedParams = params.copy(phoneNumber = effectivePhoneNumber)
             return effectiveSearchParams(normalizedParams, resolvedPhoneNumbers)
         }
 

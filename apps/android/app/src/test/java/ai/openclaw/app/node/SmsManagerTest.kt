@@ -896,7 +896,7 @@ class SmsManagerTest {
   }
 
   @Test
-  fun resolveSearchParamsDefersConversationReviewLimitUntilAfterSingleContactResolution() {
+  fun resolveSearchParamsCarriesSingleResolvedContactIntoReviewMode() {
     val params =
       SmsManager.QueryParams(
         limit = 5,
@@ -929,14 +929,25 @@ class SmsManagerTest {
         params.copy(contactName = null, phoneNumber = "+12107588120"),
         normalizedPhoneNumber = "12107588120",
       )
+    val nonReview =
+      SmsManager.resolveSearchParams(
+        params.copy(conversationReview = false),
+        normalizedPhoneNumber = null,
+        resolvedPhoneNumbers = listOf("15551234567"),
+      )
 
     assertEquals(5, beforeResolution.limit)
     assertEquals(25, singleResolved.limit)
-    assertNull(singleResolved.phoneNumber)
+    assertEquals("15551234567", singleResolved.phoneNumber)
+    assertTrue(SmsManager.shouldUseConversationReviewByPhoneMode(singleResolved))
     assertEquals(5, multiResolved.limit)
     assertNull(multiResolved.phoneNumber)
+    assertFalse(SmsManager.shouldUseConversationReviewByPhoneMode(multiResolved))
     assertEquals(25, explicit.limit)
     assertEquals("12107588120", explicit.phoneNumber)
+    assertEquals(5, nonReview.limit)
+    assertEquals("15551234567", nonReview.phoneNumber)
+    assertFalse(SmsManager.shouldUseConversationReviewByPhoneMode(nonReview))
   }
 
   @Test
