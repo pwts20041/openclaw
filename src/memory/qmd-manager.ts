@@ -1271,6 +1271,8 @@ export class QmdMemoryManager implements MemorySearchManager {
       case "vsearch":
         // Vector search only
         return [{ type: "vec", query }];
+      case "query":
+      case undefined:
       default:
         // Full hybrid: lex + vec + hyde (query expansion)
         return [
@@ -1345,7 +1347,7 @@ export class QmdMemoryManager implements MemorySearchManager {
 
   private async runQmdSearchViaMcporter(params: {
     mcporter: ResolvedQmdMcporterConfig;
-    tool: string;
+    tool: "query" | "search" | "vector_search" | "deep_search";
     searchCommand?: string;
     query: string;
     limit: number;
@@ -1369,6 +1371,8 @@ export class QmdMemoryManager implements MemorySearchManager {
         ? {
             // QMD 1.1+ "query" tool accepts typed sub-queries via `searches` array.
             // Derive sub-query types from searchCommand to respect searchMode config.
+            // Note: minScore is intentionally omitted — QMD 1.1+'s query tool uses
+            // its own reranking pipeline and does not accept a minScore parameter.
             searches: this.buildV2Searches(params.query, params.searchCommand),
             limit: params.limit,
           }
