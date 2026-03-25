@@ -81,8 +81,14 @@ export function shouldUsePlaywrightForScreenshot(params: {
   wsUrl?: string;
   ref?: string;
   element?: string;
+  fullPage?: boolean;
 }): boolean {
-  return !params.wsUrl || Boolean(params.ref) || Boolean(params.element);
+  // fullPage is routed to Playwright because the raw CDP path uses
+  // captureBeyondViewport: false to avoid a Chromium compositor bug
+  // that drops cross-origin image textures.
+  return (
+    !params.wsUrl || Boolean(params.ref) || Boolean(params.element) || Boolean(params.fullPage)
+  );
 }
 
 export function shouldUsePlaywrightForAriaSnapshot(params: {

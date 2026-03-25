@@ -349,6 +349,7 @@ export function registerBrowserAgentSnapshotRoutes(
           wsUrl: tab.wsUrl,
           ref,
           element,
+          fullPage,
         });
         if (shouldUsePlaywright) {
           const pw = await requirePwAi(res, "screenshot");
@@ -367,7 +368,6 @@ export function registerBrowserAgentSnapshotRoutes(
         } else {
           buffer = await captureScreenshot({
             wsUrl: tab.wsUrl ?? "",
-            fullPage,
             format: type,
             quality: type === "jpeg" ? 85 : undefined,
           });

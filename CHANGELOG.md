@@ -166,6 +166,7 @@ Docs: https://docs.openclaw.ai
 - Agents/cooldowns: scope rate-limit cooldowns per model so one 429 no longer blocks every model on the same auth profile, replace the exponential 1 min → 1 h escalation with a stepped 30 s / 1 min / 5 min ladder, and surface a user-facing countdown message when all models are rate-limited. (#49834) Thanks @kiranvk-2011.
 - Config/web fetch: allow the documented `tools.web.fetch.maxResponseBytes` setting in runtime schema validation so valid configs no longer fail with unrecognized-key errors. (#53401) Thanks @erhhung.
 - Message tool/buttons: keep the shared `buttons` schema optional in merged tool definitions so plain `action=send` calls stop failing validation when no buttons are provided. (#54418) Thanks @adzendo.
+- Browser/screenshot: disable `captureBeyondViewport` in the Raw CDP screenshot path to avoid a Chromium compositor bug that drops cross-origin image textures (QR codes, CDN assets) when extending the capture surface, and route `fullPage` screenshot requests to the Playwright path so full-page captures continue to work correctly. (#54358) Thanks @FMLS.
 
 ## 2026.3.23
 
