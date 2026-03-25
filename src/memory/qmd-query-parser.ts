@@ -9,6 +9,8 @@ export type QmdQueryResult = {
   file?: string;
   snippet?: string;
   body?: string;
+  start_line?: number;
+  end_line?: number;
 };
 
 export function parseQmdQueryJson(stdout: string, stderr: string): QmdQueryResult[] {

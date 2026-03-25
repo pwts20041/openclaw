@@ -856,7 +856,22 @@ export class QmdMemoryManager implements MemorySearchManager {
         continue;
       }
       const snippet = entry.snippet?.slice(0, this.qmd.limits.maxSnippetChars) ?? "";
-      const lines = this.extractSnippetLines(snippet);
+      // Prefer start_line/end_line from mcporter/QMD response if available
+      let startLine: number;
+      let endLine: number;
+      if (
+        typeof entry.start_line === "number" &&
+        entry.start_line > 0 &&
+        typeof entry.end_line === "number" &&
+        entry.end_line > 0
+      ) {
+        startLine = entry.start_line;
+        endLine = entry.end_line;
+      } else {
+        const lines = this.extractSnippetLines(snippet);
+        startLine = lines.startLine;
+        endLine = lines.endLine;
+      }
       const score = typeof entry.score === "number" ? entry.score : 0;
       const minScore = opts?.minScore ?? 0;
       if (score < minScore) {
@@ -864,8 +879,8 @@ export class QmdMemoryManager implements MemorySearchManager {
       }
       results.push({
         path: doc.rel,
-        startLine: lines.startLine,
-        endLine: lines.endLine,
+        startLine,
+        endLine,
         score,
         snippet,
         source: doc.source,
@@ -1332,7 +1347,12 @@ export class QmdMemoryManager implements MemorySearchManager {
       const scoreRaw = item.score;
       const score = typeof scoreRaw === "number" ? scoreRaw : Number(scoreRaw);
       const snippet = typeof item.snippet === "string" ? item.snippet : "";
-      out.push({ docid, score: Number.isFinite(score) ? score : 0, snippet });
+      // Extract start_line and end_line from mcporter response if available
+      const startLineRaw = item.start_line;
+      const endLineRaw = item.end_line;
+      const start_line = typeof startLineRaw === "number" ? startLineRaw : undefined;
+      const end_line = typeof endLineRaw === "number" ? endLineRaw : undefined;
+      out.push({ docid, score: Number.isFinite(score) ? score : 0, snippet, start_line, end_line });
     }
     return out;
   }
