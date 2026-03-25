@@ -122,8 +122,7 @@ function createCertificateApp(
 
   const tokenProvider = async (scope: string | string[]): Promise<string> => {
     const credential = await getCredential();
-    const scopes = typeof scope === "string" ? scope : (scope[0] ?? "");
-    const token = await credential.getToken(scopes);
+    const token = await credential.getToken(scope);
 
     if (!token?.token) {
       throw new Error("Failed to acquire token via certificate credential.");
@@ -162,8 +161,7 @@ function createManagedIdentityApp(
 
   const tokenProvider = async (scope: string | string[]): Promise<string> => {
     const credential = await getCredential();
-    const scopes = typeof scope === "string" ? scope : (scope[0] ?? "");
-    const token = await credential.getToken(scopes);
+    const token = await credential.getToken(scope);
 
     if (!token?.token) {
       throw new Error("Failed to acquire token via managed identity.");
