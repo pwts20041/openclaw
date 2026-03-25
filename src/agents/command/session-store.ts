@@ -29,8 +29,6 @@ export async function updateSessionStoreAfterAgentRun(params: {
   defaultModel: string;
   fallbackProvider?: string;
   fallbackModel?: string;
-  /** True when the run was served by a fallback model rather than the configured primary. */
-  isFromFallback?: boolean;
   result: RunResult;
 }) {
   const {
@@ -75,10 +73,9 @@ export async function updateSessionStoreAfterAgentRun(params: {
   // resolveSessionModelRef would return the fallback on every subsequent request
   // and the configured primary model would never be retried after it recovers.
   // The fallback is an in-flight transient choice, not a durable session setting.
-  // When callers omit `isFromFallback`, compute it from the model/provider actually
-  // used vs. the configured defaults so we never accidentally persist a fallback.
-  const isFromFallback =
-    params.isFromFallback ?? (modelUsed !== defaultModel || providerUsed !== defaultProvider);
+  // Compute fallback-ness from the model/provider actually used vs. the configured
+  // defaults — always derived internally so callers cannot accidentally skip the guard.
+  const isFromFallback = modelUsed !== defaultModel || providerUsed !== defaultProvider;
   if (!isFromFallback) {
     setSessionRuntimeModel(next, {
       provider: providerUsed,

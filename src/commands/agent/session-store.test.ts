@@ -125,7 +125,7 @@ describe("updateSessionStoreAfterAgentRun", () => {
     );
   });
 
-  it("does not persist fallback model into session store when isFromFallback is true", async () => {
+  it("does not persist fallback model into session store when model differs from default", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-session-store-"));
     const storePath = path.join(dir, "sessions.json");
     const sessionKey = `agent:test:fallback:${randomUUID()}`;
@@ -151,7 +151,6 @@ describe("updateSessionStoreAfterAgentRun", () => {
       defaultModel: "gpt-5.3",
       fallbackProvider: "anthropic",
       fallbackModel: "claude-sonnet-4-20250514",
-      isFromFallback: true,
       result: {
         payloads: [],
         meta: {
@@ -171,7 +170,7 @@ describe("updateSessionStoreAfterAgentRun", () => {
     expect(persisted?.modelProvider).not.toBe("anthropic");
   });
 
-  it("auto-computes isFromFallback when omitted and model differs from default", async () => {
+  it("does not persist fallback model when agentMeta reports different provider/model than defaults", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-session-store-"));
     const storePath = path.join(dir, "sessions.json");
     const sessionKey = `agent:test:auto-fallback:${randomUUID()}`;
@@ -187,8 +186,8 @@ describe("updateSessionStoreAfterAgentRun", () => {
     };
     await fs.writeFile(storePath, JSON.stringify(sessionStore, null, 2), "utf8");
 
-    // isFromFallback is omitted — the function should compute it as true
-    // because the model used differs from the default
+    // The function computes fallback-ness internally from agentMeta.model/provider
+    // vs. the configured defaults — isFromFallback is no longer an external parameter.
     await updateSessionStoreAfterAgentRun({
       cfg: {} as never,
       sessionId,
@@ -199,7 +198,6 @@ describe("updateSessionStoreAfterAgentRun", () => {
       defaultModel: "gpt-5.3",
       fallbackProvider: "anthropic",
       fallbackModel: "claude-sonnet-4-20250514",
-      // isFromFallback intentionally omitted
       result: {
         payloads: [],
         meta: {
@@ -214,7 +212,7 @@ describe("updateSessionStoreAfterAgentRun", () => {
     });
 
     const persisted = loadSessionStore(storePath, { skipCache: true })[sessionKey];
-    // The auto-computed fallback detection should prevent persisting the fallback model
+    // Fallback detection prevents persisting the fallback model into the session store
     expect(persisted?.model).not.toBe("claude-sonnet-4-20250514");
     expect(persisted?.modelProvider).not.toBe("anthropic");
   });
