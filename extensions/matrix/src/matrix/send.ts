@@ -100,7 +100,7 @@ export async function sendMessageMatrix(
       const msgtype = useVoice ? MsgType.Audio : baseMsgType;
       const isImage = msgtype === MsgType.Image;
       const imageInfo = isImage
-        ? await prepareImageInfo({ buffer: media.buffer, client })
+        ? await prepareImageInfo({ buffer: media.buffer, client, roomId })
         : undefined;
       const [firstChunk, ...rest] = chunks;
       const body = useVoice ? "Voice message" : (firstChunk ?? media.fileName ?? "(file)");

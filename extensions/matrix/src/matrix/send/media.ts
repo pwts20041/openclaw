@@ -113,6 +113,7 @@ const THUMBNAIL_QUALITY = 80;
 export async function prepareImageInfo(params: {
   buffer: Buffer;
   client: MatrixClient;
+  roomId?: string;
 }): Promise<DimensionalFileInfo | undefined> {
   const meta = await getCore()
     .media.getImageMetadata(params.buffer)
@@ -133,12 +134,27 @@ export async function prepareImageInfo(params: {
       const thumbMeta = await getCore()
         .media.getImageMetadata(thumbBuffer)
         .catch(() => null);
-      const thumbUri = await params.client.uploadContent(
-        thumbBuffer,
-        "image/jpeg",
-        "thumbnail.jpg",
-      );
-      imageInfo.thumbnail_url = thumbUri;
+      const isEncrypted =
+        params.roomId &&
+        params.client.crypto &&
+        (await params.client.crypto.isRoomEncrypted(params.roomId));
+      if (isEncrypted && params.client.crypto) {
+        // Encrypt the thumbnail for E2EE rooms — use thumbnail_file, not thumbnail_url
+        const encrypted = await params.client.crypto.encryptMedia(thumbBuffer);
+        const thumbUri = await params.client.uploadContent(
+          encrypted.buffer,
+          "image/jpeg",
+          "thumbnail.jpg",
+        );
+        imageInfo.thumbnail_file = { url: thumbUri, ...encrypted.file };
+      } else {
+        const thumbUri = await params.client.uploadContent(
+          thumbBuffer,
+          "image/jpeg",
+          "thumbnail.jpg",
+        );
+        imageInfo.thumbnail_url = thumbUri;
+      }
       if (thumbMeta) {
         imageInfo.thumbnail_info = {
           w: thumbMeta.width,
