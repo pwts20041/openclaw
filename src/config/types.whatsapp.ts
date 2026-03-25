@@ -3,6 +3,7 @@ import type {
   DmPolicy,
   GroupPolicy,
   MarkdownConfig,
+  OutboundRetryConfig,
 } from "./types.base.js";
 import type {
   ChannelHealthMonitorConfig,
@@ -83,6 +84,8 @@ type WhatsAppSharedConfig = {
   heartbeat?: ChannelHeartbeatVisibilityConfig;
   /** Channel health monitor overrides for this channel/account. */
   healthMonitor?: ChannelHealthMonitorConfig;
+  /** Outbound send retry config (immediate retries on transient network errors). */
+  retry?: OutboundRetryConfig;
 };
 
 type WhatsAppConfigCore = {
