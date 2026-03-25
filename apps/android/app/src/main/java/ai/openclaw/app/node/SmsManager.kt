@@ -114,6 +114,7 @@ class SmsManager(private val context: Context) {
         private const val MMS_SMS_BY_PHONE_BASE = "content://mms-sms/messages/byphone"
         private const val MMS_CONTENT_BASE = "content://mms"
         private const val MMS_PART_URI = "content://mms/part"
+        private val PHONE_FORMATTING_REGEX = Regex("""[\s\-()]""")
         internal val JsonConfig = Json { ignoreUnknownKeys = true }
 
         internal fun parseParams(paramsJson: String?, json: Json = JsonConfig): ParseResult {
@@ -200,7 +201,7 @@ class SmsManager(private val context: Context) {
         }
 
         private fun normalizePhoneNumber(phone: String): String {
-            return phone.replace(Regex("""[\s\-()]"""), "")
+            return phone.replace(PHONE_FORMATTING_REGEX, "")
         }
 
         internal fun normalizePhoneNumberOrNull(phone: String?): String? {
@@ -874,10 +875,7 @@ class SmsManager(private val context: Context) {
         // Unified SMS+MMS query path is opt-in to keep sms.search semantics
         // stable by default. Use includeMms=true for by-phone provider behavior.
         if (params.includeMms && mixedPathPhoneFilters.size == 1) {
-            val unifiedMessages = querySmsMmsMessagesByPhone(mixedPathPhoneFilters.first(), params)
-            if (unifiedMessages.isNotEmpty()) {
-                return unifiedMessages
-            }
+            return querySmsMmsMessagesByPhone(mixedPathPhoneFilters.first(), params)
         }
 
         if (allPhoneNumbers.isNotEmpty()) {
@@ -917,6 +915,8 @@ class SmsManager(private val context: Context) {
             null
         }
 
+        // Android SMS providers still honor LIMIT/OFFSET through sortOrder on this path.
+        // Keep the bounded interpolation here because parseQueryParams already clamps both values.
         val sortOrder = "${Telephony.Sms.DATE} DESC LIMIT ${params.limit} OFFSET ${params.offset}"
         val cursor = context.contentResolver.query(
             Telephony.Sms.CONTENT_URI,
