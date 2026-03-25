@@ -134,19 +134,16 @@ export async function prepareImageInfo(params: {
       const thumbMeta = await getCore()
         .media.getImageMetadata(thumbBuffer)
         .catch(() => null);
-      const isEncrypted =
-        params.roomId &&
-        params.client.crypto &&
-        (await params.client.crypto.isRoomEncrypted(params.roomId));
-      if (isEncrypted && params.client.crypto) {
-        // Encrypt the thumbnail for E2EE rooms — use thumbnail_file, not thumbnail_url
-        const encrypted = await params.client.crypto.encryptMedia(thumbBuffer);
-        const thumbUri = await params.client.uploadContent(
-          encrypted.buffer,
-          "image/jpeg",
-          "thumbnail.jpg",
-        );
-        imageInfo.thumbnail_file = { url: thumbUri, ...encrypted.file };
+      if (params.roomId) {
+        const result = await uploadMediaMaybeEncrypted(params.client, params.roomId, thumbBuffer, {
+          contentType: "image/jpeg",
+          filename: "thumbnail.jpg",
+        });
+        if (result.file) {
+          imageInfo.thumbnail_file = result.file;
+        } else {
+          imageInfo.thumbnail_url = result.url;
+        }
       } else {
         const thumbUri = await params.client.uploadContent(
           thumbBuffer,
