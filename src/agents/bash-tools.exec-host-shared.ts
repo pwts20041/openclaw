@@ -193,12 +193,18 @@ export function resolveExecHostApprovalContext(params: {
 export async function resolveApprovalDecisionOrUndefined(params: {
   approvalId: string;
   preResolvedDecision: string | null | undefined;
+  sessionKey?: string;
+  agentId?: string;
+  sessionId?: string;
   onFailure: () => void;
 }): Promise<string | null | undefined> {
   try {
     return await resolveRegisteredExecApprovalDecision({
       approvalId: params.approvalId,
       preResolvedDecision: params.preResolvedDecision,
+      sessionKey: params.sessionKey,
+      agentId: params.agentId,
+      sessionId: params.sessionId,
     });
   } catch {
     params.onFailure();
