@@ -226,7 +226,9 @@ export async function startGatewaySidecars(params: {
   // Recover deferred sessions_manage actions that survived the restart.
   // Delayed slightly to let the gateway fully stabilize first.
   setTimeout(() => {
-    void recoverPendingActions({ log: params.log }).catch((err) => {
+    void recoverPendingActions({
+      log: { info: (msg) => params.log.warn(msg), warn: (msg) => params.log.warn(msg) },
+    }).catch((err) => {
       params.log.warn(`pending-actions recovery failed: ${String(err)}`);
     });
   }, 2000);

@@ -1,15 +1,13 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import {
-  resolveAgentWorkspaceDir,
-  resolveDefaultAgentId,
-} from "../../agents/agent-scope.js";
+import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { compactEmbeddedPiSession } from "../../agents/pi-embedded-runner/compact.js";
 import {
   abortEmbeddedPiRun,
   isEmbeddedPiRunActive,
   waitForEmbeddedPiRunEnd,
 } from "../../agents/pi-embedded-runner/runs.js";
+import { clearSessionQueues } from "../../auto-reply/reply/queue/cleanup.js";
 import { loadConfig } from "../../config/config.js";
 import {
   loadSessionStore,
