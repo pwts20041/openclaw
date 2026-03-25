@@ -140,6 +140,10 @@ export function resolveAccount(
     dangerouslyAllowInheritedWebhookPath,
     dmPolicy: merged.dmPolicy ?? "allowlist",
     allowedUserIds: parseAllowedUserIds(merged.allowedUserIds ?? envAllowedUserIds),
+    groupPolicy: merged.groupPolicy ?? "disabled",
+    groupAllowFrom: parseAllowedUserIds(merged.groupAllowFrom),
+    channels:
+      (merged.channels as Record<string, import("./types.js").SynologyChatChannelOverride>) ?? {},
     rateLimitPerMinute: merged.rateLimitPerMinute ?? envRateLimitValue,
     botName: merged.botName ?? envBotName,
     allowInsecureSsl: merged.allowInsecureSsl ?? false,
