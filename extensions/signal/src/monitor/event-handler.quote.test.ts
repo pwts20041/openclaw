@@ -1,11 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildInboundUserContextPrefix } from "../../../../src/auto-reply/reply/inbound-meta.js";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MsgContext } from "../../../../src/auto-reply/templating.js";
-import { createSignalEventHandler } from "./event-handler.js";
-import {
-  createBaseSignalEventHandlerDeps,
-  createSignalReceiveEvent,
-} from "./event-handler.test-harness.js";
 import type { SignalEventHandlerDeps } from "./event-handler.types.js";
 
 type CapturedSignalQuoteContext = Pick<
@@ -30,8 +24,8 @@ function getCapturedCtx() {
   return capturedCtx as CapturedSignalQuoteContext;
 }
 
-vi.mock("../../../../src/auto-reply/dispatch.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../../src/auto-reply/dispatch.js")>();
+vi.mock("openclaw/plugin-sdk/reply-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/reply-runtime")>();
   return {
     ...actual,
     dispatchInboundMessage: dispatchInboundMessageMock,
@@ -51,6 +45,11 @@ vi.mock("../../../../src/pairing/pairing-store.js", () => ({
   upsertChannelPairingRequest: vi.fn(),
 }));
 
+let createSignalEventHandler: typeof import("./event-handler.js").createSignalEventHandler;
+let createBaseSignalEventHandlerDeps: typeof import("./event-handler.test-harness.js").createBaseSignalEventHandlerDeps;
+let createSignalReceiveEvent: typeof import("./event-handler.test-harness.js").createSignalReceiveEvent;
+let buildInboundUserContextPrefix: typeof import("../../../../src/auto-reply/reply/inbound-meta.js").buildInboundUserContextPrefix;
+
 function createQuoteHandler(overrides: Partial<SignalEventHandlerDeps> = {}) {
   return createSignalEventHandler(
     createBaseSignalEventHandlerDeps({
@@ -63,6 +62,15 @@ function createQuoteHandler(overrides: Partial<SignalEventHandlerDeps> = {}) {
 }
 
 describe("signal quote reply handling", () => {
+  beforeAll(async () => {
+    vi.resetModules();
+    ({ createBaseSignalEventHandlerDeps, createSignalReceiveEvent } =
+      await import("./event-handler.test-harness.js"));
+    ({ createSignalEventHandler } = await import("./event-handler.js"));
+    ({ buildInboundUserContextPrefix } =
+      await import("../../../../src/auto-reply/reply/inbound-meta.js"));
+  });
+
   beforeEach(() => {
     capturedCtx = undefined;
     dispatchInboundMessageMock.mockReset();
