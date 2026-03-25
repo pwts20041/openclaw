@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll, afterEach } from "vitest";
 import type { MSTeamsSecretCredentials, MSTeamsFederatedCredentials } from "./token.js";
 
 vi.mock("node:fs", () => ({
@@ -26,7 +26,7 @@ vi.mock("@azure/identity", () => {
 });
 
 import * as fs from "node:fs";
-import { createMSTeamsApp } from "./sdk.js";
+import { createMSTeamsApp, createMSTeamsAdapter } from "./sdk.js";
 
 function makeFakeSdk() {
   const appInstances: Record<string, unknown>[] = [];
@@ -164,5 +164,133 @@ describe("createMSTeamsApp – federated managed identity", () => {
     await expect(tokenFn("https://api.botframework.com/.default")).rejects.toThrow(
       /failed to acquire token/i,
     );
+  });
+});
+
+// ── createMSTeamsAdapter tests ─────────────────────────────────────────────
+
+function makeFakeApp() {
+  return {
+    getBotToken: vi.fn().mockResolvedValue({ toString: () => "fake-bot-token" }),
+  } as any;
+}
+
+function makeFakeApiSdk() {
+  const createFn = vi.fn().mockResolvedValue({ id: "new-activity-id" });
+  const FakeClient = class {
+    conversations = {
+      activities: (_convId: string) => ({ create: createFn }),
+    };
+  };
+  return {
+    sdk: { App: class {} as any, Client: FakeClient as any },
+    createFn,
+  };
+}
+
+describe("createMSTeamsAdapter – continueConversation", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("provides sendActivity via REST API client in logic callback", async () => {
+    const { sdk, createFn } = makeFakeApiSdk();
+    const adapter = createMSTeamsAdapter(makeFakeApp(), sdk);
+
+    const reference = {
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+      conversation: { id: "conv-123", conversationType: "personal" },
+      channelId: "msteams",
+    };
+
+    await adapter.continueConversation("app-id", reference, async (ctx) => {
+      await ctx.sendActivity("hello from proactive send");
+    });
+
+    expect(createFn).toHaveBeenCalledTimes(1);
+    expect(createFn).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "message", text: "hello from proactive send" }),
+    );
+  });
+
+  it("provides deleteActivity via REST DELETE in logic callback", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    globalThis.fetch = mockFetch;
+    const { sdk } = makeFakeApiSdk();
+    const adapter = createMSTeamsAdapter(makeFakeApp(), sdk);
+
+    const reference = {
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+      conversation: { id: "conv-456", conversationType: "personal" },
+      channelId: "msteams",
+    };
+
+    await adapter.continueConversation("app-id", reference, async (ctx) => {
+      await ctx.deleteActivity("activity-789");
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toContain("/v3/conversations/conv-456/activities/activity-789");
+    expect(opts.method).toBe("DELETE");
+    expect(opts.headers.Authorization).toBe("Bearer fake-bot-token");
+  });
+
+  it("throws when serviceUrl is missing", async () => {
+    const { sdk } = makeFakeApiSdk();
+    const adapter = createMSTeamsAdapter(makeFakeApp(), sdk);
+
+    await expect(
+      adapter.continueConversation("app-id", { conversation: { id: "c" } } as any, async () => {}),
+    ).rejects.toThrow(/Missing serviceUrl/);
+  });
+
+  it("throws when conversation.id is missing", async () => {
+    const { sdk } = makeFakeApiSdk();
+    const adapter = createMSTeamsAdapter(makeFakeApp(), sdk);
+
+    await expect(
+      adapter.continueConversation(
+        "app-id",
+        { serviceUrl: "https://example.com" } as any,
+        async () => {},
+      ),
+    ).rejects.toThrow(/Missing conversation\.id/);
+  });
+});
+
+describe("createMSTeamsAdapter – process", () => {
+  it("sends 200 for normal message activities", async () => {
+    const { sdk } = makeFakeApiSdk();
+    const adapter = createMSTeamsAdapter(makeFakeApp(), sdk);
+
+    const req = { body: { type: "message", text: "hi" } };
+    const sendFn = vi.fn();
+    const res = { status: vi.fn(() => ({ send: sendFn })) };
+
+    await adapter.process(req, res, async () => {});
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(sendFn).toHaveBeenCalled();
+  });
+
+  it("sends 200 immediately for invoke activities", async () => {
+    const { sdk } = makeFakeApiSdk();
+    const adapter = createMSTeamsAdapter(makeFakeApp(), sdk);
+
+    const req = { body: { type: "invoke", name: "adaptiveCard/action" } };
+    const sendFn = vi.fn();
+    const res = { status: vi.fn(() => ({ send: sendFn })) };
+
+    let statusCalledBeforeLogic = false;
+    await adapter.process(req, res, async () => {
+      statusCalledBeforeLogic = res.status.mock.calls.length > 0;
+    });
+
+    expect(statusCalledBeforeLogic).toBe(true);
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 });
