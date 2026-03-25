@@ -1,5 +1,9 @@
 import { Type } from "@sinclair/typebox";
 import type { OpenClawConfig } from "../../config/config.js";
+import {
+  describeImageWithModel,
+  describeImagesWithModel,
+} from "../../media-understanding/image.js";
 import { getMediaUnderstandingProvider } from "../../media-understanding/provider-registry.js";
 import { buildProviderRegistry } from "../../media-understanding/runner.js";
 import { loadWebMedia } from "../../media/web-media.js";
@@ -164,9 +168,44 @@ async function runImagePrompt(params: {
         provider,
         providerRegistry as Map<string, MediaUnderstandingProvider>,
       );
+
+      // When no media-understanding provider is registered (custom/self-hosted
+      // providers like vllm, nvidia-api, iflow), fall back to the generic
+      // model-based image description — same pattern as runner.entries.ts.
       if (!imageProvider) {
-        throw new Error(`No media-understanding provider registered for ${provider}`);
+        if (params.images.length > 1) {
+          const described = await describeImagesWithModel({
+            images: params.images.map((image, index) => ({
+              buffer: image.buffer,
+              fileName: `image-${index + 1}`,
+              mime: image.mimeType,
+            })),
+            provider,
+            model: modelId,
+            prompt: params.prompt,
+            maxTokens: resolveImageToolMaxTokens(undefined),
+            timeoutMs: 30_000,
+            cfg: providerCfg,
+            agentDir: params.agentDir,
+          });
+          return { text: described.text, provider, model: described.model ?? modelId };
+        }
+        const image = params.images[0];
+        const described = await describeImageWithModel({
+          buffer: image.buffer,
+          fileName: "image-1",
+          mime: image.mimeType,
+          provider,
+          model: modelId,
+          prompt: params.prompt,
+          maxTokens: resolveImageToolMaxTokens(undefined),
+          timeoutMs: 30_000,
+          cfg: providerCfg,
+          agentDir: params.agentDir,
+        });
+        return { text: described.text, provider, model: described.model ?? modelId };
       }
+
       if (params.images.length > 1 && imageProvider.describeImages) {
         const described = await imageProvider.describeImages({
           images: params.images.map((image, index) => ({
