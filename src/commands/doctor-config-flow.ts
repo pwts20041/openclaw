@@ -7,8 +7,12 @@ import { noteOpencodeProviderOverrides } from "./doctor-config-analysis.js";
 import { runDoctorConfigPreflight } from "./doctor-config-preflight.js";
 import { normalizeCompatibilityConfigValues } from "./doctor-legacy-config.js";
 import type { DoctorOptions } from "./doctor-prompter.js";
+import { emitDoctorNotes } from "./doctor/emit-notes.js";
 import { finalizeDoctorConfigFlow } from "./doctor/finalize-config-flow.js";
-import { runMatrixDoctorSequence } from "./doctor/providers/matrix.js";
+import {
+  cleanStaleMatrixPluginConfig,
+  runMatrixDoctorSequence,
+} from "./doctor/providers/matrix.js";
 import { runDoctorRepairSequence } from "./doctor/repair-sequencing.js";
 import {
   applyLegacyCompatibilityStep,
@@ -80,11 +84,21 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
     env: process.env,
     shouldRepair,
   });
-  for (const change of matrixSequence.changeNotes) {
-    note(change, "Doctor changes");
-  }
-  for (const warning of matrixSequence.warningNotes) {
-    note(warning, "Doctor warnings");
+  emitDoctorNotes({
+    note,
+    changeNotes: matrixSequence.changeNotes,
+    warningNotes: matrixSequence.warningNotes,
+  });
+
+  const staleMatrixCleanup = await cleanStaleMatrixPluginConfig(candidate);
+  if (staleMatrixCleanup.changes.length > 0) {
+    note(staleMatrixCleanup.changes.join("\n"), "Doctor changes");
+    ({ cfg, candidate, pendingChanges, fixHints } = applyDoctorConfigMutation({
+      state: { cfg, candidate, pendingChanges, fixHints },
+      mutation: staleMatrixCleanup,
+      shouldRepair,
+      fixHint: `Run "${doctorFixCommand}" to remove stale Matrix plugin references.`,
+    }));
   }
 
   const missingDefaultAccountBindingWarnings =
@@ -103,19 +117,19 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
       doctorFixCommand,
     });
     ({ cfg, candidate, pendingChanges, fixHints } = repairSequence.state);
-    for (const change of repairSequence.changeNotes) {
-      note(change, "Doctor changes");
-    }
-    for (const warning of repairSequence.warningNotes) {
-      note(warning, "Doctor warnings");
-    }
+    emitDoctorNotes({
+      note,
+      changeNotes: repairSequence.changeNotes,
+      warningNotes: repairSequence.warningNotes,
+    });
   } else {
-    for (const warning of collectDoctorPreviewWarnings({
-      cfg: candidate,
-      doctorFixCommand,
-    })) {
-      note(warning, "Doctor warnings");
-    }
+    emitDoctorNotes({
+      note,
+      warningNotes: collectDoctorPreviewWarnings({
+        cfg: candidate,
+        doctorFixCommand,
+      }),
+    });
   }
 
   const mutableAllowlistHits = scanMutableAllowlistEntries(candidate);
