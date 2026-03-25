@@ -4,8 +4,11 @@ import type { OpenClawConfig } from "../config/config.js";
 import { resolveMainSessionKey } from "../config/sessions.js";
 import { isCronSystemEvent } from "./heartbeat-runner.js";
 import {
+  drainSystemEventEntries,
   enqueueSystemEvent,
+  hasSystemEvents,
   MAX_EVENTS,
+  peekSystemEventEntries,
   peekSystemEvents,
   resetSystemEventsForTest,
   resolveSystemEventDeliveryContext,
