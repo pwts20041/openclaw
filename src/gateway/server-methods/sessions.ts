@@ -1359,19 +1359,25 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
 
     const result = await executeCompaction(p.instructions);
+    if (!result.ok) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.UNAVAILABLE, result.reason ?? "Compaction failed"),
+      );
+      return;
+    }
     respond(
       true,
       {
-        ok: result.ok,
+        ok: true,
         compacted: result.compacted,
         ...(result.result?.tokensBefore != null
           ? { tokensBefore: result.result.tokensBefore }
           : {}),
         ...(result.result?.tokensAfter != null ? { tokensAfter: result.result.tokensAfter } : {}),
       },
-      result.ok
-        ? undefined
-        : errorShape(ErrorCodes.UNAVAILABLE, result.reason ?? "Compaction failed"),
+      undefined,
     );
   },
 };
