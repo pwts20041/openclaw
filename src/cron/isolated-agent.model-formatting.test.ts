@@ -147,7 +147,6 @@ describe("cron model formatting and precedence edge cases", () => {
       return "error" in parsed ? parsed : { ref: parsed };
     });
   });
-
   describe("parseModelRef formatting", () => {
     it("splits standard provider/model", async () => {
       await expectSelectedModel(

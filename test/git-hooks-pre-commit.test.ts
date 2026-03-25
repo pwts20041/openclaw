@@ -38,6 +38,11 @@ describe("git-hooks/pre-commit (integration)", () => {
       path.join(dir, "git-hooks", "pre-commit"),
     );
     writeFileSync(
+      path.join(dir, "package.json"),
+      `${JSON.stringify({ name: "openclaw-pre-commit-test", private: true }, null, 2)}\n`,
+      "utf8",
+    );
+    writeFileSync(
       path.join(dir, "scripts", "pre-commit", "run-node-tool.sh"),
       "#!/usr/bin/env bash\nexit 0\n",
       {
@@ -56,6 +61,9 @@ describe("git-hooks/pre-commit (integration)", () => {
     // The hook ends with `pnpm check`, but this fixture is only exercising staged-file handling.
     // Stub pnpm too so Windows CI does not invoke a real package-manager command in the temp repo.
     writeExecutable(fakeBinDir, "pnpm", "#!/usr/bin/env bash\nexit 0\n");
+    writeFileSync(path.join(fakeBinDir, "pnpm.cmd"), "@echo off\r\nexit /b 0\r\n", {
+      encoding: "utf8",
+    });
 
     // Create an untracked file that should NOT be staged by the hook.
     writeFileSync(path.join(dir, "secret.txt"), "do-not-stage\n", "utf8");
