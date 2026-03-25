@@ -1376,6 +1376,7 @@ export async function runSubagentAnnounceFlow(params: {
   wakeOnDescendantSettle?: boolean;
   signal?: AbortSignal;
   bestEffortDeliver?: boolean;
+  maxAnnounceChars?: number;
 }): Promise<boolean> {
   let didAnnounce = false;
   const expectsCompletionMessage = params.expectsCompletionMessage === true;
@@ -1608,6 +1609,17 @@ export async function runSubagentAnnounceFlow(params: {
       startedAt: params.startedAt,
       endedAt: params.endedAt,
     });
+
+    // Apply maxAnnounceChars truncation if specified
+    const TRUNCATION_MARKER = "\n\n[truncated — full output in transcript]";
+    const truncatedFindings =
+      typeof params.maxAnnounceChars === "number" &&
+      params.maxAnnounceChars >= 1 &&
+      findings.length > params.maxAnnounceChars
+        ? findings.slice(0, Math.max(0, params.maxAnnounceChars - TRUNCATION_MARKER.length)) +
+          TRUNCATION_MARKER
+        : findings;
+
     const internalEvents: AgentInternalEvent[] = [
       {
         type: "task_completion",
@@ -1618,7 +1630,7 @@ export async function runSubagentAnnounceFlow(params: {
         taskLabel,
         status: outcome.status,
         statusLabel,
-        result: findings,
+        result: truncatedFindings,
         statsLine,
         replyInstruction,
       },

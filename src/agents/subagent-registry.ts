@@ -677,6 +677,7 @@ function startSubagentAnnounceCleanupFlow(runId: string, entry: SubagentRunRecor
     spawnMode: entry.spawnMode,
     expectsCompletionMessage: entry.expectsCompletionMessage,
     wakeOnDescendantSettle: entry.wakeOnDescendantSettle === true,
+    maxAnnounceChars: entry.maxAnnounceChars,
   })
     .then((didAnnounce) => {
       finalizeAnnounceCleanup(didAnnounce);
@@ -1407,6 +1408,7 @@ export function registerSubagentRun(params: {
   runTimeoutSeconds?: number;
   expectsCompletionMessage?: boolean;
   spawnMode?: "run" | "session";
+  maxAnnounceChars?: number;
   attachmentsDir?: string;
   attachmentsRootDir?: string;
   retainAttachmentsOnKeep?: boolean;
@@ -1446,6 +1448,10 @@ export function registerSubagentRun(params: {
     archiveAtMs,
     cleanupHandled: false,
     wakeOnDescendantSettle: undefined,
+    maxAnnounceChars:
+      typeof params.maxAnnounceChars === "number" && Number.isFinite(params.maxAnnounceChars)
+        ? Math.max(1, Math.floor(params.maxAnnounceChars))
+        : undefined,
     attachmentsDir: params.attachmentsDir,
     attachmentsRootDir: params.attachmentsRootDir,
     retainAttachmentsOnKeep: params.retainAttachmentsOnKeep,
