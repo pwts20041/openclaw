@@ -313,10 +313,10 @@ export async function deliverAgentCommandResult(params: {
         });
         deliverySucceeded = results.length > 0;
       } catch (err) {
-        logDeliveryError(err);
         if (!bestEffortDeliver) {
           throw err;
         }
+        logDeliveryError(err);
       }
     }
   }
