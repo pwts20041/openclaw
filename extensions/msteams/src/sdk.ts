@@ -72,19 +72,14 @@ export function createMSTeamsApp(creds: MSTeamsCredentials, sdk: MSTeamsTeamsSdk
   return createFederatedApp(creds, sdk);
 }
 
-function createFederatedApp(
-  creds: MSTeamsFederatedCredentials,
-  sdk: MSTeamsTeamsSdk,
-): MSTeamsApp {
+function createFederatedApp(creds: MSTeamsFederatedCredentials, sdk: MSTeamsTeamsSdk): MSTeamsApp {
   if (creds.useManagedIdentity) {
     return createManagedIdentityApp(creds, sdk);
   }
 
   // Certificate-based auth
   if (!creds.certificatePath) {
-    throw new Error(
-      "Federated credentials require either a certificate path or managed identity.",
-    );
+    throw new Error("Federated credentials require either a certificate path or managed identity.");
   }
 
   const privateKey = fs.readFileSync(creds.certificatePath, "utf-8");
@@ -104,19 +99,13 @@ function createManagedIdentityApp(
   sdk: MSTeamsTeamsSdk,
 ): MSTeamsApp {
   const tokenProvider = async (): Promise<string> => {
-    const azureIdentity: typeof import("@azure/identity") = await import(
-      "@azure/identity"
-    );
+    const azureIdentity: typeof import("@azure/identity") = await import("@azure/identity");
 
     const credential = creds.managedIdentityClientId
-      ? new azureIdentity.ManagedIdentityCredential(
-          creds.managedIdentityClientId,
-        )
+      ? new azureIdentity.ManagedIdentityCredential(creds.managedIdentityClientId)
       : new azureIdentity.DefaultAzureCredential();
 
-    const token = await credential.getToken(
-      "https://api.botframework.com/.default",
-    );
+    const token = await credential.getToken("https://api.botframework.com/.default");
 
     if (!token?.token) {
       throw new Error("Failed to acquire token via managed identity.");
@@ -128,7 +117,7 @@ function createManagedIdentityApp(
   return new sdk.App({
     clientId: creds.appId,
     tenantId: creds.tenantId,
-    tokenProvider,
+    token: tokenProvider,
   });
 }
 
