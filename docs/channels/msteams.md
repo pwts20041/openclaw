@@ -330,11 +330,11 @@ For AKS deployments using workload identity:
 
 ### Auth type comparison
 
-| Method | Config | Pros | Cons |
-|--------|--------|------|------|
-| **Client secret** | `appPassword` | Simple setup | Secret rotation required, less secure |
-| **Certificate** | `authType: "federated"` + `certificatePath` | No shared secret over network | Certificate management overhead |
-| **Managed Identity** | `authType: "federated"` + `useManagedIdentity` | Passwordless, no secrets to manage | Azure infrastructure required |
+| Method               | Config                                         | Pros                               | Cons                                  |
+| -------------------- | ---------------------------------------------- | ---------------------------------- | ------------------------------------- |
+| **Client secret**    | `appPassword`                                  | Simple setup                       | Secret rotation required, less secure |
+| **Certificate**      | `authType: "federated"` + `certificatePath`    | No shared secret over network      | Certificate management overhead       |
+| **Managed Identity** | `authType: "federated"` + `useManagedIdentity` | Passwordless, no secrets to manage | Azure infrastructure required         |
 
 **Default behavior:** When `authType` is not set, OpenClaw defaults to client secret authentication. Existing configurations continue to work without changes.
 

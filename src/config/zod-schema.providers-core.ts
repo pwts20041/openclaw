@@ -1584,7 +1584,8 @@ export const MSTeamsConfigSchema = z
       if (!value.certificatePath && !value.useManagedIdentity) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: 'When authType is "federated", either certificatePath or useManagedIdentity must be provided.',
+          message:
+            'When authType is "federated", either certificatePath or useManagedIdentity must be provided.',
           path: ["authType"],
         });
       }

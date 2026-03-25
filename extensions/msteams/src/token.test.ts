@@ -5,15 +5,9 @@ import { hasConfiguredMSTeamsCredentials, resolveMSTeamsCredentials } from "./to
 vi.mock("./secret-input.js", () => ({
   normalizeSecretInputString: (v: unknown) =>
     typeof v === "string" && v.trim() ? v.trim() : undefined,
-  normalizeResolvedSecretInputString: (opts: {
-    value: unknown;
-    path: string;
-  }) =>
-    typeof opts.value === "string" && opts.value.trim()
-      ? opts.value.trim()
-      : undefined,
-  hasConfiguredSecretInput: (v: unknown) =>
-    typeof v === "string" && v.trim().length > 0,
+  normalizeResolvedSecretInputString: (opts: { value: unknown; path: string }) =>
+    typeof opts.value === "string" && opts.value.trim() ? opts.value.trim() : undefined,
+  hasConfiguredSecretInput: (v: unknown) => typeof v === "string" && v.trim().length > 0,
 }));
 
 const ENV_KEYS = [
@@ -54,7 +48,12 @@ describe("token – secret credentials", () => {
   it("resolves secret credentials from config", () => {
     const cfg = { appId: "app-id", appPassword: "app-pw", tenantId: "tenant-id" } as any;
     const result = resolveMSTeamsCredentials(cfg);
-    expect(result).toEqual({ type: "secret", appId: "app-id", appPassword: "app-pw", tenantId: "tenant-id" });
+    expect(result).toEqual({
+      type: "secret",
+      appId: "app-id",
+      appPassword: "app-pw",
+      tenantId: "tenant-id",
+    });
   });
 
   it("resolves secret credentials from env vars", () => {
@@ -62,7 +61,12 @@ describe("token – secret credentials", () => {
     process.env.MSTEAMS_APP_PASSWORD = "env-app-pw";
     process.env.MSTEAMS_TENANT_ID = "env-tenant-id";
     const result = resolveMSTeamsCredentials(undefined);
-    expect(result).toEqual({ type: "secret", appId: "env-app-id", appPassword: "env-app-pw", tenantId: "env-tenant-id" });
+    expect(result).toEqual({
+      type: "secret",
+      appId: "env-app-id",
+      appPassword: "env-app-pw",
+      tenantId: "env-tenant-id",
+    });
   });
 
   it("returns undefined when appPassword is missing", () => {
@@ -76,7 +80,12 @@ describe("token – federated credentials (certificate)", () => {
   afterEach(clearEnv);
 
   it("hasConfigured returns true when certificate path is provided", () => {
-    const cfg = { appId: "app-id", tenantId: "tenant-id", authType: "federated", certificatePath: "/cert.pem" } as any;
+    const cfg = {
+      appId: "app-id",
+      tenantId: "tenant-id",
+      authType: "federated",
+      certificatePath: "/cert.pem",
+    } as any;
     expect(hasConfiguredMSTeamsCredentials(cfg)).toBe(true);
   });
 
@@ -86,9 +95,23 @@ describe("token – federated credentials (certificate)", () => {
   });
 
   it("resolves federated credentials with certificate from config", () => {
-    const cfg = { appId: "app-id", tenantId: "tenant-id", authType: "federated", certificatePath: "/cert.pem", certificateThumbprint: "AABBCCDD" } as any;
+    const cfg = {
+      appId: "app-id",
+      tenantId: "tenant-id",
+      authType: "federated",
+      certificatePath: "/cert.pem",
+      certificateThumbprint: "AABBCCDD",
+    } as any;
     const result = resolveMSTeamsCredentials(cfg);
-    expect(result).toEqual({ type: "federated", appId: "app-id", tenantId: "tenant-id", certificatePath: "/cert.pem", certificateThumbprint: "AABBCCDD", useManagedIdentity: undefined, managedIdentityClientId: undefined });
+    expect(result).toEqual({
+      type: "federated",
+      appId: "app-id",
+      tenantId: "tenant-id",
+      certificatePath: "/cert.pem",
+      certificateThumbprint: "AABBCCDD",
+      useManagedIdentity: undefined,
+      managedIdentityClientId: undefined,
+    });
   });
 
   it("resolves federated credentials from env vars", () => {
@@ -98,7 +121,15 @@ describe("token – federated credentials (certificate)", () => {
     process.env.MSTEAMS_CERTIFICATE_PATH = "/env/cert.pem";
     process.env.MSTEAMS_CERTIFICATE_THUMBPRINT = "EEFF0011";
     const result = resolveMSTeamsCredentials(undefined);
-    expect(result).toEqual({ type: "federated", appId: "env-app-id", tenantId: "env-tenant-id", certificatePath: "/env/cert.pem", certificateThumbprint: "EEFF0011", useManagedIdentity: undefined, managedIdentityClientId: undefined });
+    expect(result).toEqual({
+      type: "federated",
+      appId: "env-app-id",
+      tenantId: "env-tenant-id",
+      certificatePath: "/env/cert.pem",
+      certificateThumbprint: "EEFF0011",
+      useManagedIdentity: undefined,
+      managedIdentityClientId: undefined,
+    });
   });
 });
 
@@ -107,15 +138,42 @@ describe("token – federated credentials (managed identity)", () => {
   afterEach(clearEnv);
 
   it("resolves managed identity from config", () => {
-    const cfg = { appId: "app-id", tenantId: "tenant-id", authType: "federated", useManagedIdentity: true, managedIdentityClientId: "mi-client-id" } as any;
+    const cfg = {
+      appId: "app-id",
+      tenantId: "tenant-id",
+      authType: "federated",
+      useManagedIdentity: true,
+      managedIdentityClientId: "mi-client-id",
+    } as any;
     const result = resolveMSTeamsCredentials(cfg);
-    expect(result).toEqual({ type: "federated", appId: "app-id", tenantId: "tenant-id", certificatePath: undefined, certificateThumbprint: undefined, useManagedIdentity: true, managedIdentityClientId: "mi-client-id" });
+    expect(result).toEqual({
+      type: "federated",
+      appId: "app-id",
+      tenantId: "tenant-id",
+      certificatePath: undefined,
+      certificateThumbprint: undefined,
+      useManagedIdentity: true,
+      managedIdentityClientId: "mi-client-id",
+    });
   });
 
   it("resolves system-assigned managed identity (no clientId)", () => {
-    const cfg = { appId: "app-id", tenantId: "tenant-id", authType: "federated", useManagedIdentity: true } as any;
+    const cfg = {
+      appId: "app-id",
+      tenantId: "tenant-id",
+      authType: "federated",
+      useManagedIdentity: true,
+    } as any;
     const result = resolveMSTeamsCredentials(cfg);
-    expect(result).toEqual({ type: "federated", appId: "app-id", tenantId: "tenant-id", certificatePath: undefined, certificateThumbprint: undefined, useManagedIdentity: true, managedIdentityClientId: undefined });
+    expect(result).toEqual({
+      type: "federated",
+      appId: "app-id",
+      tenantId: "tenant-id",
+      certificatePath: undefined,
+      certificateThumbprint: undefined,
+      useManagedIdentity: true,
+      managedIdentityClientId: undefined,
+    });
   });
 
   it("hasConfigured returns true for managed identity via env", () => {
@@ -139,9 +197,19 @@ describe("token – backward compatibility", () => {
   });
 
   it("explicit authType=secret behaves same as absent", () => {
-    const cfg = { appId: "app-id", appPassword: "pw", tenantId: "tenant-id", authType: "secret" } as any;
+    const cfg = {
+      appId: "app-id",
+      appPassword: "pw",
+      tenantId: "tenant-id",
+      authType: "secret",
+    } as any;
     const result = resolveMSTeamsCredentials(cfg);
-    expect(result).toEqual({ type: "secret", appId: "app-id", appPassword: "pw", tenantId: "tenant-id" });
+    expect(result).toEqual({
+      type: "secret",
+      appId: "app-id",
+      appPassword: "pw",
+      tenantId: "tenant-id",
+    });
   });
 });
 
