@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { sendMessageSignal } from "./send.js";
 
 const rpcMock = vi.fn();
 
-vi.mock("../../../src/config/config.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../src/config/config.js")>();
+vi.mock("openclaw/plugin-sdk/config-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/config-runtime")>();
   return {
     ...actual,
     loadConfig: () => ({}),
@@ -25,9 +24,13 @@ vi.mock("./client.js", () => ({
   signalRpcRequest: (...args: unknown[]) => rpcMock(...args),
 }));
 
+let sendMessageSignal: typeof import("./send.js").sendMessageSignal;
+
 describe("sendMessageSignal", () => {
-  beforeEach(() => {
-    rpcMock.mockReset().mockResolvedValue({ timestamp: 123 });
+  beforeEach(async () => {
+    vi.resetModules();
+    rpcMock.mockClear().mockResolvedValue({ timestamp: 123 });
+    ({ sendMessageSignal } = await import("./send.js"));
   });
 
   it("sends quote-author for group replies when quoteAuthor is available", async () => {
