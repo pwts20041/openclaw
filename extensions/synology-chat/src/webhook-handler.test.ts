@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resolveLegacyWebhookNameToChatUserId, sendMessage } from "./client.js";
+import { resolveLegacyWebhookNameToChatUserId, sendMessage, sendToChannel } from "./client.js";
 import { makeFormBody, makeReq, makeRes, makeStalledReq } from "./test-http-utils.js";
 import type { ResolvedSynologyChatAccount } from "./types.js";
 import type { WebhookHandlerDeps } from "./webhook-handler.js";
@@ -8,9 +8,10 @@ import {
   createWebhookHandler,
 } from "./webhook-handler.js";
 
-// Mock sendMessage and resolveLegacyWebhookNameToChatUserId to prevent real HTTP calls
+// Mock client to prevent real HTTP calls
 vi.mock("./client.js", () => ({
   sendMessage: vi.fn().mockResolvedValue(true),
+  sendToChannel: vi.fn().mockResolvedValue(true),
   resolveLegacyWebhookNameToChatUserId: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -579,5 +580,274 @@ describe("createWebhookHandler", () => {
         commandAuthorized: true,
       }),
     );
+  });
+
+  describe("group message handling", () => {
+    const groupBody = makeFormBody({
+      token: "valid-token",
+      user_id: "123",
+      username: "testuser",
+      text: "@TestBot Hello group",
+      channel_id: "chan1",
+      channel_name: "general",
+    });
+
+    function makeGroupAccount(
+      overrides: Partial<ResolvedSynologyChatAccount> = {},
+    ): ResolvedSynologyChatAccount {
+      return makeAccount({
+        groupPolicy: "open",
+        botName: "TestBot",
+        ...overrides,
+      });
+    }
+
+    beforeEach(() => {
+      vi.mocked(sendMessage).mockClear();
+      vi.mocked(sendToChannel).mockClear();
+    });
+
+    it("sends group reply via sendToChannel, not sendMessage", async () => {
+      const deliver = vi.fn().mockResolvedValue("Group reply");
+      const handler = createWebhookHandler({
+        account: makeGroupAccount({ accountId: "group-reply-test-" + Date.now() }),
+        deliver,
+        log,
+      });
+
+      const req = makeReq("POST", groupBody);
+      const res = makeRes();
+      await handler(req, res);
+
+      expect(res._status).toBe(204);
+      expect(deliver).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chatType: "group",
+          channelId: "chan1",
+        }),
+      );
+      // Group replies must use sendToChannel (no user_ids)
+      expect(sendToChannel).toHaveBeenCalledWith(
+        "https://nas.example.com/incoming",
+        "Group reply",
+        true,
+      );
+      // sendMessage must NOT be used for group replies
+      expect(sendMessage).not.toHaveBeenCalled();
+    });
+
+    it("sends group error reply via sendToChannel", async () => {
+      const deliver = vi.fn().mockRejectedValue(new Error("Agent error"));
+      const handler = createWebhookHandler({
+        account: makeGroupAccount({ accountId: "group-error-test-" + Date.now() }),
+        deliver,
+        log,
+      });
+
+      const req = makeReq("POST", groupBody);
+      const res = makeRes();
+      await handler(req, res);
+
+      expect(sendToChannel).toHaveBeenCalledWith(
+        "https://nas.example.com/incoming",
+        "Sorry, an error occurred while processing your message.",
+        true,
+      );
+      expect(sendMessage).not.toHaveBeenCalled();
+    });
+
+    it("uses per-channel incomingUrl for group replies", async () => {
+      const deliver = vi.fn().mockResolvedValue("Channel reply");
+      const handler = createWebhookHandler({
+        account: makeGroupAccount({
+          accountId: "group-channel-url-test-" + Date.now(),
+          channels: {
+            chan1: { incomingUrl: "https://nas.example.com/channel-webhook" },
+          },
+        }),
+        deliver,
+        log,
+      });
+
+      const req = makeReq("POST", groupBody);
+      const res = makeRes();
+      await handler(req, res);
+
+      expect(sendToChannel).toHaveBeenCalledWith(
+        "https://nas.example.com/channel-webhook",
+        "Channel reply",
+        true,
+      );
+    });
+
+    it("returns 204 (silent drop) when groupPolicy is disabled", async () => {
+      const deliver = vi.fn();
+      const handler = createWebhookHandler({
+        account: makeGroupAccount({
+          accountId: "group-disabled-test-" + Date.now(),
+          groupPolicy: "disabled",
+        }),
+        deliver,
+        log,
+      });
+
+      const req = makeReq("POST", groupBody);
+      const res = makeRes();
+      await handler(req, res);
+
+      // Must be 204 (silent ACK), not 403 (which causes Synology to retry)
+      expect(res._status).toBe(204);
+      expect(deliver).not.toHaveBeenCalled();
+    });
+
+    it("drops message silently when requireMention is true and bot not mentioned", async () => {
+      const deliver = vi.fn();
+      const noMentionBody = makeFormBody({
+        token: "valid-token",
+        user_id: "123",
+        username: "testuser",
+        text: "Hello everyone, how are you?",
+        channel_id: "chan1",
+      });
+
+      const handler = createWebhookHandler({
+        account: makeGroupAccount({
+          accountId: "require-mention-test-" + Date.now(),
+          channels: {
+            chan1: { requireMention: true },
+          },
+        }),
+        deliver,
+        log,
+      });
+
+      const req = makeReq("POST", noMentionBody);
+      const res = makeRes();
+      await handler(req, res);
+
+      // Silent drop — bot not mentioned
+      expect(res._status).toBe(204);
+      expect(deliver).not.toHaveBeenCalled();
+    });
+
+    it("processes message when requireMention is true and bot IS mentioned", async () => {
+      const deliver = vi.fn().mockResolvedValue(null);
+      const mentionBody = makeFormBody({
+        token: "valid-token",
+        user_id: "123",
+        username: "testuser",
+        text: "@TestBot what is the weather?",
+        channel_id: "chan1",
+      });
+
+      const handler = createWebhookHandler({
+        account: makeGroupAccount({
+          accountId: "mention-present-test-" + Date.now(),
+          channels: {
+            chan1: { requireMention: true },
+          },
+        }),
+        deliver,
+        log,
+      });
+
+      const req = makeReq("POST", mentionBody);
+      const res = makeRes();
+      await handler(req, res);
+
+      expect(res._status).toBe(204);
+      expect(deliver).toHaveBeenCalled();
+    });
+
+    it("uses wildcard '*' channel URL when no exact channel match", async () => {
+      const deliver = vi.fn().mockResolvedValue("Wildcard reply");
+      const handler = createWebhookHandler({
+        account: makeGroupAccount({
+          accountId: "group-wildcard-url-test-" + Date.now(),
+          channels: {
+            "*": { incomingUrl: "https://nas.example.com/wildcard-webhook" },
+          },
+        }),
+        deliver,
+        log,
+      });
+
+      const req = makeReq("POST", groupBody);
+      const res = makeRes();
+      await handler(req, res);
+
+      expect(sendToChannel).toHaveBeenCalledWith(
+        "https://nas.example.com/wildcard-webhook",
+        "Wildcard reply",
+        true,
+      );
+    });
+
+    it("does not send reply when deliver returns null", async () => {
+      const deliver = vi.fn().mockResolvedValue(null);
+      const handler = createWebhookHandler({
+        account: makeGroupAccount({ accountId: "group-null-reply-test-" + Date.now() }),
+        deliver,
+        log,
+      });
+
+      const req = makeReq("POST", groupBody);
+      const res = makeRes();
+      await handler(req, res);
+
+      expect(res._status).toBe(204);
+      expect(deliver).toHaveBeenCalled();
+      expect(sendToChannel).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
+    });
+
+    it("passes chatUserId as undefined for group messages", async () => {
+      const deliver = vi.fn().mockResolvedValue(null);
+      const handler = createWebhookHandler({
+        account: makeGroupAccount({ accountId: "group-chatUserId-test-" + Date.now() }),
+        deliver,
+        log,
+      });
+
+      const req = makeReq("POST", groupBody);
+      const res = makeRes();
+      await handler(req, res);
+
+      expect(deliver).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chatType: "group",
+          chatUserId: undefined,
+        }),
+      );
+    });
+
+    it("processes all group messages when requireMention is false", async () => {
+      const deliver = vi.fn().mockResolvedValue(null);
+      const noMentionBody = makeFormBody({
+        token: "valid-token",
+        user_id: "123",
+        username: "testuser",
+        text: "Hello everyone, no bot mention here",
+        channel_id: "chan1",
+      });
+
+      const handler = createWebhookHandler({
+        account: makeGroupAccount({
+          accountId: "no-require-mention-test-" + Date.now(),
+          channels: {
+            chan1: { requireMention: false },
+          },
+        }),
+        deliver,
+        log,
+      });
+
+      const req = makeReq("POST", noMentionBody);
+      const res = makeRes();
+      await handler(req, res);
+
+      expect(res._status).toBe(204);
+      expect(deliver).toHaveBeenCalled();
+    });
   });
 });

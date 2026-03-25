@@ -21,7 +21,7 @@ import { createChatChannelPlugin, type ChannelPlugin } from "openclaw/plugin-sdk
 import { createEmptyChannelDirectoryAdapter } from "openclaw/plugin-sdk/directory-runtime";
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/setup";
 import { listAccountIds, resolveAccount } from "./accounts.js";
-import { sendMessage, sendToChannel, sendFileUrl } from "./client.js";
+import { sendMessage, sendToChannel, sendFileUrl, sendFileUrlToChannel } from "./client.js";
 import { SynologyChatChannelConfigSchema } from "./config-schema.js";
 import {
   collectSynologyGatewayRoutingWarnings,
@@ -361,7 +361,19 @@ export function createSynologyChatPlugin(): SynologyChatPlugin {
           throw new Error("No media URL provided");
         }
 
-        const ok = await sendFileUrl(incomingUrl, mediaUrl, to, account.allowInsecureSsl);
+        const normalizedTo = String(to).replace(/^synology[-_]?chat:/i, "");
+
+        // Route group media to channel incoming URL (no user_ids)
+        if (normalizedTo.startsWith("channel:") || normalizedTo.startsWith("group:")) {
+          const ok = await sendFileUrlToChannel(incomingUrl, mediaUrl, account.allowInsecureSsl);
+          if (!ok) {
+            throw new Error("Failed to send media to Synology Chat channel");
+          }
+          return attachChannelToResult(CHANNEL_ID, { messageId: `sc-${Date.now()}`, chatId: to });
+        }
+
+        // DM: send to user with user_ids
+        const ok = await sendFileUrl(incomingUrl, mediaUrl, normalizedTo, account.allowInsecureSsl);
         if (!ok) {
           throw new Error("Failed to send media to Synology Chat");
         }
