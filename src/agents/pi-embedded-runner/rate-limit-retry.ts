@@ -20,6 +20,8 @@ export interface PromptRetryContext {
   abortSignal?: AbortSignal;
   provider: string;
   modelId: string;
+  computeBackoff?: (attempt: number) => number;
+  sleepWithAbort?: (delayMs: number, abortSignal?: AbortSignal) => Promise<void>;
 }
 
 function getRetryAfterRaw(headers: unknown): string | undefined {
@@ -72,9 +74,13 @@ export function parseRetryAfterMs(err: unknown): number | undefined {
   return undefined;
 }
 
-async function sleepWithAbortReason(delayMs: number, abortSignal?: AbortSignal) {
+async function sleepWithAbortReason(
+  delayMs: number,
+  abortSignal?: AbortSignal,
+  sleep = sleepWithAbort,
+) {
   try {
-    await sleepWithAbort(delayMs, abortSignal);
+    await sleep(delayMs, abortSignal);
   } catch (err) {
     if (abortSignal?.aborted) {
       // oxlint-disable-next-line preserve-caught-error -- intentional: propagate signal.reason for yield detection
@@ -126,12 +132,13 @@ export async function retryPromptOnRateLimit(ctx: PromptRetryContext): Promise<v
     ctx.rewind();
 
     const retryAfterMs = parseRetryAfterMs(didThrow ? thrownError : terminalFailure?.rawError);
-    const backoffMs = computeBackoff(RATE_LIMIT_RETRY_POLICY, retryCount);
+    const backoffMs =
+      ctx.computeBackoff?.(retryCount) ?? computeBackoff(RATE_LIMIT_RETRY_POLICY, retryCount);
     const delayMs = Math.min(Math.max(retryAfterMs ?? 0, backoffMs), MAX_RETRY_AFTER_MS);
 
     log.warn(
       `[rate-limit-retry] rate-limit from ${ctx.provider}/${ctx.modelId}, retry ${retryCount}/${MAX_RETRIES} in ${delayMs}ms`,
     );
-    await sleepWithAbortReason(delayMs, ctx.abortSignal);
+    await sleepWithAbortReason(delayMs, ctx.abortSignal, ctx.sleepWithAbort);
   }
 }

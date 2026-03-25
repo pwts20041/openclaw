@@ -6,6 +6,8 @@ import {
   createAgentSession,
   DefaultResourceLoader,
   SessionManager,
+  type AgentSession,
+  type PromptOptions,
 } from "@mariozechner/pi-coding-agent";
 import {
   resolveTelegramInlineButtonsScope,
@@ -214,6 +216,67 @@ export {
   wrapStreamFnSanitizeMalformedToolCalls,
   wrapStreamFnTrimToolCallNames,
 } from "./attempt.tool-call-normalization.js";
+
+type RetryablePromptSession = {
+  prompt: AgentSession["prompt"];
+  messages: AgentSession["messages"];
+  agent: Pick<AgentSession["agent"], "replaceMessages">;
+};
+
+export async function runPromptWithRateLimitRetry(params: {
+  activeSession: RetryablePromptSession;
+  effectivePrompt: string;
+  images: NonNullable<PromptOptions["images"]>;
+  abortable: <T>(promise: Promise<T>) => Promise<T>;
+  assistantTexts: string[];
+  toolMetas: Array<unknown>;
+  didSendViaMessagingTool: () => boolean;
+  getSuccessfulCronAdds: () => number;
+  abortSignal?: AbortSignal;
+  provider: string;
+  modelId: string;
+}) {
+  const preRetryMessages = params.activeSession.messages.slice();
+  await retryPromptOnRateLimit({
+    prompt: () =>
+      params.images.length > 0
+        ? params.abortable(
+            params.activeSession.prompt(params.effectivePrompt, { images: params.images }),
+          )
+        : params.abortable(params.activeSession.prompt(params.effectivePrompt)),
+    classifyTerminalFailure: () => {
+      const messages = params.activeSession.messages;
+      if (messages.length <= preRetryMessages.length) {
+        return null;
+      }
+      const last = messages[messages.length - 1];
+      if (last?.role !== "assistant") {
+        return null;
+      }
+      if (last.stopReason !== "error") {
+        return null;
+      }
+      const reason = classifyFailoverReason(last.errorMessage ?? "");
+      return {
+        isRateLimit: reason === "rate_limit",
+        rawError: last,
+      };
+    },
+    isReplaySafe: () =>
+      params.assistantTexts.length === 0 &&
+      params.toolMetas.length === 0 &&
+      !params.didSendViaMessagingTool() &&
+      params.getSuccessfulCronAdds() === 0,
+    rewind: () => {
+      if (params.activeSession.messages.length !== preRetryMessages.length) {
+        params.activeSession.agent.replaceMessages(preRetryMessages);
+      }
+    },
+    abortSignal: params.abortSignal,
+    provider: params.provider,
+    modelId: params.modelId,
+  });
+}
 
 const MAX_BTW_SNAPSHOT_MESSAGES = 100;
 
@@ -1487,41 +1550,15 @@ export async function runEmbeddedAttempt(
             inFlightPrompt: effectivePrompt,
           });
 
-          const preRetryMessages = activeSession.messages.slice();
-          await retryPromptOnRateLimit({
-            prompt: () =>
-              imageResult.images.length > 0
-                ? abortable(activeSession.prompt(effectivePrompt, { images: imageResult.images }))
-                : abortable(activeSession.prompt(effectivePrompt)),
-            classifyTerminalFailure: () => {
-              const messages = activeSession.messages;
-              if (messages.length <= preRetryMessages.length) {
-                return null;
-              }
-              const last = messages[messages.length - 1];
-              if (last?.role !== "assistant") {
-                return null;
-              }
-              const assistant = last;
-              if (assistant.stopReason !== "error") {
-                return null;
-              }
-              const reason = classifyFailoverReason(assistant.errorMessage ?? "");
-              return {
-                isRateLimit: reason === "rate_limit",
-                rawError: assistant,
-              };
-            },
-            isReplaySafe: () =>
-              assistantTexts.length === 0 &&
-              toolMetas.length === 0 &&
-              !didSendViaMessagingTool() &&
-              getSuccessfulCronAdds() === 0,
-            rewind: () => {
-              if (activeSession.messages.length !== preRetryMessages.length) {
-                activeSession.agent.replaceMessages(preRetryMessages);
-              }
-            },
+          await runPromptWithRateLimitRetry({
+            activeSession,
+            effectivePrompt,
+            images: imageResult.images,
+            abortable,
+            assistantTexts,
+            toolMetas,
+            didSendViaMessagingTool,
+            getSuccessfulCronAdds,
             abortSignal: runAbortController.signal,
             provider: params.provider,
             modelId: params.modelId,

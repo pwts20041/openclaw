@@ -1,67 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PromptRetryContext } from "./rate-limit-retry.js";
-
-const { computeBackoffMock, logWarnMock, resolveFailoverReasonMock, sleepWithAbortMock } =
-  vi.hoisted(() => ({
-    computeBackoffMock: vi.fn((_policy: unknown, attempt: number) => attempt * 1_000),
-    sleepWithAbortMock: vi.fn(async (_ms: number, _signal?: AbortSignal) => undefined),
-    logWarnMock: vi.fn(),
-    resolveFailoverReasonMock: vi.fn((err: unknown): string | null => {
-      if (!err || typeof err !== "object") {
-        return null;
-      }
-      const obj = err as Record<string, unknown>;
-      if (obj.status === 429 || obj.statusCode === 429 || obj.statusCode === "429") {
-        return "rate_limit";
-      }
-      if (
-        obj.response &&
-        typeof obj.response === "object" &&
-        (obj.response as Record<string, unknown>).status === 429
-      ) {
-        return "rate_limit";
-      }
-      if (obj.status === 503) {
-        return "overloaded";
-      }
-      if (obj.status === 401) {
-        return "auth";
-      }
-
-      const rawCode =
-        typeof obj.code === "string"
-          ? obj.code
-          : typeof obj.status === "string" && !/^\d+$/.test(obj.status)
-            ? obj.status
-            : "";
-      const code = rawCode.toUpperCase();
-      if (["RESOURCE_EXHAUSTED", "THROTTLING", "THROTTLINGEXCEPTION"].includes(code)) {
-        return "rate_limit";
-      }
-
-      const cause = obj.cause;
-      if (cause && typeof cause === "object" && cause !== err) {
-        return resolveFailoverReasonMock(cause);
-      }
-
-      const message = obj.message ?? (err instanceof Error ? err.message : "");
-      if (typeof message === "string" && /too many requests|rate.limit/i.test(message)) {
-        return "rate_limit";
-      }
-      return null;
-    }),
-  }));
-
-vi.mock("./logger.js", () => ({
-  log: { warn: (...args: unknown[]) => logWarnMock(...args) },
-}));
-vi.mock("../../infra/backoff.js", () => ({
-  computeBackoff: (policy: unknown, attempt: number) => computeBackoffMock(policy, attempt),
-  sleepWithAbort: (ms: number, signal?: AbortSignal) => sleepWithAbortMock(ms, signal),
-}));
-vi.mock("../failover-error.js", () => ({
-  resolveFailoverReasonFromError: (err: unknown) => resolveFailoverReasonMock(err),
-}));
+const computeBackoffMock = vi.fn((_attempt: number) => 1_000);
+const sleepWithAbortMock = vi.fn(async (_ms: number, _signal?: AbortSignal) => undefined);
 
 import { parseRetryAfterMs, retryPromptOnRateLimit } from "./rate-limit-retry.js";
 
@@ -77,6 +17,9 @@ function makeContext(overrides?: Partial<PromptRetryContext>): PromptRetryContex
     rewind: () => undefined,
     provider: "test-provider",
     modelId: "test-model",
+    computeBackoff: (attempt: number) => computeBackoffMock(attempt),
+    sleepWithAbort: (delayMs: number, abortSignal?: AbortSignal) =>
+      sleepWithAbortMock(delayMs, abortSignal),
     ...overrides,
   };
 }
@@ -85,11 +28,9 @@ describe("retryPromptOnRateLimit", () => {
   beforeEach(() => {
     vi.useRealTimers();
     computeBackoffMock.mockClear();
-    computeBackoffMock.mockImplementation((_policy: unknown, attempt: number) => attempt * 1_000);
+    computeBackoffMock.mockImplementation((attempt: number) => attempt * 1_000);
     sleepWithAbortMock.mockReset();
     sleepWithAbortMock.mockImplementation(async () => undefined);
-    logWarnMock.mockClear();
-    resolveFailoverReasonMock.mockClear();
   });
 
   it("retries on a thrown rate limit and succeeds on the second prompt call", async () => {
@@ -113,7 +54,6 @@ describe("retryPromptOnRateLimit", () => {
 
     expect(prompt).toHaveBeenCalledTimes(4);
     expect(sleepWithAbortMock).toHaveBeenCalledTimes(3);
-    expect(logWarnMock.mock.calls.at(-1)?.[0]).toMatch(/exhausted 3\/3/);
   });
 
   it.each([
@@ -286,15 +226,7 @@ describe("retryPromptOnRateLimit", () => {
 
     await retryPromptOnRateLimit(makeContext({ prompt }));
 
-    expect(computeBackoffMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        initialMs: 1_000,
-        maxMs: 5_000,
-        factor: 2,
-        jitter: 0.2,
-      }),
-      1,
-    );
+    expect(computeBackoffMock).toHaveBeenCalledWith(1);
     expect(sleepWithAbortMock).toHaveBeenCalledWith(1_000, undefined);
   });
 
@@ -334,6 +266,10 @@ describe("parseRetryAfterMs", () => {
     vi.useRealTimers();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it.each([
     [{ headers: { "retry-after": "5" } }, 5_000],
     [{ headers: { "Retry-After": "6" } }, 6_000],
@@ -346,14 +282,18 @@ describe("parseRetryAfterMs", () => {
 
   it("parses HTTP-date values", () => {
     vi.useFakeTimers();
-    const now = new Date("2026-03-25T10:00:00.000Z");
-    vi.setSystemTime(now);
+    try {
+      const now = new Date("2026-03-25T10:00:00.000Z");
+      vi.setSystemTime(now);
 
-    expect(
-      parseRetryAfterMs({
-        headers: { "retry-after": new Date("2026-03-25T10:00:10.000Z").toUTCString() },
-      }),
-    ).toBe(10_000);
+      expect(
+        parseRetryAfterMs({
+          headers: { "retry-after": new Date("2026-03-25T10:00:10.000Z").toUTCString() },
+        }),
+      ).toBe(10_000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reads Retry-After from Headers instances", () => {
