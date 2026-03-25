@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionBindingRecord } from "../../infra/outbound/session-binding-service.js";
-import type { PluginTargetedInboundClaimOutcome } from "../../plugins/hooks.js";
+import type {
+  PluginHookBeforeMessageProcessResult,
+  PluginTargetedInboundClaimOutcome,
+} from "../../plugins/hooks.js";
 import { setActivePluginRegistry } from "../../plugins/runtime.js";
 import {
   createChannelTestPluginBase,
@@ -42,6 +45,9 @@ const hookMocks = vi.hoisted(() => ({
       async () => ({ status: "no_handler" as const }),
     ),
     runMessageReceived: vi.fn(async () => {}),
+    runBeforeMessageProcess: vi.fn<() => Promise<PluginHookBeforeMessageProcessResult | undefined>>(
+      async () => undefined,
+    ),
   },
 }));
 const internalHookMocks = vi.hoisted(() => ({
@@ -331,6 +337,8 @@ describe("dispatchReplyFromConfig", () => {
       status: "no_handler",
     });
     hookMocks.runner.runMessageReceived.mockClear();
+    hookMocks.runner.runBeforeMessageProcess.mockClear();
+    hookMocks.runner.runBeforeMessageProcess.mockResolvedValue(undefined);
     hookMocks.registry.plugins = [];
     internalHookMocks.createInternalHookEvent.mockClear();
     internalHookMocks.createInternalHookEvent.mockImplementation(createInternalHookEventPayload);
@@ -2721,5 +2729,170 @@ describe("dispatchReplyFromConfig", () => {
     await dispatchReplyFromConfig({ ctx, cfg: emptyConfig, dispatcher, replyResolver });
     expect(blockReplySentTexts).not.toContain("Reasoning:\n_thinking..._");
     expect(blockReplySentTexts).toContain("The answer is 42");
+  });
+
+  it("skips AI agent when before_message_process hook returns handled:true", async () => {
+    setNoAbort();
+    hookMocks.runner.hasHooks.mockImplementation(
+      ((hookName?: string) => hookName === "before_message_process") as () => boolean,
+    );
+    hookMocks.runner.runBeforeMessageProcess.mockResolvedValue({
+      handled: true,
+      reason: "forwarded to external system",
+    });
+    const cfg = emptyConfig;
+    const dispatcher = createDispatcher();
+    const ctx = buildTestCtx({
+      Provider: "telegram",
+      Surface: "telegram",
+      From: "telegram:user:42",
+      Body: "Hello",
+      BodyForCommands: "Hello",
+      AccountId: "main",
+      SessionKey: "agent:main:telegram:direct:42",
+    });
+    const replyResolver = vi.fn(async () => ({ text: "ai reply" }) as ReplyPayload);
+
+    const result = await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
+
+    expect(replyResolver).not.toHaveBeenCalled();
+    expect(dispatcher.sendFinalReply).not.toHaveBeenCalled();
+    expect(result).toEqual({ queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } });
+  });
+
+  it("calls AI agent when before_message_process hook returns undefined", async () => {
+    setNoAbort();
+    hookMocks.runner.hasHooks.mockImplementation(
+      ((hookName?: string) => hookName === "before_message_process") as () => boolean,
+    );
+    hookMocks.runner.runBeforeMessageProcess.mockResolvedValue(undefined);
+    const cfg = emptyConfig;
+    const dispatcher = createDispatcher();
+    const ctx = buildTestCtx({
+      Provider: "telegram",
+      Surface: "telegram",
+      Body: "Hello",
+      BodyForCommands: "Hello",
+    });
+    const replyResolver = vi.fn(async () => ({ text: "ai reply" }) as ReplyPayload);
+
+    await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
+
+    expect(replyResolver).toHaveBeenCalledTimes(1);
+    expect(dispatcher.sendFinalReply).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "ai reply" }),
+    );
+  });
+
+  it("calls AI agent when before_message_process hook returns undefined", async () => {
+    setNoAbort();
+    hookMocks.runner.hasHooks.mockImplementation(
+      ((hookName?: string) => hookName === "before_message_process") as () => boolean,
+    );
+    hookMocks.runner.runBeforeMessageProcess.mockResolvedValue(undefined);
+    const cfg = emptyConfig;
+    const dispatcher = createDispatcher();
+    const ctx = buildTestCtx({
+      Provider: "telegram",
+      Body: "Hello",
+      BodyForCommands: "Hello",
+    });
+    const replyResolver = vi.fn(async () => ({ text: "ai reply" }) as ReplyPayload);
+
+    await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
+
+    expect(replyResolver).toHaveBeenCalledTimes(1);
+    expect(dispatcher.sendFinalReply).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "ai reply" }),
+    );
+  });
+
+  it("passes correct event fields to before_message_process hook", async () => {
+    setNoAbort();
+    hookMocks.runner.hasHooks.mockImplementation(
+      ((hookName?: string) => hookName === "before_message_process") as () => boolean,
+    );
+    const cfg = emptyConfig;
+    const dispatcher = createDispatcher();
+    const ctx = buildTestCtx({
+      Provider: "telegram",
+      Surface: "telegram",
+      From: "telegram:user:99",
+      Body: "body text",
+      BodyForAgent: "[Audio] Transcript: hi",
+      BodyForCommands: "normalized text",
+      Transcript: "hi",
+      Timestamp: 1710000001000,
+      SenderId: "uid-99",
+      SenderName: "Bob",
+      MessageSid: "msg-bmp-1",
+      AccountId: "acc-2",
+      OriginatingTo: "telegram:99",
+    });
+    const replyResolver = vi.fn(async () => ({ text: "ok" }) as ReplyPayload);
+
+    await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
+
+    expect(hookMocks.runner.runBeforeMessageProcess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: ctx.From,
+        content: "normalized text",
+        body: "body text",
+        bodyForAgent: "[Audio] Transcript: hi",
+        transcript: "hi",
+        timestamp: 1710000001000,
+        senderId: "uid-99",
+        senderName: "Bob",
+        isGroup: false,
+        messageId: "msg-bmp-1",
+      }),
+      expect.objectContaining({
+        channelId: "telegram",
+        accountId: "acc-2",
+        conversationId: "telegram:99",
+      }),
+    );
+  });
+
+  it("does not call before_message_process hook when no handlers registered", async () => {
+    setNoAbort();
+    hookMocks.runner.hasHooks.mockReturnValue(false);
+    const cfg = emptyConfig;
+    const dispatcher = createDispatcher();
+    const ctx = buildTestCtx({ Provider: "telegram", Body: "hello" });
+    const replyResolver = vi.fn(async () => ({ text: "ok" }) as ReplyPayload);
+
+    await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
+
+    expect(hookMocks.runner.runBeforeMessageProcess).not.toHaveBeenCalled();
+    expect(replyResolver).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs before_message_process hook even when sendPolicy is deny", async () => {
+    setNoAbort();
+    hookMocks.runner.hasHooks.mockImplementation(
+      ((hookName?: string) => hookName === "before_message_process") as () => boolean,
+    );
+    hookMocks.runner.runBeforeMessageProcess.mockResolvedValue({
+      handled: true,
+      reason: "forwarded to CRM",
+    });
+    const cfg = {
+      session: { sendPolicy: { default: "deny" } },
+    } as OpenClawConfig;
+    const dispatcher = createDispatcher();
+    const ctx = buildTestCtx({
+      Provider: "telegram",
+      Body: "Hello",
+      BodyForCommands: "Hello",
+    });
+    const replyResolver = vi.fn(async () => ({ text: "ai reply" }) as ReplyPayload);
+
+    const result = await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
+
+    expect(hookMocks.runner.runBeforeMessageProcess).toHaveBeenCalledTimes(1);
+    expect(replyResolver).not.toHaveBeenCalled();
+    expect(dispatcher.sendFinalReply).not.toHaveBeenCalled();
+    expect(result).toEqual({ queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } });
   });
 });

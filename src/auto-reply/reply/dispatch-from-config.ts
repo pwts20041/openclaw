@@ -485,6 +485,36 @@ export async function dispatchReplyFromConfig(params: {
       return { queuedFinal, counts };
     }
 
+    // Run before_message_process hook — fires before send-policy gating and ACP dispatch,
+    // so plugins can intercept or forward messages even when the AI agent is disabled
+    // (e.g. /send off or config-level send policy deny).
+    // The first handler returning { handled: true } short-circuits all subsequent processing.
+    if (hookRunner?.hasHooks("before_message_process")) {
+      const interceptResult = await hookRunner.runBeforeMessageProcess(
+        {
+          from: hookContext.from,
+          content: hookContext.content,
+          body: hookContext.body,
+          bodyForAgent: hookContext.bodyForAgent,
+          transcript: hookContext.transcript,
+          timestamp: hookContext.timestamp,
+          senderId: hookContext.senderId,
+          senderName: hookContext.senderName,
+          isGroup: hookContext.isGroup,
+          messageId: hookContext.messageId,
+        },
+        toPluginMessageContext(hookContext),
+      );
+      if (interceptResult?.handled) {
+        logVerbose(
+          `dispatch-from-config: message intercepted by before_message_process hook${interceptResult.reason ? `: ${interceptResult.reason}` : ""}`,
+        );
+        recordProcessed("completed", { reason: "before_message_process_handled" });
+        markIdle("message_completed");
+        return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
+      }
+    }
+
     const dispatchAcpRuntime = await loadDispatchAcpRuntime();
     const bypassAcpForCommand = dispatchAcpRuntime.shouldBypassAcpDispatchForCommand(ctx, cfg);
 

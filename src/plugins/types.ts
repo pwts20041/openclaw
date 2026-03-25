@@ -1411,6 +1411,7 @@ export type PluginHookName =
   | "before_reset"
   | "inbound_claim"
   | "message_received"
+  | "before_message_process"
   | "message_sending"
   | "message_sent"
   | "before_tool_call"
@@ -1438,6 +1439,7 @@ export const PLUGIN_HOOK_NAMES = [
   "before_reset",
   "inbound_claim",
   "message_received",
+  "before_message_process",
   "message_sending",
   "message_sent",
   "before_tool_call",
@@ -1682,6 +1684,42 @@ export type PluginHookMessageReceivedEvent = {
   content: string;
   timestamp?: number;
   metadata?: Record<string, unknown>;
+};
+
+// before_message_process hook — fires after message routing, before AI agent processes the message.
+// Return { handled: true } to intercept the message and prevent AI agent processing.
+export type PluginHookBeforeMessageProcessEvent = {
+  /** Sender identifier (e.g. phone number, user ID) */
+  from: string;
+  /**
+   * Command-oriented text derived from BodyForCommands.
+   * May be a placeholder like `<media:audio>` for transcribed voice turns.
+   * For reliable intent detection, prefer `bodyForAgent ?? transcript ?? content`.
+   */
+  content: string;
+  /** Raw message body from the channel, if available */
+  body?: string;
+  /** Body prepared for the agent (e.g. with audio transcript injected) */
+  bodyForAgent?: string;
+  /** Transcribed audio text, if the message contained audio */
+  transcript?: string;
+  /** Unix timestamp (ms) when the message was received */
+  timestamp?: number;
+  /** Provider-level sender ID */
+  senderId?: string;
+  /** Human-readable sender name */
+  senderName?: string;
+  /** Whether this message arrived in a group/channel context */
+  isGroup: boolean;
+  /** Provider message ID */
+  messageId?: string;
+};
+
+export type PluginHookBeforeMessageProcessResult = {
+  /** Set to true to intercept the message — AI agent will not process it */
+  handled: true;
+  /** Optional description logged when the message is intercepted */
+  reason?: string;
 };
 
 // message_sending hook
@@ -1940,6 +1978,13 @@ export type PluginHookHandlerMap = {
     event: PluginHookMessageReceivedEvent,
     ctx: PluginHookMessageContext,
   ) => Promise<void> | void;
+  before_message_process: (
+    event: PluginHookBeforeMessageProcessEvent,
+    ctx: PluginHookMessageContext,
+  ) =>
+    | Promise<PluginHookBeforeMessageProcessResult | void>
+    | PluginHookBeforeMessageProcessResult
+    | void;
   message_sending: (
     event: PluginHookMessageSendingEvent,
     ctx: PluginHookMessageContext,

@@ -32,6 +32,8 @@ import type {
   PluginHookGatewayStopEvent,
   PluginHookMessageContext,
   PluginHookMessageReceivedEvent,
+  PluginHookBeforeMessageProcessEvent,
+  PluginHookBeforeMessageProcessResult,
   PluginHookMessageSendingEvent,
   PluginHookMessageSendingResult,
   PluginHookMessageSentEvent,
@@ -75,6 +77,8 @@ export type {
   PluginHookAfterCompactionEvent,
   PluginHookMessageContext,
   PluginHookMessageReceivedEvent,
+  PluginHookBeforeMessageProcessEvent,
+  PluginHookBeforeMessageProcessResult,
   PluginHookMessageSendingEvent,
   PluginHookMessageSendingResult,
   PluginHookMessageSentEvent,
@@ -615,6 +619,24 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
   }
 
   /**
+   * Run before_message_process hook.
+   * Fires after message routing but before the AI agent processes the message.
+   * The first handler that returns { handled: true } intercepts the message;
+   * subsequent handlers are skipped and the AI agent is bypassed.
+   * Runs sequentially in priority order (first-claim wins).
+   */
+  async function runBeforeMessageProcess(
+    event: PluginHookBeforeMessageProcessEvent,
+    ctx: PluginHookMessageContext,
+  ): Promise<PluginHookBeforeMessageProcessResult | undefined> {
+    return runClaimingHook<"before_message_process", PluginHookBeforeMessageProcessResult>(
+      "before_message_process",
+      event,
+      ctx,
+    );
+  }
+
+  /**
    * Run message_sending hook.
    * Allows plugins to modify or cancel outgoing messages.
    * Runs sequentially.
@@ -975,6 +997,7 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
     runInboundClaimForPlugin,
     runInboundClaimForPluginOutcome,
     runMessageReceived,
+    runBeforeMessageProcess,
     runMessageSending,
     runMessageSent,
     // Tool hooks
