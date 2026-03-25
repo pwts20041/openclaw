@@ -1,4 +1,6 @@
+import { loadConfig } from "../config/config.js";
 import type { ExecAsk, ExecSecurity, SystemRunApprovalPlan } from "../infra/exec-approvals.js";
+import { emitStandaloneResearchEvent } from "../research/events/runtime-hooks.js";
 import {
   DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS,
   DEFAULT_APPROVAL_TIMEOUT_MS,
@@ -19,6 +21,8 @@ export type RequestExecApprovalDecisionParams = {
   agentId?: string;
   resolvedPath?: string;
   sessionKey?: string;
+  /** Chat/session UUID for research events (not the approval id). */
+  sessionId?: string;
   turnSourceChannel?: string;
   turnSourceTo?: string;
   turnSourceAccountId?: string;
@@ -47,6 +51,7 @@ function buildExecApprovalRequestToolParams(
     agentId: params.agentId,
     resolvedPath: params.resolvedPath,
     sessionKey: params.sessionKey,
+    sessionId: params.sessionId,
     turnSourceChannel: params.turnSourceChannel,
     turnSourceTo: params.turnSourceTo,
     turnSourceAccountId: params.turnSourceAccountId,
@@ -104,24 +109,93 @@ export async function registerExecApprovalRequest(
   const id = parseString(registrationResult?.id) ?? params.id;
   const expiresAtMs =
     parseExpiresAtMs(registrationResult?.expiresAtMs) ?? Date.now() + DEFAULT_APPROVAL_TIMEOUT_MS;
+  try {
+    const cfg = loadConfig();
+    await emitStandaloneResearchEvent({
+      cfg,
+      runId: id,
+      sessionId: params.sessionId ?? id,
+      sessionKey: params.sessionKey,
+      agentId: params.agentId ?? "default",
+      event: {
+        kind: "approval.request",
+        payload: {
+          approvalId: id,
+          host: params.host,
+          commandSummary: params.command?.slice(0, 200),
+        },
+      },
+    });
+  } catch {
+    // Best-effort telemetry only.
+  }
   if (decision.present) {
     return { id, expiresAtMs, finalDecision: decision.value };
   }
   return { id, expiresAtMs };
 }
 
-export async function waitForExecApprovalDecision(id: string): Promise<string | null> {
+export async function waitForExecApprovalDecision(params: {
+  id: string;
+  sessionKey?: string;
+  agentId?: string;
+  sessionId?: string;
+}): Promise<string | null> {
   try {
     const decisionResult = await callGatewayTool<{ decision: string }>(
       "exec.approval.waitDecision",
       { timeoutMs: DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS },
-      { id },
+      {
+        id: params.id,
+        ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
+        ...(params.agentId ? { agentId: params.agentId } : {}),
+        ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+      },
     );
-    return parseDecision(decisionResult).value;
+    const value = parseDecision(decisionResult).value;
+    try {
+      const cfg = loadConfig();
+      await emitStandaloneResearchEvent({
+        cfg,
+        runId: params.id,
+        sessionId: params.sessionId ?? params.id,
+        sessionKey: params.sessionKey,
+        agentId: params.agentId ?? "default",
+        event: {
+          kind: value && value.startsWith("allow") ? "approval.allow" : "approval.deny",
+          payload: {
+            approvalId: params.id,
+            decision: value ?? undefined,
+            ...(value && value.startsWith("allow")
+              ? {}
+              : { reason: "approval wait resolved deny" }),
+          },
+        },
+      });
+    } catch {
+      // Best-effort telemetry only.
+    }
+    return value;
   } catch (err) {
     // Timeout/cleanup path: treat missing/expired as no decision so askFallback applies.
     const message = String(err).toLowerCase();
     if (message.includes("approval expired or not found")) {
+      try {
+        const cfg = loadConfig();
+        await emitStandaloneResearchEvent({
+          cfg,
+          runId: params.id,
+          sessionId: params.sessionId ?? params.id,
+          sessionKey: params.sessionKey,
+          agentId: params.agentId ?? "default",
+          event: {
+            kind: "approval.deny",
+            payload: { approvalId: params.id, reason: "approval expired or not found" },
+          },
+        });
+      } catch {
+        // Best-effort telemetry only.
+      }
       return null;
     }
     throw err;
@@ -131,11 +205,19 @@ export async function waitForExecApprovalDecision(id: string): Promise<string | 
 export async function resolveRegisteredExecApprovalDecision(params: {
   approvalId: string;
   preResolvedDecision: string | null | undefined;
+  sessionKey?: string;
+  agentId?: string;
+  sessionId?: string;
 }): Promise<string | null> {
   if (params.preResolvedDecision !== undefined) {
     return params.preResolvedDecision ?? null;
   }
-  return await waitForExecApprovalDecision(params.approvalId);
+  return await waitForExecApprovalDecision({
+    id: params.approvalId,
+    sessionKey: params.sessionKey,
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+  });
 }
 
 export async function requestExecApprovalDecision(
@@ -145,7 +227,12 @@ export async function requestExecApprovalDecision(
   if (Object.hasOwn(registration, "finalDecision")) {
     return registration.finalDecision ?? null;
   }
-  return await waitForExecApprovalDecision(registration.id);
+  return await waitForExecApprovalDecision({
+    id: registration.id,
+    sessionKey: params.sessionKey,
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+  });
 }
 
 type HostExecApprovalParams = {
@@ -162,6 +249,7 @@ type HostExecApprovalParams = {
   agentId?: string;
   resolvedPath?: string;
   sessionKey?: string;
+  sessionId?: string;
   turnSourceChannel?: string;
   turnSourceTo?: string;
   turnSourceAccountId?: string;
@@ -220,6 +308,7 @@ function buildHostApprovalDecisionParams(
       sessionKey: params.sessionKey,
     }),
     resolvedPath: params.resolvedPath,
+    sessionId: params.sessionId,
     ...buildExecApprovalTurnSourceContext(params),
   };
 }

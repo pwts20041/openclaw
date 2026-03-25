@@ -804,11 +804,7 @@ export abstract class MemoryManagerSyncOps {
     targetSessionFiles?: string[];
     progress?: MemorySyncProgressState;
   }) {
-    // FTS-only mode: skip embedding sync (no provider)
-    if (!this.provider) {
-      log.debug("Skipping session file sync in FTS-only mode (no embedding provider)");
-      return;
-    }
+    // Session transcript indexing can run in FTS-only mode (no embedding provider).
     const selectFileHash = this.db.prepare(`SELECT hash FROM files WHERE path = ? AND source = ?`);
     const selectSourceFileState = this.db.prepare(`SELECT path, hash FROM files WHERE source = ?`);
     const deleteFileByPathAndSource = this.db.prepare(
@@ -848,6 +844,7 @@ export abstract class MemoryManagerSyncOps {
       existingRows === null ? null : new Map(existingRows.map((row) => [row.path, row.hash]));
     const indexAll =
       params.needsFullReindex || Boolean(targetSessionFiles) || this.sessionsDirtyFiles.size === 0;
+    const ftsModel = this.provider?.model ?? "fts-only";
     log.debug("memory sync: indexing session files", {
       files: files.length,
       indexAll,
@@ -938,7 +935,7 @@ export abstract class MemoryManagerSyncOps {
       deleteChunksByPathAndSource.run(stale.path, "sessions");
       if (deleteFtsRowsByPathSourceAndModel) {
         try {
-          deleteFtsRowsByPathSourceAndModel.run(stale.path, "sessions", this.provider.model);
+          deleteFtsRowsByPathSourceAndModel.run(stale.path, "sessions", ftsModel);
         } catch {}
       }
     }
