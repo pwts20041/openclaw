@@ -763,16 +763,12 @@ export class QmdMemoryManager implements MemorySearchManager {
     ): Promise<QmdQueryResult[]> => {
       try {
         if (mcporterEnabled) {
-          const tool: "search" | "vector_search" | "deep_search" =
-            qmdSearchCommand === "search"
-              ? "search"
-              : qmdSearchCommand === "vsearch"
-                ? "vector_search"
-                : "deep_search";
+          const tool = this.resolveQmdMcpTool(qmdSearchCommand);
           const minScore = opts?.minScore ?? 0;
           if (collectionNames.length > 1) {
             return await this.runMcporterAcrossCollections({
               tool,
+              searchCommand: qmdSearchCommand,
               query: trimmed,
               limit,
               minScore,
@@ -782,6 +778,7 @@ export class QmdMemoryManager implements MemorySearchManager {
           return await this.runQmdSearchViaMcporter({
             mcporter: this.qmd.mcporter,
             tool,
+            searchCommand: qmdSearchCommand,
             query: trimmed,
             limit,
             minScore,
@@ -1219,6 +1216,51 @@ export class QmdMemoryManager implements MemorySearchManager {
     });
   }
 
+  /**
+   * QMD 2.0 unified all search modes under a single "query" MCP tool
+   * that accepts a `searches` array with typed sub-queries (lex, vec, hyde).
+   * QMD 1.x exposed separate tools: search, vector_search, deep_search.
+   *
+   * This method probes the MCP server once to detect which interface is
+   * available and caches the result for subsequent calls.
+   */
+  private qmdMcpToolVersion: "v2" | "v1" | null = null;
+
+  private resolveQmdMcpTool(searchCommand: string): string {
+    if (this.qmdMcpToolVersion === "v2") {
+      return "query";
+    }
+    if (this.qmdMcpToolVersion === "v1") {
+      return searchCommand === "search"
+        ? "search"
+        : searchCommand === "vsearch"
+          ? "vector_search"
+          : "deep_search";
+    }
+    // Not yet probed — default to v2 (current QMD).
+    // If the call fails with "not found", markQmdV1Fallback() will retry with v1 names.
+    return "query";
+  }
+
+  private markQmdV1Fallback(): void {
+    if (this.qmdMcpToolVersion !== "v1") {
+      this.qmdMcpToolVersion = "v1";
+      log.warn(
+        "QMD MCP server does not expose the v2 'query' tool; falling back to v1 tool names (search/vector_search/deep_search).",
+      );
+    }
+  }
+
+  private markQmdV2(): void {
+    this.qmdMcpToolVersion = "v2";
+  }
+
+  private isToolNotFoundError(err: unknown): boolean {
+    const message = err instanceof Error ? err.message : String(err);
+    const lower = message.toLowerCase();
+    return lower.includes("not found") && lower.includes("tool");
+  }
+
   private async ensureMcporterDaemonStarted(mcporter: ResolvedQmdMcporterConfig): Promise<void> {
     if (!mcporter.enabled) {
       return;
@@ -1270,7 +1312,8 @@ export class QmdMemoryManager implements MemorySearchManager {
 
   private async runQmdSearchViaMcporter(params: {
     mcporter: ResolvedQmdMcporterConfig;
-    tool: "search" | "vector_search" | "deep_search";
+    tool: string;
+    searchCommand?: string;
     query: string;
     limit: number;
     minScore: number;
@@ -1280,28 +1323,62 @@ export class QmdMemoryManager implements MemorySearchManager {
     await this.ensureMcporterDaemonStarted(params.mcporter);
 
     const selector = `${params.mcporter.serverName}.${params.tool}`;
-    const callArgs: Record<string, unknown> = {
-      query: params.query,
-      limit: params.limit,
-      minScore: params.minScore,
-    };
+    const callArgs: Record<string, unknown> =
+      params.tool === "query"
+        ? {
+            // QMD 2.0 "query" tool accepts typed sub-queries via `searches` array.
+            searches: [
+              { type: "lex", query: params.query },
+              { type: "vec", query: params.query },
+              { type: "hyde", query: params.query },
+            ],
+            limit: params.limit,
+          }
+        : {
+            // QMD 1.x tools accept a flat query string.
+            query: params.query,
+            limit: params.limit,
+            minScore: params.minScore,
+          };
     if (params.collection) {
       callArgs.collection = params.collection;
     }
 
-    const result = await this.runMcporter(
-      [
-        "call",
-        selector,
-        "--args",
-        JSON.stringify(callArgs),
-        "--output",
-        "json",
-        "--timeout",
-        String(Math.max(0, params.timeoutMs)),
-      ],
-      { timeoutMs: Math.max(params.timeoutMs + 2_000, 5_000) },
-    );
+    let result: { stdout: string };
+    try {
+      result = await this.runMcporter(
+        [
+          "call",
+          selector,
+          "--args",
+          JSON.stringify(callArgs),
+          "--output",
+          "json",
+          "--timeout",
+          String(Math.max(0, params.timeoutMs)),
+        ],
+        { timeoutMs: Math.max(params.timeoutMs + 2_000, 5_000) },
+      );
+      // If we got here with the v2 "query" tool, confirm v2 for future calls.
+      if (params.tool === "query" && this.qmdMcpToolVersion === null) {
+        this.markQmdV2();
+      }
+    } catch (err) {
+      // If the v2 "query" tool is not found, fall back to v1 tool names.
+      if (
+        params.tool === "query" &&
+        this.qmdMcpToolVersion !== "v1" &&
+        this.isToolNotFoundError(err)
+      ) {
+        this.markQmdV1Fallback();
+        const v1Tool = this.resolveQmdMcpTool(params.searchCommand ?? "query");
+        return this.runQmdSearchViaMcporter({
+          ...params,
+          tool: v1Tool,
+        });
+      }
+      throw err;
+    }
 
     const parsedUnknown: unknown = JSON.parse(result.stdout);
     const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -2004,7 +2081,8 @@ export class QmdMemoryManager implements MemorySearchManager {
   }
 
   private async runMcporterAcrossCollections(params: {
-    tool: "search" | "vector_search" | "deep_search";
+    tool: string;
+    searchCommand?: string;
     query: string;
     limit: number;
     minScore: number;
@@ -2015,6 +2093,7 @@ export class QmdMemoryManager implements MemorySearchManager {
       const parsed = await this.runQmdSearchViaMcporter({
         mcporter: this.qmd.mcporter,
         tool: params.tool,
+        searchCommand: params.searchCommand,
         query: params.query,
         limit: params.limit,
         minScore: params.minScore,
