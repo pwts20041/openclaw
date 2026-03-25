@@ -26,15 +26,23 @@ declare module "@microsoft/teams.api" {
 }
 
 declare module "@microsoft/teams.apps/dist/middleware/auth/jwt-validator.js" {
-  export function createServiceTokenValidator(
-    appId: string,
-    tenantId?: string,
-  ): {
+  export class JwtValidator {
+    constructor(
+      options: {
+        clientId: string;
+        tenantId?: string;
+        validateIssuer?: { allowedIssuer?: string; allowedTenantIds?: string[] };
+        validateServiceUrl?: { expectedServiceUrl: string };
+        jwksUriOptions: { type: "tenantId" } | { type: "uri"; uri: string };
+      },
+      logger?: unknown,
+    );
+
     validateAccessToken(
       token: string,
       options?: {
         validateServiceUrl?: { expectedServiceUrl: string } | undefined;
       },
     ): Promise<unknown>;
-  };
+  }
 }

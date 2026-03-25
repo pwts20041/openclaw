@@ -519,9 +519,17 @@ export async function loadMSTeamsSdkWithAuth(creds: MSTeamsCredentials) {
 export async function createBotFrameworkJwtValidator(creds: MSTeamsCredentials): Promise<{
   validate: (authHeader: string, serviceUrl?: string) => Promise<boolean>;
 }> {
-  const { createServiceTokenValidator } =
+  const { JwtValidator } =
     await import("@microsoft/teams.apps/dist/middleware/auth/jwt-validator.js");
-  const validator = createServiceTokenValidator(creds.appId, creds.tenantId);
+  const validator = new JwtValidator({
+    clientId: creds.appId,
+    tenantId: creds.tenantId,
+    validateIssuer: { allowedIssuer: "https://api.botframework.com" },
+    jwksUriOptions: {
+      type: "uri",
+      uri: "https://login.botframework.com/v1/.well-known/keys",
+    },
+  });
 
   return {
     async validate(authHeader: string, serviceUrl?: string): Promise<boolean> {
