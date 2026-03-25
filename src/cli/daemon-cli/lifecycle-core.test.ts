@@ -25,6 +25,22 @@ vi.mock("../../runtime.js", () => ({
   defaultRuntime,
 }));
 
+vi.mock(import("../../daemon/systemd.js"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    isSystemdUserServiceAvailable: vi.fn(async () => false),
+  };
+});
+
+vi.mock(import("../../infra/wsl.js"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    isWSL: vi.fn(async () => false),
+  };
+});
+
 let runServiceRestart: typeof import("./lifecycle-core.js").runServiceRestart;
 let runServiceStart: typeof import("./lifecycle-core.js").runServiceStart;
 let runServiceStop: typeof import("./lifecycle-core.js").runServiceStop;
@@ -236,7 +252,11 @@ describe("runServiceRestart token drift", () => {
     const payload = readJsonLog<{ ok?: boolean; result?: string; hints?: string[] }>();
     expect(payload.ok).toBe(true);
     expect(payload.result).toBe("not-loaded");
-    expect(payload.hints).toEqual(["openclaw gateway install"]);
+    expect(payload.hints).toEqual([
+      "openclaw gateway install",
+      "systemd user services are unavailable; install/enable systemd or run the gateway under your supervisor.",
+      "If you're in a container, run the gateway in the foreground instead of `openclaw gateway`.",
+    ]);
     expect(service.restart).not.toHaveBeenCalled();
   });
 });
