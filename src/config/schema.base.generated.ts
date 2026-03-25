@@ -8438,6 +8438,9 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
               },
             },
           },
+          resetNoticeText: {
+            type: "string",
+          },
           resetTriggers: {
             type: "array",
             items: {
