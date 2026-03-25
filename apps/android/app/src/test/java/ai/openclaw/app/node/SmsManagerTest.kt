@@ -896,6 +896,50 @@ class SmsManagerTest {
   }
 
   @Test
+  fun resolveSearchParamsDefersConversationReviewLimitUntilAfterSingleContactResolution() {
+    val params =
+      SmsManager.QueryParams(
+        limit = 5,
+        offset = 0,
+        isRead = null,
+        contactName = "Leah",
+        phoneNumber = null,
+        keyword = null,
+        startTime = null,
+        endTime = null,
+        includeMms = true,
+        conversationReview = true,
+      )
+
+    val beforeResolution = SmsManager.resolveSearchParams(params, normalizedPhoneNumber = null)
+    val singleResolved =
+      SmsManager.resolveSearchParams(
+        params,
+        normalizedPhoneNumber = null,
+        resolvedPhoneNumbers = listOf("15551234567"),
+      )
+    val multiResolved =
+      SmsManager.resolveSearchParams(
+        params,
+        normalizedPhoneNumber = null,
+        resolvedPhoneNumbers = listOf("15551234567", "15557654321"),
+      )
+    val explicit =
+      SmsManager.resolveSearchParams(
+        params.copy(contactName = null, phoneNumber = "+12107588120"),
+        normalizedPhoneNumber = "12107588120",
+      )
+
+    assertEquals(5, beforeResolution.limit)
+    assertEquals(25, singleResolved.limit)
+    assertNull(singleResolved.phoneNumber)
+    assertEquals(5, multiResolved.limit)
+    assertNull(multiResolved.phoneNumber)
+    assertEquals(25, explicit.limit)
+    assertEquals("12107588120", explicit.phoneNumber)
+  }
+
+  @Test
   fun canonicalizeMixedPathPhoneFiltersDedupesEquivalentExplicitAndContactNumbers() {
     assertEquals(
       listOf("15551234567"),

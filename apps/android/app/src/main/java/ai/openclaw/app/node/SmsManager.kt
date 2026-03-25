@@ -357,6 +357,15 @@ class SmsManager(private val context: Context) {
             return params.copy(limit = reviewLimit)
         }
 
+        internal fun resolveSearchParams(
+            params: QueryParams,
+            normalizedPhoneNumber: String?,
+            resolvedPhoneNumbers: List<String> = emptyList(),
+        ): QueryParams {
+            val normalizedParams = params.copy(phoneNumber = normalizedPhoneNumber)
+            return effectiveSearchParams(normalizedParams, resolvedPhoneNumbers)
+        }
+
         internal fun toByPhoneLookupNumber(phone: String): String {
             return phone.filter { it.isDigit() }
         }
@@ -707,19 +716,19 @@ class SmsManager(private val context: Context) {
                 payloadJson = buildQueryPayloadJson(json, ok = false, messages = emptyList(), error = error)
             )
         }
-        val params = effectiveSearchParams(parsedParams.copy(phoneNumber = normalizedPhoneNumber))
+        val normalizedParams = resolveSearchParams(parsedParams, normalizedPhoneNumber)
 
         return@withContext try {
             val contactsPermissionGranted = hasReadContactsPermission()
             val shouldPromptForContactsPermission =
                 shouldPromptForContactNameSearchPermission(
-                    contactName = params.contactName,
-                    phoneNumber = params.phoneNumber,
+                    contactName = normalizedParams.contactName,
+                    phoneNumber = normalizedParams.phoneNumber,
                     hasReadContactsPermission = contactsPermissionGranted,
                 )
-            val phoneNumbers = if (!params.contactName.isNullOrEmpty()) {
+            val phoneNumbers = if (!normalizedParams.contactName.isNullOrEmpty()) {
                 if (contactsPermissionGranted || (shouldPromptForContactsPermission && ensureReadContactsPermission())) {
-                    getPhoneNumbersFromContactName(params.contactName)
+                    getPhoneNumbersFromContactName(normalizedParams.contactName)
                 } else if (shouldPromptForContactsPermission) {
                     return@withContext SearchResult(
                         ok = false,
@@ -733,6 +742,7 @@ class SmsManager(private val context: Context) {
             } else {
                 emptyList()
             }
+            val params = resolveSearchParams(parsedParams, normalizedPhoneNumber, phoneNumbers)
 
             val mixedPathPhoneFilters = if (!params.phoneNumber.isNullOrEmpty()) {
                 canonicalizeMixedPathPhoneFilters(phoneNumbers + params.phoneNumber)
