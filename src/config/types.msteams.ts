@@ -72,7 +72,7 @@ export type MSTeamsConfig = {
    * - `"federated"`: uses workload identity / managed identity / certificate.
    */
   authType?: "secret" | "federated";
-  /** Path to a client certificate file (PEM or PFX) for certificate-based auth. Used when `authType` is `"federated"`. */
+  /** Path to a PEM certificate file for certificate-based auth. Used when `authType` is `"federated"`. */
   certificatePath?: string;
   /** Certificate thumbprint (hex SHA-1) for certificate-based auth. */
   certificateThumbprint?: string;
