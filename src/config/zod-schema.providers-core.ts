@@ -1564,30 +1564,8 @@ export const MSTeamsConfigSchema = z
         'channels.msteams.dmPolicy="allowlist" requires channels.msteams.allowFrom to contain at least one sender ID',
     });
 
-    // Federated auth cross-field validation
-    const authType = value.authType ?? "secret";
-    if (authType === "federated") {
-      if (!value.appId) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "appId is required for federated authentication.",
-          path: ["appId"],
-        });
-      }
-      if (!value.tenantId) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "tenantId is required for federated authentication.",
-          path: ["tenantId"],
-        });
-      }
-      if (!value.certificatePath && !value.useManagedIdentity) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message:
-            'When authType is "federated", either certificatePath or useManagedIdentity must be provided.',
-          path: ["authType"],
-        });
-      }
-    }
+    // Federated auth fields (appId, tenantId, certificatePath,
+    // useManagedIdentity) may come from MSTEAMS_* environment variables,
+    // so we cannot require them in the config object itself.
+    // Runtime validation happens in resolveMSTeamsCredentials().
   });
