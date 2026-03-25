@@ -1331,6 +1331,9 @@ export type OpenClawPluginModule =
   | ((api: OpenClawPluginApi) => void | Promise<void>);
 
 export type PluginRegistrationMode = "full" | "setup-only" | "setup-runtime";
+export type PluginResetSessionResult =
+  | { ok: true; key: string; sessionId: string }
+  | { ok: false; key: string; error: string };
 
 /** Main registration API injected into native plugin entry files. */
 export type OpenClawPluginApi = {
@@ -1397,6 +1400,7 @@ export type OpenClawPluginApi = {
   registerMemoryPromptSection: (
     builder: import("../memory/prompt-section.js").MemoryPromptSectionBuilder,
   ) => void;
+  resetSession?: (key: string, reason?: "new" | "reset") => Promise<PluginResetSessionResult>;
   resolvePath: (input: string) => string;
   /** Register a lifecycle hook handler */
   on: <K extends PluginHookName>(
