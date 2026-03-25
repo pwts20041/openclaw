@@ -332,9 +332,7 @@ export async function deliverAgentCommandResult(params: {
         ? "channel resolved to internal"
         : !deliveryTarget
           ? "no delivery target resolved"
-          : !deliveryAttempted
-            ? "delivery not attempted"
-            : "delivery returned zero results";
+          : "delivery returned zero results";
     runtime.log(
       `[delivery] delivery requested but not completed: ${reason} ` +
         `(session=${effectiveSessionKey ?? "unknown"} channel=${deliveryChannel ?? "none"} ` +
