@@ -183,6 +183,22 @@ describe("token – federated credentials (managed identity)", () => {
     process.env.MSTEAMS_USE_MANAGED_IDENTITY = "true";
     expect(hasConfiguredMSTeamsCredentials(undefined)).toBe(true);
   });
+
+  it("config useManagedIdentity=false overrides env MSTEAMS_USE_MANAGED_IDENTITY=true", () => {
+    process.env.MSTEAMS_USE_MANAGED_IDENTITY = "true";
+    const cfg = {
+      appId: "app-id",
+      tenantId: "tenant-id",
+      authType: "federated",
+      certificatePath: "/cert.pem",
+      useManagedIdentity: false,
+    } as any;
+    const result = resolveMSTeamsCredentials(cfg);
+    expect(result).toBeDefined();
+    expect(result!.type).toBe("federated");
+    expect((result as any).useManagedIdentity).toBeUndefined();
+    expect((result as any).certificatePath).toBe("/cert.pem");
+  });
 });
 
 describe("token – backward compatibility", () => {

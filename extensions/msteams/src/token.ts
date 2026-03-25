@@ -55,7 +55,7 @@ export function hasConfiguredMSTeamsCredentials(cfg?: MSTeamsConfig): boolean {
   if (authType === "federated") {
     const hasCert = Boolean(cfg?.certificatePath || process.env.MSTEAMS_CERTIFICATE_PATH);
     const hasManagedIdentity = Boolean(
-      cfg?.useManagedIdentity || process.env.MSTEAMS_USE_MANAGED_IDENTITY === "true",
+      cfg?.useManagedIdentity ?? process.env.MSTEAMS_USE_MANAGED_IDENTITY === "true",
     );
 
     return hasAppId && hasTenantId && (hasCert || hasManagedIdentity);
@@ -94,7 +94,7 @@ export function resolveMSTeamsCredentials(cfg?: MSTeamsConfig): MSTeamsCredentia
       cfg?.certificateThumbprint || process.env.MSTEAMS_CERTIFICATE_THUMBPRINT || undefined;
 
     const useManagedIdentity = Boolean(
-      cfg?.useManagedIdentity || process.env.MSTEAMS_USE_MANAGED_IDENTITY === "true",
+      cfg?.useManagedIdentity ?? process.env.MSTEAMS_USE_MANAGED_IDENTITY === "true",
     );
 
     const managedIdentityClientId =
