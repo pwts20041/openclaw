@@ -207,7 +207,6 @@ Use a PEM certificate registered with your Entra ID app registration.
 
 1. Generate or obtain a certificate (PEM format with private key).
 2. In Entra ID → App Registration → **Certificates & secrets** → **Certificates** → Upload the public certificate.
-3. Note the **thumbprint** shown after upload.
 
 **Config:**
 
@@ -220,7 +219,6 @@ Use a PEM certificate registered with your Entra ID app registration.
       tenantId: "<TENANT_ID>",
       authType: "federated",
       certificatePath: "/path/to/cert.pem",
-      certificateThumbprint: "<THUMBPRINT>",
       webhook: { port: 3978, path: "/api/messages" },
     },
   },
@@ -231,7 +229,6 @@ Use a PEM certificate registered with your Entra ID app registration.
 
 - `MSTEAMS_AUTH_TYPE=federated`
 - `MSTEAMS_CERTIFICATE_PATH=/path/to/cert.pem`
-- `MSTEAMS_CERTIFICATE_THUMBPRINT=<thumbprint>`
 
 ### Option B: Azure Managed Identity
 
@@ -427,7 +424,7 @@ This is often easier than hand-editing JSON manifests.
    - `MSTEAMS_TENANT_ID`
    - `MSTEAMS_AUTH_TYPE` (optional: `"secret"` or `"federated"`)
    - `MSTEAMS_CERTIFICATE_PATH` (federated + certificate)
-   - `MSTEAMS_CERTIFICATE_THUMBPRINT` (federated + certificate)
+   - `MSTEAMS_CERTIFICATE_THUMBPRINT` (optional, not required for auth)
    - `MSTEAMS_USE_MANAGED_IDENTITY` (federated + managed identity)
    - `MSTEAMS_MANAGED_IDENTITY_CLIENT_ID` (user-assigned MI only)
 
@@ -630,7 +627,7 @@ Key settings (see `/gateway/configuration` for shared channel patterns):
   `id:`, `e164:`, `username:`, `name:` (legacy unprefixed keys still map to `id:` only).
 - `channels.msteams.authType`: authentication type — `"secret"` (default) or `"federated"`.
 - `channels.msteams.certificatePath`: path to PEM certificate file (federated + certificate auth).
-- `channels.msteams.certificateThumbprint`: certificate thumbprint (federated + certificate auth).
+- `channels.msteams.certificateThumbprint`: certificate thumbprint (optional, not required for auth).
 - `channels.msteams.useManagedIdentity`: enable managed identity auth (federated mode).
 - `channels.msteams.managedIdentityClientId`: client ID for user-assigned managed identity.
 - `channels.msteams.sharePointSiteId`: SharePoint site ID for file uploads in group chats/channels (see [Sending files in group chats](#sending-files-in-group-chats)).
