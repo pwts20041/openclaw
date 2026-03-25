@@ -9,7 +9,7 @@ title: "Microsoft Teams"
 
 > "Abandon all hope, ye who enter here."
 
-Updated: 2026-01-21
+Updated: 2026-03-25
 
 Status: text + DM attachments are supported; channel/group file sending requires `sharePointSiteId` + Graph permissions (see [Sending files in group chats](#sending-files-in-group-chats)). Polls are sent via Adaptive Cards. Message actions expose explicit `upload-file` for file-first sends.
 
