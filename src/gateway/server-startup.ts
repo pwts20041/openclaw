@@ -27,6 +27,7 @@ import { isTruthyEnvValue } from "../infra/env.js";
 import type { loadOpenClawPlugins } from "../plugins/loader.js";
 import { type PluginServicesHandle, startPluginServices } from "../plugins/services.js";
 import { startBrowserControlServerIfEnabled } from "./server-browser.js";
+import { recoverPendingActions } from "./server-pending-actions.js";
 import {
   scheduleRestartSentinelWake,
   shouldWakeFromRestartSentinel,
@@ -221,6 +222,16 @@ export async function startGatewaySidecars(params: {
       void scheduleRestartSentinelWake({ deps: params.deps });
     }, 750);
   }
+
+  // Recover deferred sessions_manage actions that survived the restart.
+  // Delayed slightly to let the gateway fully stabilize first.
+  setTimeout(() => {
+    void recoverPendingActions({
+      log: { info: (msg) => params.log.warn(msg), warn: (msg) => params.log.warn(msg) },
+    }).catch((err) => {
+      params.log.warn(`pending-actions recovery failed: ${String(err)}`);
+    });
+  }, 2000);
 
   return { browserControl, pluginServices };
 }

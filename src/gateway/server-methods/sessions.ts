@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import path from "node:path";
-import { CURRENT_SESSION_VERSION } from "@mariozechner/pi-coding-agent";
-import { resolveDefaultAgentId } from "../../agents/agent-scope.js";
+import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/agent-scope.js";
+import { compactEmbeddedPiSession } from "../../agents/pi-embedded-runner/compact.js";
 import {
   abortEmbeddedPiRun,
   isEmbeddedPiRunActive,
@@ -35,6 +34,7 @@ import {
   errorShape,
   validateSessionsAbortParams,
   validateSessionsCompactParams,
+  validateSessionsCompactSemanticParams,
   validateSessionsCreateParams,
   validateSessionsDeleteParams,
   validateSessionsListParams,
@@ -947,6 +947,79 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
 
     const reason = p.reason === "new" ? "new" : "reset";
+
+    // Deferred mode: persist the pending action and execute after the active run ends.
+    if (p.deferred) {
+      const { entry, canonicalKey, storePath } = loadSessionEntry(key);
+      if (!entry?.sessionId) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, `Session not found: ${key}`),
+        );
+        return;
+      }
+      const sessionId = entry.sessionId;
+
+      if (isEmbeddedPiRunActive(sessionId)) {
+        // Persist flag so it survives gateway restarts.
+        await updateSessionStore(storePath, (store) => {
+          const e = store[canonicalKey];
+          if (e) {
+            e.pendingAction = { type: "reset", scheduledAt: Date.now() };
+          }
+        });
+        // Fire-and-forget: the reset will happen after the run ends.
+        void waitForEmbeddedPiRunEnd(sessionId, 10 * 60_000).then(async (ended) => {
+          if (!ended) {
+            // Timed out — clear the stale flag so it doesn't linger in the store.
+            await updateSessionStore(storePath, (store) => {
+              const e = store[canonicalKey];
+              if (e?.pendingAction?.type === "reset") {
+                delete e.pendingAction;
+              }
+            });
+            return;
+          }
+          // Re-read store and verify the pending action is still ours.
+          const cleared = await updateSessionStore(storePath, (store) => {
+            const e = store[canonicalKey];
+            if (!e?.pendingAction || e.pendingAction.type !== "reset") {
+              return false;
+            }
+            delete e.pendingAction;
+            return true;
+          });
+          if (cleared) {
+            await performGatewaySessionReset({
+              key: canonicalKey,
+              reason,
+              commandSource: "gateway:sessions.reset:deferred",
+            });
+          }
+        });
+        respond(
+          true,
+          { status: "scheduled", sessionKey: canonicalKey, action: "reset" },
+          undefined,
+        );
+        return;
+      }
+
+      // No active run — execute immediately (no flag needed).
+      const result = await performGatewaySessionReset({
+        key: canonicalKey,
+        reason,
+        commandSource: "gateway:sessions.reset",
+      });
+      if (!result.ok) {
+        respond(false, undefined, result.error);
+        return;
+      }
+      respond(true, { ok: true, key: result.key, entry: result.entry }, undefined);
+      return;
+    }
+
     const result = await performGatewaySessionReset({
       key,
       reason,
@@ -1167,5 +1240,142 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       reason: "compact",
       compacted: true,
     });
+  },
+  "sessions.compactSemantic": async ({ params, respond }) => {
+    if (
+      !assertValidParams(
+        params,
+        validateSessionsCompactSemanticParams,
+        "sessions.compactSemantic",
+        respond,
+      )
+    ) {
+      return;
+    }
+    const p = params;
+    const key = requireSessionKey(p.key, respond);
+    if (!key) {
+      return;
+    }
+
+    const { entry, canonicalKey, storePath } = loadSessionEntry(key);
+    if (!entry?.sessionId) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, `Session not found: ${key}`),
+      );
+      return;
+    }
+    const sessionId = entry.sessionId;
+
+    const executeCompaction = async (instructions?: string) => {
+      // Derive paths at execution time (not schedule time) so deferred compaction
+      // uses fresh values if config or session paths change between scheduling and execution.
+      const freshCfg = loadConfig();
+      const freshAgentId =
+        resolveAgentIdFromSessionKey(canonicalKey) ?? resolveDefaultAgentId(freshCfg);
+      const freshSessionFile = resolveSessionFilePath(
+        sessionId,
+        entry,
+        resolveSessionFilePathOptions({ agentId: freshAgentId, storePath }),
+      );
+      const freshWorkspaceDir = resolveAgentWorkspaceDir(freshCfg, freshAgentId);
+
+      return await compactEmbeddedPiSession({
+        sessionId,
+        sessionKey: canonicalKey,
+        sessionFile: freshSessionFile,
+        workspaceDir: freshWorkspaceDir,
+        config: freshCfg,
+        trigger: "manual",
+        customInstructions: instructions,
+        allowGatewaySubagentBinding: true,
+      });
+    };
+
+    // Deferred mode: persist the pending action and execute after the active run ends.
+    if (p.deferred && isEmbeddedPiRunActive(sessionId)) {
+      await updateSessionStore(storePath, (store) => {
+        const e = store[canonicalKey];
+        if (e) {
+          e.pendingAction = {
+            type: "compact",
+            instructions: p.instructions,
+            scheduledAt: Date.now(),
+          };
+        }
+      });
+      // Fire-and-forget: the compaction will happen after the run ends.
+      void waitForEmbeddedPiRunEnd(sessionId, 10 * 60_000).then(async (ended) => {
+        if (!ended) {
+          // Timed out — clear the stale flag so it doesn't linger in the store.
+          await updateSessionStore(storePath, (store) => {
+            const e = store[canonicalKey];
+            if (e?.pendingAction?.type === "compact") {
+              delete e.pendingAction;
+            }
+          });
+          return;
+        }
+        const cleared = await updateSessionStore(storePath, (store) => {
+          const e = store[canonicalKey];
+          if (!e?.pendingAction || e.pendingAction.type !== "compact") {
+            return null;
+          }
+          const instructions = e.pendingAction.instructions;
+          delete e.pendingAction;
+          return instructions;
+        });
+        if (cleared !== null) {
+          await executeCompaction(cleared ?? undefined);
+        }
+      });
+      respond(
+        true,
+        { status: "scheduled", sessionKey: canonicalKey, action: "compact" },
+        undefined,
+      );
+      return;
+    }
+
+    // Immediate mode: abort active run (if any) and compact now.
+    if (isEmbeddedPiRunActive(sessionId)) {
+      abortEmbeddedPiRun(sessionId);
+      const ended = await waitForEmbeddedPiRunEnd(sessionId, 15_000);
+      if (!ended) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.UNAVAILABLE,
+            `Session ${key} is still active; try again in a moment or use deferred mode.`,
+          ),
+        );
+        return;
+      }
+    }
+
+    const result = await executeCompaction(p.instructions);
+    if (!result.ok) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.UNAVAILABLE, result.reason ?? "Compaction failed"),
+      );
+      return;
+    }
+    respond(
+      true,
+      {
+        ok: true,
+        compacted: result.compacted,
+        ...(result.result?.tokensBefore != null
+          ? { tokensBefore: result.result.tokensBefore }
+          : {}),
+        ...(result.result?.tokensAfter != null ? { tokensAfter: result.result.tokensAfter } : {}),
+      },
+      undefined,
+    );
   },
 };
