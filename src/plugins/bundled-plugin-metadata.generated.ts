@@ -4218,4 +4218,46 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
       channels: ["zalouser"],
     },
   },
+  {
+    dirName: "zenmux",
+    idHint: "zenmux",
+    source: {
+      source: "./index.ts",
+      built: "index.js",
+    },
+    packageName: "@openclaw/zenmux-provider",
+    packageVersion: "2026.3.14",
+    packageDescription: "OpenClaw ZenMux provider plugin",
+    packageManifest: {
+      extensions: ["./index.ts"],
+    },
+    manifest: {
+      id: "zenmux",
+      configSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {},
+      },
+      enabledByDefault: true,
+      providers: ["zenmux"],
+      providerAuthEnvVars: {
+        zenmux: ["ZENMUX_API_KEY"],
+      },
+      providerAuthChoices: [
+        {
+          provider: "zenmux",
+          method: "api-key",
+          choiceId: "zenmux-api-key",
+          choiceLabel: "ZenMux API key",
+          groupId: "zenmux",
+          groupLabel: "ZenMux",
+          groupHint: "API key",
+          optionKey: "zenmuxApiKey",
+          cliFlag: "--zenmux-api-key",
+          cliOption: "--zenmux-api-key <key>",
+          cliDescription: "ZenMux API key",
+        },
+      ],
+    },
+  },
 ] as const;
