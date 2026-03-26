@@ -169,6 +169,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
         properties: {},
       },
       providers: ["anthropic"],
+      mediaUnderstandingProviders: ["anthropic"],
       providerAuthEnvVars: {
         anthropic: ["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
       },
@@ -488,6 +489,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
         additionalProperties: false,
         properties: {},
       },
+      mediaUnderstandingProviders: ["deepgram"],
     },
   },
   {
@@ -859,6 +861,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
         additionalProperties: false,
         properties: {},
       },
+      speechProviders: ["elevenlabs"],
     },
   },
   {
@@ -925,6 +928,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
         properties: {},
       },
       providers: ["fal"],
+      imageGenerationProviders: ["fal"],
       providerAuthEnvVars: {
         fal: ["FAL_KEY"],
       },
@@ -1114,6 +1118,8 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
         },
       },
       providers: ["google", "google-gemini-cli"],
+      mediaUnderstandingProviders: ["google"],
+      imageGenerationProviders: ["google"],
       providerAuthEnvVars: {
         google: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
       },
@@ -1221,6 +1227,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
         additionalProperties: false,
         properties: {},
       },
+      mediaUnderstandingProviders: ["groq"],
     },
   },
   {
@@ -1417,14 +1424,14 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
           provider: "kimi",
           method: "api-key",
           choiceId: "kimi-code-api-key",
-          choiceLabel: "Kimi Code API key",
-          groupId: "kimi-code",
-          groupLabel: "Kimi Code",
-          groupHint: "Dedicated coding endpoint",
+          choiceLabel: "Kimi Code API key (subscription)",
+          groupId: "moonshot",
+          groupLabel: "Moonshot AI (Kimi K2.5)",
+          groupHint: "Kimi K2.5",
           optionKey: "kimiCodeApiKey",
           cliFlag: "--kimi-code-api-key",
           cliOption: "--kimi-code-api-key <key>",
-          cliDescription: "Kimi Code API key",
+          cliDescription: "Kimi Code API key (subscription)",
         },
       ],
     },
@@ -1782,6 +1789,56 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
         additionalProperties: false,
         properties: {},
       },
+      speechProviders: ["microsoft"],
+    },
+  },
+  {
+    dirName: "microsoft-foundry",
+    idHint: "microsoft-foundry",
+    source: {
+      source: "./index.ts",
+      built: "index.js",
+    },
+    packageName: "@openclaw/microsoft-foundry",
+    packageVersion: "2026.3.14",
+    packageDescription: "OpenClaw Microsoft Foundry provider plugin",
+    packageManifest: {
+      extensions: ["./index.ts"],
+    },
+    manifest: {
+      id: "microsoft-foundry",
+      configSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {},
+      },
+      enabledByDefault: true,
+      providers: ["microsoft-foundry"],
+      providerAuthEnvVars: {
+        "microsoft-foundry": ["AZURE_OPENAI_API_KEY"],
+      },
+      providerAuthChoices: [
+        {
+          provider: "microsoft-foundry",
+          method: "entra-id",
+          choiceId: "microsoft-foundry-entra",
+          choiceLabel: "Microsoft Foundry (Entra ID / az login)",
+          choiceHint: "Use your Azure login — no API key needed",
+          groupId: "microsoft-foundry",
+          groupLabel: "Microsoft Foundry",
+          groupHint: "Entra ID + API key",
+        },
+        {
+          provider: "microsoft-foundry",
+          method: "api-key",
+          choiceId: "microsoft-foundry-apikey",
+          choiceLabel: "Microsoft Foundry (API key)",
+          choiceHint: "Use an Azure OpenAI API key directly",
+          groupId: "microsoft-foundry",
+          groupLabel: "Microsoft Foundry",
+          groupHint: "Entra ID + API key",
+        },
+      ],
     },
   },
   {
@@ -1805,6 +1862,8 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
         properties: {},
       },
       providers: ["minimax", "minimax-portal"],
+      mediaUnderstandingProviders: ["minimax", "minimax-portal"],
+      imageGenerationProviders: ["minimax", "minimax-portal"],
       providerAuthEnvVars: {
         minimax: ["MINIMAX_API_KEY"],
         "minimax-portal": ["MINIMAX_OAUTH_TOKEN", "MINIMAX_API_KEY"],
@@ -1882,6 +1941,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
         properties: {},
       },
       providers: ["mistral"],
+      mediaUnderstandingProviders: ["mistral"],
       providerAuthEnvVars: {
         mistral: ["MISTRAL_API_KEY"],
       },
@@ -2023,6 +2083,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
         },
       },
       providers: ["moonshot"],
+      mediaUnderstandingProviders: ["moonshot"],
       providerAuthEnvVars: {
         moonshot: ["MOONSHOT_API_KEY"],
       },
@@ -2314,6 +2375,9 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
         properties: {},
       },
       providers: ["openai", "openai-codex"],
+      speechProviders: ["openai"],
+      mediaUnderstandingProviders: ["openai", "openai-codex"],
+      imageGenerationProviders: ["openai"],
       providerAuthEnvVars: {
         openai: ["OPENAI_API_KEY"],
       },
@@ -4052,6 +4116,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
         properties: {},
       },
       providers: ["zai"],
+      mediaUnderstandingProviders: ["zai"],
       providerAuthEnvVars: {
         zai: ["ZAI_API_KEY", "Z_AI_API_KEY"],
       },

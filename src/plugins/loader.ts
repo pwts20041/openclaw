@@ -9,6 +9,11 @@ import type { GatewayRequestHandler } from "../gateway/server-methods/types.js";
 import { openBoundaryFileSync } from "../infra/boundary-file-read.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import {
+  clearMemoryFlushPlanResolver,
+  getMemoryFlushPlanResolver,
+  restoreMemoryFlushPlanResolver,
+} from "../memory/flush-plan.js";
+import {
   clearMemoryPromptSection,
   getMemoryPromptSectionBuilder,
   restoreMemoryPromptSection,
@@ -97,6 +102,7 @@ export class PluginLoadFailureError extends Error {
 
 type CachedPluginState = {
   registry: PluginRegistry;
+  memoryFlushPlanResolver: ReturnType<typeof getMemoryFlushPlanResolver>;
   memoryPromptBuilder: ReturnType<typeof getMemoryPromptSectionBuilder>;
 };
 
@@ -113,7 +119,6 @@ const LAZY_RUNTIME_REFLECTION_KEYS = [
   "media",
   "tts",
   "stt",
-  "tools",
   "channel",
   "events",
   "logging",
@@ -124,6 +129,7 @@ const LAZY_RUNTIME_REFLECTION_KEYS = [
 export function clearPluginLoaderCache(): void {
   registryCache.clear();
   openAllowlistWarningCache.clear();
+  clearMemoryFlushPlanResolver();
   clearMemoryPromptSection();
 }
 
@@ -347,6 +353,7 @@ function createPluginRecord(params: {
     toolNames: [],
     hookNames: [],
     channelIds: [],
+    cliBackendIds: [],
     providerIds: [],
     speechProviderIds: [],
     mediaUnderstandingProviderIds: [],
@@ -607,18 +614,20 @@ function warnWhenAllowlistIsOpen(params: {
   if (params.allow.length > 0) {
     return;
   }
-  const nonBundled = params.discoverablePlugins.filter((entry) => entry.origin !== "bundled");
-  if (nonBundled.length === 0) {
+  const autoDiscoverable = params.discoverablePlugins.filter(
+    (entry) => entry.origin === "workspace" || entry.origin === "global",
+  );
+  if (autoDiscoverable.length === 0) {
     return;
   }
   if (openAllowlistWarningCache.has(params.warningCacheKey)) {
     return;
   }
-  const preview = nonBundled
+  const preview = autoDiscoverable
     .slice(0, 6)
     .map((entry) => `${entry.id} (${entry.source})`)
     .join(", ");
-  const extra = nonBundled.length > 6 ? ` (+${nonBundled.length - 6} more)` : "";
+  const extra = autoDiscoverable.length > 6 ? ` (+${autoDiscoverable.length - 6} more)` : "";
   openAllowlistWarningCache.add(params.warningCacheKey);
   params.logger.warn(
     `[plugins] plugins.allow is empty; discovered non-bundled plugins may auto-load: ${preview}${extra}. Set plugins.allow to explicit trusted ids.`,
@@ -706,6 +715,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
     const cached = getCachedPluginRegistry(cacheKey);
     if (cached) {
       restoreMemoryPromptSection(cached.memoryPromptBuilder);
+      restoreMemoryFlushPlanResolver(cached.memoryFlushPlanResolver);
       if (shouldActivate) {
         activatePluginRegistry(cached.registry, cacheKey);
       }
@@ -718,6 +728,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
   if (shouldActivate) {
     clearPluginCommands();
     clearPluginInteractiveHandlers();
+    clearMemoryFlushPlanResolver();
     clearMemoryPromptSection();
   }
 
@@ -725,7 +736,9 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
   const jitiLoaders = new Map<string, ReturnType<typeof createJiti>>();
   const getJiti = (modulePath: string) => {
     const tryNative = shouldPreferNativeJiti(modulePath);
-    const aliasMap = buildPluginLoaderAliasMap(modulePath);
+    // Pass loader's moduleUrl so the openclaw root can always be resolved even when
+    // loading external plugins from outside the installation directory (e.g. ~/.openclaw/extensions/).
+    const aliasMap = buildPluginLoaderAliasMap(modulePath, process.argv[1], import.meta.url);
     const cacheKey = JSON.stringify({
       tryNative,
       aliasMap: Object.entries(aliasMap).toSorted(([left], [right]) => left.localeCompare(right)),
@@ -1214,6 +1227,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
       hookPolicy: entry?.hooks,
       registrationMode,
     });
+    const previousMemoryFlushPlanResolver = getMemoryFlushPlanResolver();
     const previousMemoryPromptBuilder = getMemoryPromptSectionBuilder();
 
     try {
@@ -1229,11 +1243,13 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
       // Snapshot loads should not replace process-global runtime prompt state.
       if (!shouldActivate) {
         restoreMemoryPromptSection(previousMemoryPromptBuilder);
+        restoreMemoryFlushPlanResolver(previousMemoryFlushPlanResolver);
       }
       registry.plugins.push(record);
       seenIds.set(pluginId, candidate.origin);
     } catch (err) {
       restoreMemoryPromptSection(previousMemoryPromptBuilder);
+      restoreMemoryFlushPlanResolver(previousMemoryFlushPlanResolver);
       recordPluginError({
         logger,
         registry,
@@ -1269,6 +1285,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
   if (cacheEnabled) {
     setCachedPluginRegistry(cacheKey, {
       registry,
+      memoryFlushPlanResolver: getMemoryFlushPlanResolver(),
       memoryPromptBuilder: getMemoryPromptSectionBuilder(),
     });
   }
