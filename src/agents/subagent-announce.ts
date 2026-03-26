@@ -60,7 +60,10 @@ let subagentRegistryRuntimePromise: Promise<
 > | null = null;
 
 function loadSubagentRegistryRuntime() {
-  subagentRegistryRuntimePromise ??= import("./subagent-registry-runtime.js");
+  subagentRegistryRuntimePromise ??= import("./subagent-registry-runtime.js").catch((err) => {
+    subagentRegistryRuntimePromise = null;
+    throw err;
+  });
   return subagentRegistryRuntimePromise;
 }
 
@@ -1429,45 +1432,57 @@ export async function runSubagentAnnounceFlow(params: {
       | undefined;
     try {
       subagentRegistryRuntime = await loadSubagentRegistryRuntime();
-      if (
-        requesterDepth >= 1 &&
-        subagentRegistryRuntime.shouldIgnorePostCompletionAnnounceForSession(
-          targetRequesterSessionKey,
-        )
-      ) {
-        return true;
-      }
-
-      const pendingChildDescendantRuns = Math.max(
-        0,
-        subagentRegistryRuntime.countPendingDescendantRuns(params.childSessionKey),
+    } catch (err) {
+      defaultRuntime.log(
+        `[warn] Subagent announce registry runtime load failed; using best-effort announce fallback: ${summarizeDeliveryError(err)}`,
       );
-      if (pendingChildDescendantRuns > 0 && announceType !== "cron job") {
+    }
+    if (subagentRegistryRuntime) {
+      try {
+        if (
+          requesterDepth >= 1 &&
+          subagentRegistryRuntime.shouldIgnorePostCompletionAnnounceForSession(
+            targetRequesterSessionKey,
+          )
+        ) {
+          return true;
+        }
+
+        const pendingChildDescendantRuns = Math.max(
+          0,
+          subagentRegistryRuntime.countPendingDescendantRuns(params.childSessionKey),
+        );
+        if (pendingChildDescendantRuns > 0 && announceType !== "cron job") {
+          shouldDeleteChildSession = false;
+          return false;
+        }
+
+        if (typeof subagentRegistryRuntime.listSubagentRunsForRequester === "function") {
+          const directChildren = subagentRegistryRuntime.listSubagentRunsForRequester(
+            params.childSessionKey,
+            {
+              requesterRunId: params.childRunId,
+            },
+          );
+          if (Array.isArray(directChildren) && directChildren.length > 0) {
+            childCompletionFindings = buildChildCompletionFindings(
+              dedupeLatestChildCompletionRows(
+                filterCurrentDirectChildCompletionRows(directChildren, {
+                  requesterSessionKey: params.childSessionKey,
+                  getLatestSubagentRunByChildSessionKey:
+                    subagentRegistryRuntime.getLatestSubagentRunByChildSessionKey,
+                }),
+              ),
+            );
+          }
+        }
+      } catch {
+        // If the registry query fails after runtime load, defer the announce rather than
+        // risk a premature completion message. The deferred cleanup path will retry once
+        // descendants settle.
         shouldDeleteChildSession = false;
         return false;
       }
-
-      if (typeof subagentRegistryRuntime.listSubagentRunsForRequester === "function") {
-        const directChildren = subagentRegistryRuntime.listSubagentRunsForRequester(
-          params.childSessionKey,
-          {
-            requesterRunId: params.childRunId,
-          },
-        );
-        if (Array.isArray(directChildren) && directChildren.length > 0) {
-          childCompletionFindings = buildChildCompletionFindings(
-            dedupeLatestChildCompletionRows(
-              filterCurrentDirectChildCompletionRows(directChildren, {
-                requesterSessionKey: params.childSessionKey,
-                getLatestSubagentRunByChildSessionKey:
-                  subagentRegistryRuntime.getLatestSubagentRunByChildSessionKey,
-              }),
-            ),
-          );
-        }
-      }
-    } catch {
-      // Best-effort only.
     }
 
     const announceId = buildAnnounceIdFromChildRun({
@@ -1571,12 +1586,12 @@ export async function runSubagentAnnounceFlow(params: {
     const findings = childCompletionFindings || reply || "(no output)";
 
     let requesterIsSubagent = requesterIsInternalSession();
-    if (requesterIsSubagent) {
+    if (requesterIsSubagent && subagentRegistryRuntime) {
       const {
         isSubagentSessionRunActive,
         resolveRequesterForChildSession,
         shouldIgnorePostCompletionAnnounceForSession,
-      } = subagentRegistryRuntime ?? (await loadSubagentRegistryRuntime());
+      } = subagentRegistryRuntime;
       if (!isSubagentSessionRunActive(targetRequesterSessionKey)) {
         if (shouldIgnorePostCompletionAnnounceForSession(targetRequesterSessionKey)) {
           return true;

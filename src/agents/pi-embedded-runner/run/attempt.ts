@@ -178,6 +178,29 @@ const SESSIONS_YIELD_INTERRUPT_CUSTOM_TYPE = "openclaw.sessions_yield_interrupt"
 const SESSIONS_YIELD_CONTEXT_CUSTOM_TYPE = "openclaw.sessions_yield";
 const SESSIONS_YIELD_ABORT_SETTLE_TIMEOUT_MS = process.env.OPENCLAW_TEST_FAST === "1" ? 250 : 2_000;
 
+async function runCleanupSteps(
+  steps: ReadonlyArray<{ label: string; run: () => void | Promise<void> }>,
+): Promise<void> {
+  let firstError: unknown;
+
+  for (const step of steps) {
+    try {
+      await step.run();
+    } catch (err) {
+      if (firstError === undefined) {
+        firstError = err;
+      }
+      log.warn(
+        `embedded attempt cleanup failed during ${step.label}: ${describeUnknownError(err)}`,
+      );
+    }
+  }
+
+  if (firstError !== undefined) {
+    throw firstError;
+  }
+}
+
 // Persist a hidden context reminder so the next turn knows why the runner stopped.
 export function buildSessionsYieldContextMessage(message: string): string {
   return `${message}\n\n[Context: The previous turn ended intentionally via sessions_yield while waiting for a follow-up event.]`;
@@ -2056,6 +2079,7 @@ export async function runEmbeddedAttempt(
 
     let sessionManager: ReturnType<typeof guardSessionManager> | undefined;
     let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+    let queueHandle: EmbeddedPiQueueHandle | undefined;
     let removeToolResultContextGuard: (() => void) | undefined;
     try {
       await repairSessionFileIfNeeded({
@@ -2632,7 +2656,7 @@ export async function runEmbeddedAttempt(
         getCompactionCount,
       } = subscription;
 
-      const queueHandle: EmbeddedPiQueueHandle = {
+      queueHandle = {
         queueMessage: async (text: string) => {
           await activeSession.steer(text);
         },
@@ -3142,7 +3166,6 @@ export async function runEmbeddedAttempt(
             `CRITICAL: unsubscribe failed, possible resource leak: runId=${params.runId} ${String(err)}`,
           );
         }
-        clearActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);
         params.abortSignal?.removeEventListener?.("abort", onAbort);
       }
 
@@ -3222,17 +3245,63 @@ export async function runEmbeddedAttempt(
       // flushPendingToolResults() fires while tools are still executing, inserting
       // synthetic "missing tool result" errors and causing silent agent failures.
       // See: https://github.com/openclaw/openclaw/issues/8643
-      removeToolResultContextGuard?.();
-      await flushPendingToolResultsAfterIdle({
-        agent: session?.agent,
-        sessionManager,
-        clearPendingOnTimeout: true,
-      });
-      session?.dispose();
-      releaseWsSession(params.sessionId);
-      await bundleMcpRuntime?.dispose();
-      await bundleLspRuntime?.dispose();
-      await sessionLock.release();
+      let sessionLockReleased = false;
+      await runCleanupSteps([
+        {
+          label: "tool result context guard removal",
+          run: () => {
+            removeToolResultContextGuard?.();
+          },
+        },
+        {
+          label: "pending tool result flush",
+          run: () =>
+            flushPendingToolResultsAfterIdle({
+              agent: session?.agent,
+              sessionManager,
+              clearPendingOnTimeout: true,
+            }),
+        },
+        {
+          label: "session dispose",
+          run: () => {
+            session?.dispose();
+          },
+        },
+        {
+          label: "websocket session release",
+          run: () => {
+            releaseWsSession(params.sessionId);
+          },
+        },
+        {
+          label: "bundle MCP runtime dispose",
+          run: () => bundleMcpRuntime?.dispose(),
+        },
+        {
+          label: "bundle LSP runtime dispose",
+          run: () => bundleLspRuntime?.dispose(),
+        },
+        {
+          label: "session lock release",
+          run: async () => {
+            await sessionLock.release();
+            sessionLockReleased = true;
+          },
+        },
+        {
+          // Keep the embedded run registered until idle flush and lock release finish.
+          // waitForEmbeddedPiRunEnd() and restart drains rely on this barrier so yielded
+          // or aborted runs do not look fully idle while descendant spawns/tool cleanup
+          // may still be settling.
+          label: "active embedded run clear",
+          run: () => {
+            if (queueHandle && sessionLockReleased) {
+              clearActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);
+            }
+          },
+        },
+      ]);
     }
   } finally {
     restoreSkillEnv?.();

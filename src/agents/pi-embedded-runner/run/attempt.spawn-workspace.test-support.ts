@@ -33,6 +33,12 @@ const hoisted = vi.hoisted(() => {
   const getGlobalHookRunnerMock = vi.fn<() => unknown>(() => undefined);
   const initializeGlobalHookRunnerMock = vi.fn();
   const runContextEngineMaintenanceMock = vi.fn(async (_params?: unknown) => undefined);
+  const sessionLockReleaseMock = vi.fn(async () => {});
+  const flushPendingToolResultsAfterIdleMock = vi.fn(async () => {});
+  const setActiveEmbeddedRunMock = vi.fn();
+  const clearActiveEmbeddedRunMock = vi.fn();
+  const updateActiveEmbeddedRunSnapshotMock = vi.fn();
+  const releaseWsSessionMock = vi.fn();
   const sessionManager = {
     getLeafEntry: vi.fn(() => null),
     branch: vi.fn(),
@@ -51,6 +57,12 @@ const hoisted = vi.hoisted(() => {
     getGlobalHookRunnerMock,
     initializeGlobalHookRunnerMock,
     runContextEngineMaintenanceMock,
+    sessionLockReleaseMock,
+    flushPendingToolResultsAfterIdleMock,
+    setActiveEmbeddedRunMock,
+    clearActiveEmbeddedRunMock,
+    updateActiveEmbeddedRunSnapshotMock,
+    releaseWsSessionMock,
     sessionManager,
   };
 });
@@ -176,13 +188,14 @@ vi.mock("../tool-result-context-guard.js", () => ({
 }));
 
 vi.mock("../wait-for-idle-before-flush.js", () => ({
-  flushPendingToolResultsAfterIdle: async () => {},
+  flushPendingToolResultsAfterIdle: hoisted.flushPendingToolResultsAfterIdleMock,
 }));
 
 vi.mock("../runs.js", () => ({
-  setActiveEmbeddedRun: () => {},
-  clearActiveEmbeddedRun: () => {},
-  updateActiveEmbeddedRunSnapshot: () => {},
+  setActiveEmbeddedRun: (...args: unknown[]) => hoisted.setActiveEmbeddedRunMock(...args),
+  clearActiveEmbeddedRun: (...args: unknown[]) => hoisted.clearActiveEmbeddedRunMock(...args),
+  updateActiveEmbeddedRunSnapshot: (...args: unknown[]) =>
+    hoisted.updateActiveEmbeddedRunSnapshotMock(...args),
 }));
 
 vi.mock("./images.js", () => ({
@@ -214,7 +227,7 @@ vi.mock("../extra-params.js", () => ({
 
 vi.mock("../../openai-ws-stream.js", () => ({
   createOpenAIWebSocketStreamFn: vi.fn(),
-  releaseWsSession: () => {},
+  releaseWsSession: (...args: unknown[]) => hoisted.releaseWsSessionMock(...args),
 }));
 
 vi.mock("../../anthropic-payload-log.js", () => ({
@@ -482,7 +495,7 @@ export function resetEmbeddedAttemptHarness(
   hoisted.sessionManagerOpenMock.mockReset().mockReturnValue(hoisted.sessionManager);
   hoisted.resolveSandboxContextMock.mockReset();
   hoisted.acquireSessionWriteLockMock.mockReset().mockResolvedValue({
-    release: async () => {},
+    release: hoisted.sessionLockReleaseMock,
   });
   hoisted.resolveBootstrapContextForRunMock.mockReset().mockResolvedValue({
     bootstrapFiles: [],
@@ -490,6 +503,12 @@ export function resetEmbeddedAttemptHarness(
   });
   hoisted.getGlobalHookRunnerMock.mockReset().mockReturnValue(undefined);
   hoisted.runContextEngineMaintenanceMock.mockReset().mockResolvedValue(undefined);
+  hoisted.sessionLockReleaseMock.mockReset().mockResolvedValue(undefined);
+  hoisted.flushPendingToolResultsAfterIdleMock.mockReset().mockResolvedValue(undefined);
+  hoisted.setActiveEmbeddedRunMock.mockReset();
+  hoisted.clearActiveEmbeddedRunMock.mockReset();
+  hoisted.updateActiveEmbeddedRunSnapshotMock.mockReset();
+  hoisted.releaseWsSessionMock.mockReset();
   hoisted.sessionManager.getLeafEntry.mockReset().mockReturnValue(null);
   hoisted.sessionManager.branch.mockReset();
   hoisted.sessionManager.resetLeaf.mockReset();

@@ -25,6 +25,7 @@ let requesterDepthResolver: (sessionKey?: string) => number = () => 0;
 let subagentSessionRunActive = true;
 let shouldIgnorePostCompletion = false;
 let pendingDescendantRuns = 0;
+let registryCheckShouldThrow = false;
 let fallbackRequesterResolution: {
   requesterSessionKey: string;
   requesterOrigin?: { channel?: string; to?: string; accountId?: string };
@@ -87,7 +88,12 @@ async function createSubagentRegistryModuleMock(
   return {
     ...actual,
     countActiveDescendantRuns: () => 0,
-    countPendingDescendantRuns: () => pendingDescendantRuns,
+    countPendingDescendantRuns: () => {
+      if (registryCheckShouldThrow) {
+        throw new Error("registry unavailable");
+      }
+      return pendingDescendantRuns;
+    },
     listSubagentRunsForRequester: () => [],
     isSubagentSessionRunActive: () => subagentSessionRunActive,
     shouldIgnorePostCompletionAnnounceForSession: () => shouldIgnorePostCompletion,
@@ -214,6 +220,7 @@ describe("subagent announce timeout config", () => {
     subagentSessionRunActive = true;
     shouldIgnorePostCompletion = false;
     pendingDescendantRuns = 0;
+    registryCheckShouldThrow = false;
     fallbackRequesterResolution = null;
   });
 
@@ -487,5 +494,28 @@ describe("subagent announce timeout config", () => {
     expect(internalEvents[0]?.result).toContain(
       "A longer partial summary that should stay silent.",
     );
+  });
+
+  it("regression, defers announce when registry check throws instead of sending premature completion", async () => {
+    registryCheckShouldThrow = true;
+
+    const didAnnounce = await runAnnounceFlowForTest("run-registry-error");
+
+    expect(didAnnounce).toBe(false);
+    expect(findFinalDirectAgentCall()).toBeUndefined();
+  });
+
+  it("regression, defers announce for yield-aborted subagent with pending child spawns", async () => {
+    requesterDepthResolver = () => 1;
+    pendingDescendantRuns = 1;
+
+    const didAnnounce = await runAnnounceFlowForTest("run-yield-pending-children", {
+      requesterSessionKey: "agent:main:subagent:orchestrator",
+      requesterDisplayKey: "subagent:orchestrator",
+      childSessionKey: "agent:main:subagent:orchestrator:subagent:worker",
+    });
+
+    expect(didAnnounce).toBe(false);
+    expect(findFinalDirectAgentCall()).toBeUndefined();
   });
 });
