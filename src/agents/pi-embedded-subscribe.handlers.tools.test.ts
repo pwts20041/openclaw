@@ -715,7 +715,8 @@ describe("circuit breaker arg signature for action-based tools with url/path arg
       type: "tool_execution_start",
       toolName: "browser",
       toolCallId: id,
-      args: { action: "open", url },
+      // target="current" is a window selector; url must win over it in the signature.
+      args: { action: "open", target: "current", url },
     });
     await handleToolExecutionEnd(ctx, {
       type: "tool_execution_end",
