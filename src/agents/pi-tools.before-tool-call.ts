@@ -201,8 +201,10 @@ export async function runBeforeToolCallHook(args: {
         `\u26D4 exec blocked \u2014 "command" parameter is required but was empty or missing.\n` +
         `This usually means the tool call was truncated during generation.\n` +
         `DO NOT retry the same empty exec call.\n` +
-        `Instead, write the file content using a different approach: break large content into ` +
-        `smaller write operations, use a heredoc, or write a minimal script first.\n` +
+        `DO NOT use exec with inline scripts or heredocs \u2014 long inline content is exactly ` +
+        `what causes truncation and empty commands.\n` +
+        `Instead: use the write tool to save the script to a file (e.g. /tmp/script.py), ` +
+        `then call exec with a short command such as: python3 /tmp/script.py\n` +
         `Do NOT call exec again without a non-empty "command" field.`;
       log.warn(
         `exec blocked: empty command toolCallId=${args.toolCallId ?? "?"} sessionKey=${args.ctx?.sessionKey ?? "?"}`,
