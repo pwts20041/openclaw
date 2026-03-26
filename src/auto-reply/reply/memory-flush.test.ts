@@ -48,6 +48,24 @@ describe("resolveMemoryFlushPromptForRun", () => {
 
     expect(relativePath).toBe("memory/2026-02-16.md");
   });
+
+  it("uses the reset cycle key before the daily reset hour", () => {
+    const shanghaiCfg = {
+      agents: {
+        defaults: {
+          userTimezone: "Asia/Shanghai",
+        },
+      },
+    } as OpenClawConfig;
+
+    const relativePath = resolveMemoryFlushRelativePathForRun({
+      cfg: shanghaiCfg,
+      nowMs: Date.UTC(2026, 2, 20, 17, 10, 0), // 2026-03-21 01:10 +08:00
+      resetAtHour: 4,
+    });
+
+    expect(relativePath).toBe("memory/2026-03-20.md");
+  });
 });
 
 describe("DEFAULT_MEMORY_FLUSH_PROMPT", () => {

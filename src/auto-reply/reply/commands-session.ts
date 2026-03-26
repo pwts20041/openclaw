@@ -3,6 +3,7 @@ import { formatThreadBindingDurationLabel } from "../../channels/thread-bindings
 import { parseDurationMs } from "../../cli/parse-duration.js";
 import { isRestartEnabled } from "../../config/commands.js";
 import { logVerbose } from "../../globals.js";
+import { formatHumanDayKey } from "../../infra/format-time/human-day.js";
 import { getSessionBindingService } from "../../infra/outbound/session-binding-service.js";
 import type { SessionBindingRecord } from "../../infra/outbound/session-binding-service.js";
 import { scheduleGatewaySigusr1Restart, triggerOpenClawRestart } from "../../infra/restart.js";
@@ -290,7 +291,7 @@ export const handleUsageCommand: CommandHandler = async (params, allowTextComman
         ? `Session ${sessionCost ?? "n/a"}${sessionSuffix}${sessionTokens ? ` · ${sessionTokens} tokens` : ""}`
         : "Session n/a";
 
-    const todayKey = new Date().toLocaleDateString("en-CA");
+    const todayKey = formatHumanDayKey(Date.now(), params.cfg);
     const todayEntry = summary.daily.find((entry) => entry.date === todayKey);
     const todayCost = formatUsd(todayEntry?.totalCost);
     const todayMissing = todayEntry?.missingCostEntries ?? 0;

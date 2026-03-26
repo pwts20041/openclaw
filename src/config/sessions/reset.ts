@@ -1,4 +1,9 @@
+import {
+  resolveHumanResetBoundaryMs,
+  resolveHumanResetCycleKey,
+} from "../../infra/format-time/human-day.js";
 import { normalizeMessageChannel } from "../../utils/message-channel.js";
+import type { OpenClawConfig } from "../config.js";
 import type { SessionConfig, SessionResetConfig } from "../types.base.js";
 import { DEFAULT_IDLE_MINUTES } from "./types.js";
 
@@ -71,14 +76,12 @@ export function resolveThreadFlag(params: {
   return isThreadSessionKey(params.sessionKey);
 }
 
-export function resolveDailyResetAtMs(now: number, atHour: number): number {
-  const normalizedAtHour = normalizeResetAtHour(atHour);
-  const resetAt = new Date(now);
-  resetAt.setHours(normalizedAtHour, 0, 0, 0);
-  if (now < resetAt.getTime()) {
-    resetAt.setDate(resetAt.getDate() - 1);
-  }
-  return resetAt.getTime();
+export function resolveDailyResetAtMs(
+  now: number,
+  atHour: number,
+  cfg?: OpenClawConfig,
+): number | undefined {
+  return resolveHumanResetBoundaryMs(now, normalizeResetAtHour(atHour), cfg);
 }
 
 export function resolveSessionResetPolicy(params: {
@@ -137,25 +140,47 @@ export function resolveChannelResetConfig(params: {
 }
 
 export function evaluateSessionFreshness(params: {
-  updatedAt: number;
+  updatedAt?: number | null;
   now: number;
   policy: SessionResetPolicy;
+  cfg?: OpenClawConfig;
 }): SessionFreshness {
   const dailyResetAt =
     params.policy.mode === "daily"
-      ? resolveDailyResetAtMs(params.now, params.policy.atHour)
+      ? resolveDailyResetAtMs(params.now, params.policy.atHour, params.cfg)
       : undefined;
+  const updatedAt = resolveSessionActivityTimestamp(params.updatedAt);
+  if (updatedAt === undefined) {
+    // Session stores are persisted JSON and may contain legacy/manual entries
+    // without a usable activity timestamp. Treat those as stale instead of
+    // feeding invalid dates into the human-day helpers.
+    return {
+      fresh: false,
+      dailyResetAt,
+    };
+  }
   const idleExpiresAt =
     params.policy.idleMinutes != null && params.policy.idleMinutes > 0
-      ? params.updatedAt + params.policy.idleMinutes * 60_000
+      ? updatedAt + params.policy.idleMinutes * 60_000
       : undefined;
-  const staleDaily = dailyResetAt != null && params.updatedAt < dailyResetAt;
+  const staleDaily =
+    params.policy.mode === "daily"
+      ? resolveHumanResetCycleKey(updatedAt, params.policy.atHour, params.cfg) <
+        resolveHumanResetCycleKey(params.now, params.policy.atHour, params.cfg)
+      : false;
   const staleIdle = idleExpiresAt != null && params.now > idleExpiresAt;
   return {
     fresh: !(staleDaily || staleIdle),
     dailyResetAt,
     idleExpiresAt,
   };
+}
+
+function resolveSessionActivityTimestamp(updatedAt?: number | null): number | undefined {
+  if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) {
+    return undefined;
+  }
+  return updatedAt;
 }
 
 function normalizeResetAtHour(value: number | undefined): number {

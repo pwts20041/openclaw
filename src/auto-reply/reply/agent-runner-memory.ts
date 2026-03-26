@@ -13,6 +13,7 @@ import {
   normalizeUsage,
   type UsageLike,
 } from "../../agents/usage.js";
+import { normalizeChatType } from "../../channels/chat-type.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
   resolveAgentIdFromSessionKey,
@@ -22,6 +23,13 @@ import {
   type SessionEntry,
   updateSessionStoreEntry,
 } from "../../config/sessions.js";
+import { resolveGroupSessionKey } from "../../config/sessions/group.js";
+import {
+  resolveChannelResetConfig,
+  resolveSessionResetPolicy,
+  resolveSessionResetType,
+  resolveThreadFlag,
+} from "../../config/sessions/reset.js";
 import { readSessionMessages } from "../../gateway/session-utils.fs.js";
 import { logVerbose } from "../../globals.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
@@ -81,6 +89,44 @@ export type SessionTranscriptUsageSnapshot = {
 // transcript reads in time to flip memory-flush gating when needed.
 const TRANSCRIPT_OUTPUT_READ_BUFFER_TOKENS = 8192;
 const TRANSCRIPT_TAIL_CHUNK_BYTES = 64 * 1024;
+
+export function resolveMemoryFlushResetAtHour(params: {
+  cfg: OpenClawConfig;
+  sessionCtx: TemplateContext;
+  sessionKey?: string;
+}): number | undefined {
+  const sessionCfg = params.cfg.session;
+  const groupResolution = resolveGroupSessionKey(params.sessionCtx) ?? undefined;
+  const normalizedChatType = normalizeChatType(params.sessionCtx.ChatType);
+  const isGroup =
+    normalizedChatType != null && normalizedChatType !== "direct" ? true : Boolean(groupResolution);
+  const isThread = resolveThreadFlag({
+    sessionKey: params.sessionKey,
+    messageThreadId: params.sessionCtx.MessageThreadId,
+    threadLabel: params.sessionCtx.ThreadLabel,
+    threadStarterBody: params.sessionCtx.ThreadStarterBody,
+    parentSessionKey: params.sessionCtx.ParentSessionKey,
+  });
+  const resetType = resolveSessionResetType({
+    sessionKey: params.sessionKey,
+    isGroup,
+    isThread,
+  });
+  const channelReset = resolveChannelResetConfig({
+    sessionCfg,
+    channel:
+      groupResolution?.channel ??
+      (params.sessionCtx.OriginatingChannel as string | undefined) ??
+      params.sessionCtx.Surface ??
+      params.sessionCtx.Provider,
+  });
+  const resetPolicy = resolveSessionResetPolicy({
+    sessionCfg,
+    resetType,
+    resetOverride: channelReset,
+  });
+  return resetPolicy.mode === "daily" ? resetPolicy.atHour : undefined;
+}
 
 function parseUsageFromTranscriptLine(line: string): ReturnType<typeof normalizeUsage> | undefined {
   const trimmed = line.trim();
@@ -670,9 +716,15 @@ export async function runMemoryFlushIfNeeded(params: {
   }
   let memoryCompactionCompleted = false;
   const memoryFlushNowMs = Date.now();
+  const memoryFlushResetAtHour = resolveMemoryFlushResetAtHour({
+    cfg: params.cfg,
+    sessionCtx: params.sessionCtx,
+    sessionKey: params.sessionKey,
+  });
   const memoryFlushWritePath = resolveMemoryFlushRelativePathForRun({
     cfg: params.cfg,
     nowMs: memoryFlushNowMs,
+    resetAtHour: memoryFlushResetAtHour,
   });
   const flushSystemPrompt = [
     params.followupRun.run.extraSystemPrompt,
@@ -706,6 +758,7 @@ export async function runMemoryFlushIfNeeded(params: {
             prompt: memoryFlushSettings.prompt,
             cfg: params.cfg,
             nowMs: memoryFlushNowMs,
+            resetAtHour: memoryFlushResetAtHour,
           }),
           extraSystemPrompt: flushSystemPrompt,
           bootstrapPromptWarningSignaturesSeen,

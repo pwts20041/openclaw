@@ -39,6 +39,7 @@ export function resolveCronSession(params: {
       updatedAt: entry.updatedAt,
       now: params.nowMs,
       policy: resetPolicy,
+      cfg: params.cfg,
     });
 
     if (freshness.fresh) {
