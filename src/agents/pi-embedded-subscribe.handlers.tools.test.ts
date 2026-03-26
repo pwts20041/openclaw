@@ -637,6 +637,48 @@ describe("circuit breaker arg signature for file_path alias", () => {
   });
 });
 
+describe("circuit breaker arg signature for browser targetId selector", () => {
+  async function runFocus(ctx: ToolHandlerContext, targetId: string, isError: boolean, id: string) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "browser",
+      toolCallId: id,
+      args: { action: "focus", targetId },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "browser",
+      toolCallId: id,
+      isError,
+      result: isError ? { type: "text", text: "Error: tab not found" } : { ok: true },
+    });
+  }
+
+  it("does not trip circuit when focus failures target different tab ids", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runFocus(ctx, "tab-1", true, "f1");
+    await runFocus(ctx, "tab-2", true, "f2");
+    await runFocus(ctx, "tab-3", true, "f3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("trips circuit when focus failures repeatedly target the same tab id", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runFocus(ctx, "tab-x", true, "f1");
+    await runFocus(ctx, "tab-x", true, "f2");
+    await runFocus(ctx, "tab-x", true, "f3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("circuit breaker arg signature for nodes tool selectors", () => {
   async function runNodes(ctx: ToolHandlerContext, node: string, isError: boolean, id: string) {
     await handleToolExecutionStart(ctx, {

@@ -110,10 +110,11 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
       "threadId",
       "node",
       "requestId",
-      // url/targetUrl before target: browser passes target="current"|"new" (window selector)
-      // alongside url as the primary content; url must win over target for the signature.
+      // url/targetUrl/targetId before target: browser passes target="current"|"new" (window
+      // selector) alongside url/targetId as primary content; these must win over target.
       "url",
       "targetUrl",
+      "targetId",
       "target",
       "path",
       "file_path",
