@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import anthropicPlugin from "../../extensions/anthropic/index.js";
 import chutesPlugin from "../../extensions/chutes/index.js";
 import cloudflareAiGatewayPlugin from "../../extensions/cloudflare-ai-gateway/index.js";
+import featherlessPlugin from "../../extensions/featherless/index.js";
 import googlePlugin from "../../extensions/google/index.js";
 import huggingfacePlugin from "../../extensions/huggingface/index.js";
 import kimiCodingPlugin from "../../extensions/kimi-coding/index.js";
@@ -16,6 +17,7 @@ import opencodeGoPlugin from "../../extensions/opencode-go/index.js";
 import opencodePlugin from "../../extensions/opencode/index.js";
 import openrouterPlugin from "../../extensions/openrouter/index.js";
 import qianfanPlugin from "../../extensions/qianfan/index.js";
+import qwenPortalAuthPlugin from "../../extensions/qwen-portal-auth/index.js";
 import syntheticPlugin from "../../extensions/synthetic/index.js";
 import togetherPlugin from "../../extensions/together/index.js";
 import venicePlugin from "../../extensions/venice/index.js";
@@ -103,6 +105,8 @@ function createDefaultProviderPlugins() {
     opencodePlugin,
     openrouterPlugin,
     qianfanPlugin,
+    qwenPortalAuthPlugin,
+    featherlessPlugin,
     syntheticPlugin,
     togetherPlugin,
     venicePlugin,
