@@ -46,50 +46,34 @@ export function normalizeCdpWsUrl(wsUrl: string, cdpUrl: string): string {
   return ws.toString();
 }
 
-export async function captureScreenshotPng(opts: {
-  wsUrl: string;
-  fullPage?: boolean;
-}): Promise<Buffer> {
+export async function captureScreenshotPng(opts: { wsUrl: string }): Promise<Buffer> {
   return await captureScreenshot({
     wsUrl: opts.wsUrl,
-    fullPage: opts.fullPage,
     format: "png",
   });
 }
 
 export async function captureScreenshot(opts: {
   wsUrl: string;
-  fullPage?: boolean;
   format?: "png" | "jpeg";
   quality?: number; // jpeg only (0..100)
 }): Promise<Buffer> {
   return await withCdpSocket(opts.wsUrl, async (send) => {
     await send("Page.enable");
 
-    let clip: { x: number; y: number; width: number; height: number; scale: number } | undefined;
-    if (opts.fullPage) {
-      const metrics = (await send("Page.getLayoutMetrics")) as {
-        cssContentSize?: { width?: number; height?: number };
-        contentSize?: { width?: number; height?: number };
-      };
-      const size = metrics?.cssContentSize ?? metrics?.contentSize;
-      const width = Number(size?.width ?? 0);
-      const height = Number(size?.height ?? 0);
-      if (width > 0 && height > 0) {
-        clip = { x: 0, y: 0, width, height, scale: 1 };
-      }
-    }
-
     const format = opts.format ?? "png";
     const quality =
       format === "jpeg" ? Math.max(0, Math.min(100, Math.round(opts.quality ?? 85))) : undefined;
 
+    // captureBeyondViewport is intentionally false to avoid a Chromium compositor
+    // bug that drops cross-origin image textures when the capture surface is
+    // extended (fromSurface: true + captureBeyondViewport: true). Full-page
+    // screenshots that need beyond-viewport content are routed to Playwright.
     const result = (await send("Page.captureScreenshot", {
       format,
       ...(quality !== undefined ? { quality } : {}),
       fromSurface: true,
-      captureBeyondViewport: true,
-      ...(clip ? { clip } : {}),
+      captureBeyondViewport: false,
     })) as { data?: string };
 
     const base64 = result?.data;
