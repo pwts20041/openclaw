@@ -139,8 +139,8 @@ docs/superpowers
 changelog/fragments/
 
 # Local planning files
-CLAUDE.md
 BRIEF.md
+BRIEF-v2.md
 TASK.md
 PROGRESS.md
 tasks/
