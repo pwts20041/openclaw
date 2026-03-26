@@ -190,8 +190,11 @@ export async function runDiscordGatewayLifecycle(params: {
       // false during reconnect handling after this debug line is emitted.
       if (gateway?.isConnected) {
         resetHelloStallCounter();
+        reconnectStallWatchdog.disarm();
       }
-      reconnectStallWatchdog.arm(at);
+      if (!reconnectStallWatchdog.isArmed()) {
+        reconnectStallWatchdog.arm(at);
+      }
       pushStatus({
         connected: false,
         lastDisconnect: {
@@ -205,11 +208,11 @@ export async function runDiscordGatewayLifecycle(params: {
     if (!message.includes("WebSocket connection opened")) {
       return;
     }
-    reconnectStallWatchdog.disarm();
     clearHelloWatch();
 
     let sawConnected = gateway?.isConnected === true;
     if (sawConnected) {
+      reconnectStallWatchdog.disarm();
       pushStatus({
         ...createConnectedChannelStatusPatch(at),
         lastDisconnect: null,
@@ -244,7 +247,9 @@ export async function runDiscordGatewayLifecycle(params: {
         consecutiveHelloStalls += 1;
         const forceFreshIdentify = consecutiveHelloStalls >= MAX_CONSECUTIVE_HELLO_STALLS;
         const stalledAt = Date.now();
-        reconnectStallWatchdog.arm(stalledAt);
+        if (!reconnectStallWatchdog.isArmed()) {
+          reconnectStallWatchdog.arm(stalledAt);
+        }
         pushStatus({
           connected: false,
           lastEventAt: stalledAt,
