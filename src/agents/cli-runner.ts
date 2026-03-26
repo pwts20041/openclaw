@@ -9,7 +9,7 @@ import { sanitizeHostExecEnv } from "../infra/host-env-security.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getProcessSupervisor } from "../process/supervisor/index.js";
-import { scopedHeartbeatWakeOptions } from "../routing/session-key.js";
+import { resolveEventSessionKey, scopedHeartbeatWakeOptions } from "../routing/session-key.js";
 import { resolveSessionAgentIds } from "./agent-scope.js";
 import {
   analyzeBootstrapBudget,
@@ -370,7 +370,9 @@ export async function runCliAgent(params: {
                 "It may have been waiting for interactive input or an approval prompt.",
                 "For Claude Code, prefer --permission-mode bypassPermissions --print.",
               ].join(" ");
-              enqueueSystemEvent(stallNotice, { sessionKey: params.sessionKey });
+              enqueueSystemEvent(stallNotice, {
+                sessionKey: resolveEventSessionKey(params.sessionKey),
+              });
               requestHeartbeatNow(
                 scopedHeartbeatWakeOptions(params.sessionKey, { reason: "cli:watchdog:stall" }),
               );
