@@ -552,6 +552,49 @@ describe("messaging tool media URL tracking", () => {
   });
 });
 
+describe("circuit breaker arg signature for messaging tools", () => {
+  async function runMessage(ctx: ToolHandlerContext, to: string, isError: boolean, id: string) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "message",
+      toolCallId: id,
+      args: { action: "send", to, content: "hello" },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "message",
+      toolCallId: id,
+      isError,
+      result: isError ? { type: "text", text: "Error: delivery failed" } : { ok: true },
+    });
+  }
+
+  it("does not trip circuit when successive failures target different recipients", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    // Three failures, each to a different recipient — should NOT trip the breaker
+    await runMessage(ctx, "channel:111", true, "m1");
+    await runMessage(ctx, "channel:222", true, "m2");
+    await runMessage(ctx, "channel:333", true, "m3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("trips circuit when successive failures target the same recipient", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runMessage(ctx, "channel:999", true, "m1");
+    await runMessage(ctx, "channel:999", true, "m2");
+    await runMessage(ctx, "channel:999", true, "m3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("circuit breaker probe-reset prevention", () => {
   async function runExec(ctx: ToolHandlerContext, command: string, isError: boolean, id: string) {
     await handleToolExecutionStart(ctx, {

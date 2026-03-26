@@ -81,7 +81,10 @@ function extendExecMeta(toolName: string, args: unknown, meta?: string): string 
 
 /**
  * Build a circuit-breaker arg signature from raw tool args.
- * Keys off command text for exec/bash; falls back to the first stable string field for other tools.
+ * Keys off command text for exec/bash.
+ * For tools with an "action" field, appends the first routing-destination field so that
+ * calls to different recipients (to/target/channelId) are not collapsed under the same signature.
+ * Falls back to the first stable string field for other tools.
  */
 function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
   const record = isPlainObject(args) ? args : {};
@@ -90,7 +93,19 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
     const cmd = record.command ?? record.cmd;
     return typeof cmd === "string" ? cmd.slice(0, 100) : "";
   }
-  for (const key of ["path", "filePath", "url", "id", "action", "query", "sessionKey"]) {
+  // When an action field is present, build a composite signature that also captures the
+  // routing destination so that calls with different recipients are not treated as identical.
+  const actionVal = typeof record.action === "string" ? record.action.trim().slice(0, 50) : null;
+  if (actionVal !== null) {
+    for (const destKey of ["to", "target", "channelId", "userId", "threadId"]) {
+      const val = record[destKey];
+      if (typeof val === "string" && val.trim()) {
+        return `action=${actionVal},${destKey}=${val.trim().slice(0, 50)}`;
+      }
+    }
+    return `action=${actionVal}`;
+  }
+  for (const key of ["path", "filePath", "url", "id", "query", "sessionKey"]) {
     const val = record[key];
     if (typeof val === "string" && val.trim()) {
       return `${key}=${val.trim().slice(0, 100)}`;
