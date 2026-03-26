@@ -12,6 +12,7 @@ import { type OpenClawConfig, loadConfig } from "../../config/config.js";
 import { applyMergePatch } from "../../config/merge-patch.js";
 import { defaultRuntime } from "../../runtime.js";
 import { normalizeStringEntries } from "../../shared/string-normalization.js";
+import { listRouteBindings } from "../../config/bindings.js";
 import { resolveCommandAuthorization } from "../command-auth.js";
 import type { MsgContext } from "../templating.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
@@ -28,6 +29,30 @@ import { stageSandboxMedia } from "./stage-sandbox-media.js";
 import { createTypingController } from "./typing.js";
 
 type ResetCommandAction = "new" | "reset";
+
+/**
+ * Resolve per-binding workspace override from route bindings.
+ *
+ * When a binding specifies a `workspace` field, the agent runs in that
+ * directory instead of its default workspace.  This enables a single generic
+ * agent to work in different workspaces (e.g., git worktrees) depending on
+ * which chat/peer it is responding to.
+ */
+function resolveBindingWorkspace(
+  cfg: OpenClawConfig,
+  agentId: string,
+  sessionKey?: string,
+): string | undefined {
+  if (!sessionKey) return undefined;
+  for (const binding of listRouteBindings(cfg)) {
+    if (!binding.workspace || binding.agentId !== agentId) continue;
+    const peer = binding.match?.peer;
+    if (peer?.id && sessionKey.includes(peer.id)) {
+      return binding.workspace;
+    }
+  }
+  return undefined;
+}
 
 function mergeSkillFilters(channelFilter?: string[], agentFilter?: string[]): string[] | undefined {
   const normalize = (list?: string[]) => {
@@ -151,7 +176,9 @@ export async function getReplyFromConfig(
     }
   }
 
-  const workspaceDirRaw = resolveAgentWorkspaceDir(cfg, agentId) ?? DEFAULT_AGENT_WORKSPACE_DIR;
+  const bindingWorkspace = resolveBindingWorkspace(cfg, agentId, agentSessionKey);
+  const workspaceDirRaw =
+    bindingWorkspace || resolveAgentWorkspaceDir(cfg, agentId) || DEFAULT_AGENT_WORKSPACE_DIR;
   const workspace = await ensureAgentWorkspace({
     dir: workspaceDirRaw,
     ensureBootstrapFiles: !agentCfg?.skipBootstrap && !isFastTestEnv,
