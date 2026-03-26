@@ -96,13 +96,30 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
     return typeof cmd === "string" ? cmd : "";
   }
   // When an action field is present, build a composite signature that also captures the
-  // routing destination so that calls with different recipients are not treated as identical.
+  // primary argument so that calls with the same action but different targets/content are
+  // not collapsed into the same signature.
+  // Priority: routing-destination fields first (to/target/channelId…), then general
+  // primary-argument fields (url/path/…). This ensures both messaging tools and
+  // action-based tools (e.g. browser action:"open" url:"…") are correctly distinguished.
   const actionVal = typeof record.action === "string" ? record.action.trim().slice(0, 50) : null;
   if (actionVal !== null) {
-    for (const destKey of ["to", "target", "channelId", "userId", "threadId"]) {
-      const val = record[destKey];
+    for (const argKey of [
+      "to",
+      "target",
+      "channelId",
+      "userId",
+      "threadId",
+      "url",
+      "path",
+      "filePath",
+      "id",
+      "label",
+      "query",
+      "sessionKey",
+    ]) {
+      const val = record[argKey];
       if (typeof val === "string" && val.trim()) {
-        return `action=${actionVal},${destKey}=${val.trim().slice(0, 50)}`;
+        return `action=${actionVal},${argKey}=${val.trim().slice(0, 200)}`;
       }
     }
     return `action=${actionVal}`;

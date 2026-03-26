@@ -595,6 +595,48 @@ describe("circuit breaker arg signature for messaging tools", () => {
   });
 });
 
+describe("circuit breaker arg signature for action-based tools with url/path args", () => {
+  async function runBrowser(ctx: ToolHandlerContext, url: string, isError: boolean, id: string) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "browser",
+      toolCallId: id,
+      args: { action: "open", url },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "browser",
+      toolCallId: id,
+      isError,
+      result: isError ? { type: "text", text: "Error: navigation failed" } : { ok: true },
+    });
+  }
+
+  it("does not trip circuit when action-based calls have different URLs", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runBrowser(ctx, "https://example.com/a", true, "b1");
+    await runBrowser(ctx, "https://example.com/b", true, "b2");
+    await runBrowser(ctx, "https://example.com/c", true, "b3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("trips circuit when action-based calls repeatedly use the same URL", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runBrowser(ctx, "https://example.com/same", true, "b1");
+    await runBrowser(ctx, "https://example.com/same", true, "b2");
+    await runBrowser(ctx, "https://example.com/same", true, "b3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("circuit breaker arg signature for sessions_send label routing", () => {
   async function runSessionsSend(
     ctx: ToolHandlerContext,
