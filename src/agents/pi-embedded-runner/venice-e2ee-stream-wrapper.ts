@@ -18,6 +18,9 @@ import {
   type Context,
 } from "@mariozechner/pi-ai";
 import { createVeniceE2EE, encryptMessage, decryptChunk, type E2EESession } from "venice-e2ee";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
+
+const log = createSubsystemLogger("venice-e2ee");
 
 // ── Module-level session cache ──────────────────────────────────────────────
 
@@ -37,6 +40,73 @@ function getE2EE(apiKey: string): E2EEInstance {
   return instance;
 }
 
+// ── Attestation reporting ───────────────────────────────────────────────────
+
+function formatAttestationBanner(session: E2EESession): string {
+  const a = session.attestation;
+  const check = (ok: boolean | null | undefined) =>
+    ok === true ? "pass" : ok === false ? "FAIL" : "n/a";
+
+  const lines = [
+    "--- Venice E2EE attestation ---",
+    `Model:              ${session.modelId}`,
+    `Nonce binding:      ${check(a?.nonceVerified)}`,
+    `Signing key bound:  ${check(a?.signingKeyBound)}`,
+    `Debug mode:         ${a?.debugMode ? "ON (UNTRUSTED)" : "off"}`,
+    `Server TDX valid:   ${check(a?.serverTdxValid)}`,
+  ];
+
+  if (a?.dcap) {
+    lines.push(`DCAP TCB status:    ${a.dcap.status}`);
+    if (a.dcap.advisoryIds.length > 0) {
+      lines.push(`DCAP advisories:    ${a.dcap.advisoryIds.join(", ")}`);
+    }
+  }
+
+  lines.push(
+    `Client pub key:     ${session.pubKeyHex.slice(0, 16)}...${session.pubKeyHex.slice(-8)}`,
+    `Model pub key:      ${session.modelPubKeyHex.slice(0, 16)}...${session.modelPubKeyHex.slice(-8)}`,
+    `Session created:    ${new Date(session.created).toISOString()}`,
+    `Encryption:         ECDH secp256k1 + HKDF-SHA256 + AES-256-GCM`,
+  );
+
+  if (a?.errors && a.errors.length > 0) {
+    lines.push(`Errors:             ${a.errors.join("; ")}`);
+  }
+
+  lines.push("-------------------------------");
+  return lines.join("\n");
+}
+
+function logAttestation(session: E2EESession): void {
+  const a = session.attestation;
+  if (!a) {
+    log.warn("E2EE session established without attestation data (verification disabled?)");
+    return;
+  }
+
+  const summary = [
+    `model=${session.modelId}`,
+    `nonce=${a.nonceVerified ? "ok" : "FAIL"}`,
+    `sigKey=${a.signingKeyBound ? "ok" : "FAIL"}`,
+    `debug=${a.debugMode ? "ON" : "off"}`,
+    `serverTDX=${a.serverTdxValid === true ? "ok" : a.serverTdxValid === false ? "FAIL" : "n/a"}`,
+  ];
+  if (a.dcap) {
+    summary.push(`dcap=${a.dcap.status}`);
+  }
+
+  log.info(`E2EE session established (${summary.join(", ")})`);
+  log.debug(`client pubkey: ${session.pubKeyHex}`);
+  log.debug(`model pubkey:  ${session.modelPubKeyHex}`);
+
+  if (a.errors.length > 0) {
+    for (const err of a.errors) {
+      log.error(`attestation error: ${err}`);
+    }
+  }
+}
+
 // ── Public wrapper ──────────────────────────────────────────────────────────
 
 export function isVeniceE2EEModel(modelId: string): boolean {
@@ -51,6 +121,8 @@ export function isVeniceE2EEModel(modelId: string): boolean {
  * - Adds `X-Venice-TEE-*` headers and `venice_parameters.enable_e2ee`.
  * - Decrypts every `text_delta` / `text_end` event in the response stream
  *   using per-chunk ECDH key derivation.
+ * - Logs attestation details and injects a verification banner into the
+ *   response so the user can verify E2EE is active.
  */
 export function createVeniceE2EEStreamWrapper(baseStreamFn: StreamFn | undefined): StreamFn {
   const underlying = baseStreamFn ?? streamSimple;
@@ -58,7 +130,9 @@ export function createVeniceE2EEStreamWrapper(baseStreamFn: StreamFn | undefined
   return async (model, context, options) => {
     const apiKey = options?.apiKey;
     if (!apiKey) {
-      return underlying(model, context, options);
+      throw new Error(
+        "Venice E2EE requires an API key. Refusing to send plaintext to an E2EE model.",
+      );
     }
 
     // ── Establish E2EE session (fetches TEE attestation, derives keys) ───
@@ -73,6 +147,9 @@ export function createVeniceE2EEStreamWrapper(baseStreamFn: StreamFn | undefined
         { cause: err },
       );
     }
+
+    // ── Log attestation results ──────────────────────────────────────────
+    logAttestation(session);
 
     // ── Encrypt context ─────────────────────────────────────────────────
     const encryptedContext = await encryptContext(context, session);
@@ -101,13 +178,35 @@ export function createVeniceE2EEStreamWrapper(baseStreamFn: StreamFn | undefined
       },
     });
 
-    // ── Wrap response stream: decrypt text deltas ───────────────────────
+    // ── Wrap response stream: inject banner + decrypt text deltas ────────
     const resultStream = createAssistantMessageEventStream();
     const decryptedAccum = new Map<number, string>();
+    const banner = formatAttestationBanner(session);
 
     void (async () => {
+      let bannerInjected = false;
       try {
         for await (const event of sourceStream) {
+          // Inject attestation banner before the first text content
+          if (!bannerInjected && event.type === "text_delta") {
+            bannerInjected = true;
+            const bannerDelta = banner + "\n\n";
+            const decrypted = await decryptChunk(session.privateKey, event.delta);
+            const fullAccum = bannerDelta + decrypted;
+            decryptedAccum.set(event.contentIndex, fullAccum);
+            resultStream.push({
+              ...event,
+              delta: bannerDelta,
+              partial: patchPartialText(event.partial, event.contentIndex, bannerDelta),
+            });
+            // Then push the actual decrypted delta
+            resultStream.push({
+              ...event,
+              delta: decrypted,
+              partial: patchPartialText(event.partial, event.contentIndex, fullAccum),
+            });
+            continue;
+          }
           resultStream.push(await decryptEvent(event, session, decryptedAccum));
         }
       } finally {
