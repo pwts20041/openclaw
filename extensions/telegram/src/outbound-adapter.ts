@@ -38,6 +38,7 @@ function resolveTelegramSendContext(params: {
   accountId?: string | null;
   replyToId?: string | null;
   threadId?: string | number | null;
+  gatewayClientScopes?: readonly string[];
 }): {
   send: TelegramSendFn;
   baseOpts: {
@@ -47,6 +48,7 @@ function resolveTelegramSendContext(params: {
     messageThreadId?: number;
     replyToMessageId?: number;
     accountId?: string;
+    gatewayClientScopes?: readonly string[];
   };
 } {
   const send =
@@ -60,6 +62,7 @@ function resolveTelegramSendContext(params: {
       messageThreadId: parseTelegramThreadId(params.threadId),
       replyToMessageId: parseTelegramReplyToMessageId(params.replyToId),
       accountId: params.accountId ?? undefined,
+      gatewayClientScopes: params.gatewayClientScopes,
     },
   };
 }
@@ -119,13 +122,23 @@ export const telegramOutbound: ChannelOutboundAdapter = {
     typeof fallbackLimit === "number" ? Math.min(fallbackLimit, 4096) : 4096,
   ...createAttachedChannelResultAdapter({
     channel: "telegram",
-    sendText: async ({ cfg, to, text, accountId, deps, replyToId, threadId }) => {
+    sendText: async ({
+      cfg,
+      to,
+      text,
+      accountId,
+      deps,
+      replyToId,
+      threadId,
+      gatewayClientScopes,
+    }) => {
       const { send, baseOpts } = resolveTelegramSendContext({
         cfg,
         deps,
         accountId,
         replyToId,
         threadId,
+        gatewayClientScopes,
       });
       const result = await send(to, text, {
         ...baseOpts,
@@ -143,6 +156,7 @@ export const telegramOutbound: ChannelOutboundAdapter = {
       replyToId,
       threadId,
       forceDocument,
+      gatewayClientScopes,
     }) => {
       const { send, baseOpts } = resolveTelegramSendContext({
         cfg,
@@ -150,6 +164,7 @@ export const telegramOutbound: ChannelOutboundAdapter = {
         accountId,
         replyToId,
         threadId,
+        gatewayClientScopes,
       });
       const result = await send(to, text, {
         ...baseOpts,
@@ -170,6 +185,7 @@ export const telegramOutbound: ChannelOutboundAdapter = {
     replyToId,
     threadId,
     forceDocument,
+    gatewayClientScopes,
   }) => {
     const { send, baseOpts } = resolveTelegramSendContext({
       cfg,
@@ -177,6 +193,7 @@ export const telegramOutbound: ChannelOutboundAdapter = {
       accountId,
       replyToId,
       threadId,
+      gatewayClientScopes,
     });
     const result = await sendTelegramPayloadMessages({
       send,
