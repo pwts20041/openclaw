@@ -27,8 +27,13 @@ const {
 } = braveTesting;
 const { resolveGrokApiKey, resolveGrokModel, resolveGrokInlineCitations, extractGrokContent } =
   xaiTesting;
-const { resolveKimiApiKey, resolveKimiModel, resolveKimiBaseUrl, extractKimiCitations } =
-  moonshotTesting;
+const {
+  resolveKimiApiKey,
+  resolveKimiModel,
+  resolveKimiBaseUrl,
+  resolveKimiWebSearchBaseUrl,
+  extractKimiCitations,
+} = moonshotTesting;
 
 const kimiApiKeyEnv = ["KIMI_API", "KEY"].join("_");
 const openRouterApiKeyEnv = ["OPENROUTER_API", "KEY"].join("_");
@@ -271,6 +276,12 @@ describe("web_search kimi config resolution", () => {
     });
   });
 
+  it("prefers Moonshot env key when both are set", () => {
+    withEnv({ MOONSHOT_API_KEY: "moonshot-env-key", [kimiApiKeyEnv]: "kimi-env-key" }, () => {
+      expect(resolveKimiApiKey({})).toBe("moonshot-env-key");
+    });
+  });
+
   it("uses config model when provided", () => {
     expect(resolveKimiModel({ model: "moonshot-v1-32k" })).toBe("moonshot-v1-32k");
   });
@@ -287,6 +298,48 @@ describe("web_search kimi config resolution", () => {
 
   it("falls back to default baseUrl", () => {
     expect(resolveKimiBaseUrl({})).toBe("https://api.moonshot.ai/v1");
+  });
+
+  it("infers baseUrl from moonshot model provider when missing", () => {
+    expect(
+      resolveKimiWebSearchBaseUrl({
+        kimiConfig: {},
+        config: {
+          models: { providers: { moonshot: { baseUrl: "https://api.moonshot.cn/v1" } } },
+        },
+      }),
+    ).toBe("https://api.moonshot.cn/v1");
+  });
+
+  it("does not inherit non-moonshot model provider baseUrl", () => {
+    expect(
+      resolveKimiWebSearchBaseUrl({
+        kimiConfig: {},
+        config: {
+          models: { providers: { moonshot: { baseUrl: "https://proxy.example.com/v1" } } },
+        },
+      }),
+    ).toBe("https://api.moonshot.ai/v1");
+  });
+
+  it("prefers explicit kimi baseUrl over inferred moonshot baseUrl", () => {
+    expect(
+      resolveKimiWebSearchBaseUrl({
+        kimiConfig: { baseUrl: "https://override.example/v1" },
+        config: {
+          models: { providers: { moonshot: { baseUrl: "https://api.moonshot.cn/v1" } } },
+        },
+      }),
+    ).toBe("https://override.example/v1");
+  });
+
+  it("falls back to default Kimi baseUrl when missing", () => {
+    expect(
+      resolveKimiWebSearchBaseUrl({
+        kimiConfig: {},
+        config: undefined,
+      }),
+    ).toBe("https://api.moonshot.ai/v1");
   });
 
   it("extracts citations from search_results", () => {
