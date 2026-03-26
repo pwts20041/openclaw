@@ -142,6 +142,23 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
         return `action=${actionVal},${argKey}=${val.trim()}`;
       }
     }
+    // For tools with nested request objects (e.g. browser action:"act" where the main
+    // differentiators are request.kind + request.targetId/ref/selector/text/url), fall back
+    // to scanning inside the request sub-object so that distinct act calls are not collapsed
+    // into the same bare action=act signature.
+    if (isPlainObject(record.request)) {
+      const req = record.request;
+      const kindVal = typeof req.kind === "string" ? req.kind.trim() : null;
+      if (kindVal) {
+        for (const reqKey of ["targetId", "ref", "selector", "text", "url", "fn"]) {
+          const val = req[reqKey];
+          if (typeof val === "string" && val.trim()) {
+            return `action=${actionVal},request.kind=${kindVal},request.${reqKey}=${val.trim()}`;
+          }
+        }
+        return `action=${actionVal},request.kind=${kindVal}`;
+      }
+    }
     return `action=${actionVal}`;
   }
   for (const key of [

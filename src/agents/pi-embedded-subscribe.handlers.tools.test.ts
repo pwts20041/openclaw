@@ -1116,3 +1116,62 @@ describe("circuit breaker arg signature for action-based content fields (canvas 
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("circuit breaker arg signature for browser act nested request fields", () => {
+  async function runBrowserAct(
+    ctx: ToolHandlerContext,
+    request: Record<string, unknown>,
+    isError: boolean,
+    id: string,
+  ) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "browser",
+      toolCallId: id,
+      args: { action: "act", request },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "browser",
+      toolCallId: id,
+      isError,
+      result: isError ? { type: "text", text: "Error: act failed" } : { ok: true },
+    });
+  }
+
+  it("does not trip circuit when act failures target different elements", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runBrowserAct(ctx, { kind: "click", targetId: "btn-submit" }, true, "a1");
+    await runBrowserAct(ctx, { kind: "click", targetId: "btn-cancel" }, true, "a2");
+    await runBrowserAct(ctx, { kind: "click", targetId: "btn-back" }, true, "a3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("trips circuit when act failures repeatedly target the same element", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runBrowserAct(ctx, { kind: "click", targetId: "btn-submit" }, true, "a1");
+    await runBrowserAct(ctx, { kind: "click", targetId: "btn-submit" }, true, "a2");
+    await runBrowserAct(ctx, { kind: "click", targetId: "btn-submit" }, true, "a3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not trip circuit when act failures use different kinds", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runBrowserAct(ctx, { kind: "click", targetId: "btn-1" }, true, "a1");
+    await runBrowserAct(ctx, { kind: "type", targetId: "btn-1", text: "hello" }, true, "a2");
+    await runBrowserAct(ctx, { kind: "hover", targetId: "btn-1" }, true, "a3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+});
