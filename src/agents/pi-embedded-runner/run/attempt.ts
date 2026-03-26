@@ -2614,6 +2614,12 @@ export async function runEmbeddedAttempt(
         sessionKey: sandboxSessionKey,
         sessionId: params.sessionId,
         agentId: sessionAgentId,
+        sourceProvider: params.sourceProvider ?? undefined,
+        senderId: params.senderId ?? null,
+        senderName: params.senderName ?? null,
+        senderIsOwner: params.senderIsOwner,
+        groupId: params.groupId ?? null,
+        spawnedBy: params.spawnedBy ?? null,
       });
 
       const {
@@ -2734,6 +2740,21 @@ export async function runEmbeddedAttempt(
       let promptError: unknown = null;
       let promptErrorSource: "prompt" | "compaction" | null = null;
       const prePromptMessageCount = activeSession.messages.length;
+      const hookCtx = {
+        agentId: hookAgentId,
+        sessionKey: params.sessionKey,
+        sessionId: params.sessionId,
+        workspaceDir: params.workspaceDir,
+        messageProvider: params.messageProvider ?? undefined,
+        sourceProvider: params.sourceProvider ?? undefined,
+        trigger: params.trigger,
+        channelId: params.messageChannel ?? params.messageProvider ?? undefined,
+        senderId: params.senderId ?? null,
+        senderName: params.senderName ?? null,
+        senderIsOwner: params.senderIsOwner,
+        groupId: params.groupId ?? null,
+        spawnedBy: params.spawnedBy ?? null,
+      };
       try {
         const promptStartedAt = Date.now();
 
@@ -2752,8 +2773,14 @@ export async function runEmbeddedAttempt(
           sessionId: params.sessionId,
           workspaceDir: params.workspaceDir,
           messageProvider: params.messageProvider ?? undefined,
+          sourceProvider: params.sourceProvider ?? undefined,
           trigger: params.trigger,
           channelId: params.messageChannel ?? params.messageProvider ?? undefined,
+          senderId: params.senderId ?? null,
+          senderName: params.senderName ?? null,
+          senderIsOwner: params.senderIsOwner,
+          groupId: params.groupId ?? null,
+          spawnedBy: params.spawnedBy ?? null,
         };
         const hookResult = await resolvePromptBuildHookResult({
           prompt: params.prompt,
@@ -2878,15 +2905,7 @@ export async function runEmbeddedAttempt(
                   historyMessages: activeSession.messages,
                   imagesCount: imageResult.images.length,
                 },
-                {
-                  agentId: hookAgentId,
-                  sessionKey: params.sessionKey,
-                  sessionId: params.sessionId,
-                  workspaceDir: params.workspaceDir,
-                  messageProvider: params.messageProvider ?? undefined,
-                  trigger: params.trigger,
-                  channelId: params.messageChannel ?? params.messageProvider ?? undefined,
-                },
+                hookCtx,
               )
               .catch((err) => {
                 log.warn(`llm_input hook failed: ${String(err)}`);
@@ -3108,15 +3127,7 @@ export async function runEmbeddedAttempt(
                 error: promptError ? describeUnknownError(promptError) : undefined,
                 durationMs: Date.now() - promptStartedAt,
               },
-              {
-                agentId: hookAgentId,
-                sessionKey: params.sessionKey,
-                sessionId: params.sessionId,
-                workspaceDir: params.workspaceDir,
-                messageProvider: params.messageProvider ?? undefined,
-                trigger: params.trigger,
-                channelId: params.messageChannel ?? params.messageProvider ?? undefined,
-              },
+              hookCtx,
             )
             .catch((err) => {
               log.warn(`agent_end hook failed: ${err}`);
@@ -3170,15 +3181,7 @@ export async function runEmbeddedAttempt(
               lastAssistant,
               usage: getUsageTotals(),
             },
-            {
-              agentId: hookAgentId,
-              sessionKey: params.sessionKey,
-              sessionId: params.sessionId,
-              workspaceDir: params.workspaceDir,
-              messageProvider: params.messageProvider ?? undefined,
-              trigger: params.trigger,
-              channelId: params.messageChannel ?? params.messageProvider ?? undefined,
-            },
+            hookCtx,
           )
           .catch((err) => {
             log.warn(`llm_output hook failed: ${String(err)}`);

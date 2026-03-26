@@ -129,8 +129,8 @@ export type CompactEmbeddedPiSessionParams = {
   currentChannelId?: string;
   currentThreadTs?: string;
   currentMessageId?: string | number;
-  /** Trusted sender id from inbound context for scoped message-tool discovery. */
-  senderId?: string;
+  /** Trusted sender id from inbound context for scoped message-tool discovery and plugin hooks. */
+  senderId?: string | null;
   authProfileId?: string;
   /** Group id for channel-level tool policy resolution. */
   groupId?: string | null;
@@ -140,8 +140,12 @@ export type CompactEmbeddedPiSessionParams = {
   groupSpace?: string | null;
   /** Parent session key for subagent policy inheritance. */
   spawnedBy?: string | null;
+  /** Sender display name for plugin hooks. */
+  senderName?: string | null;
   /** Whether the sender is an owner (required for owner-only tools). */
   senderIsOwner?: boolean;
+  /** Raw platform origin for trust classification (e.g. "slack", "discord"). */
+  sourceProvider?: string;
   sessionFile: string;
   /** Optional caller-observed live prompt tokens used for compaction diagnostics. */
   currentTokenCount?: number;
@@ -357,6 +361,12 @@ type CompactionHookRunner = {
       sessionKey: string;
       workspaceDir: string;
       messageProvider?: string;
+      senderId?: string | null;
+      senderName?: string | null;
+      senderIsOwner?: boolean;
+      groupId?: string | null;
+      spawnedBy?: string | null;
+      sourceProvider?: string;
     },
   ) => Promise<void> | void;
   runAfterCompaction?: (
@@ -372,6 +382,12 @@ type CompactionHookRunner = {
       sessionKey: string;
       workspaceDir: string;
       messageProvider?: string;
+      senderId?: string | null;
+      senderName?: string | null;
+      senderIsOwner?: boolean;
+      groupId?: string | null;
+      spawnedBy?: string | null;
+      sourceProvider?: string;
     },
   ) => Promise<void> | void;
 };
@@ -427,6 +443,12 @@ async function runBeforeCompactionHooks(params: {
   sessionAgentId: string;
   workspaceDir: string;
   messageProvider?: string;
+  senderId?: string | null;
+  senderName?: string | null;
+  senderIsOwner?: boolean;
+  groupId?: string | null;
+  spawnedBy?: string | null;
+  sourceProvider?: string;
   metrics: ReturnType<typeof buildBeforeCompactionHookMetrics>;
 }) {
   const missingSessionKey = !params.sessionKey || !params.sessionKey.trim();
@@ -460,6 +482,12 @@ async function runBeforeCompactionHooks(params: {
           sessionKey: hookSessionKey,
           workspaceDir: params.workspaceDir,
           messageProvider: params.messageProvider,
+          senderId: params.senderId ?? null,
+          senderName: params.senderName ?? null,
+          senderIsOwner: params.senderIsOwner,
+          groupId: params.groupId ?? null,
+          spawnedBy: params.spawnedBy ?? null,
+          sourceProvider: params.sourceProvider,
         },
       );
     } catch (err) {
@@ -510,6 +538,12 @@ async function runAfterCompactionHooks(params: {
   missingSessionKey: boolean;
   workspaceDir: string;
   messageProvider?: string;
+  senderId?: string | null;
+  senderName?: string | null;
+  senderIsOwner?: boolean;
+  groupId?: string | null;
+  spawnedBy?: string | null;
+  sourceProvider?: string;
   messageCountAfter: number;
   tokensAfter?: number;
   compactedCount: number;
@@ -552,6 +586,12 @@ async function runAfterCompactionHooks(params: {
           sessionKey: params.hookSessionKey,
           workspaceDir: params.workspaceDir,
           messageProvider: params.messageProvider,
+          senderId: params.senderId ?? null,
+          senderName: params.senderName ?? null,
+          senderIsOwner: params.senderIsOwner,
+          groupId: params.groupId ?? null,
+          spawnedBy: params.spawnedBy ?? null,
+          sourceProvider: params.sourceProvider,
         },
       );
     } catch (err) {
@@ -767,6 +807,8 @@ export async function compactEmbeddedPiSessionDirect(
       groupChannel: params.groupChannel,
       groupSpace: params.groupSpace,
       spawnedBy: params.spawnedBy,
+      senderId: params.senderId,
+      senderName: params.senderName,
       senderIsOwner: params.senderIsOwner,
       allowGatewaySubagentBinding: params.allowGatewaySubagentBinding,
       agentDir,
@@ -1082,6 +1124,12 @@ export async function compactEmbeddedPiSessionDirect(
           sessionAgentId,
           workspaceDir: effectiveWorkspace,
           messageProvider: resolvedMessageProvider,
+          senderId: params.senderId ?? null,
+          senderName: params.senderName ?? null,
+          senderIsOwner: params.senderIsOwner,
+          groupId: params.groupId ?? null,
+          spawnedBy: params.spawnedBy ?? null,
+          sourceProvider: params.sourceProvider,
           metrics: beforeHookMetrics,
         });
         const { messageCountOriginal } = beforeHookMetrics;
@@ -1176,6 +1224,12 @@ export async function compactEmbeddedPiSessionDirect(
           missingSessionKey,
           workspaceDir: effectiveWorkspace,
           messageProvider: resolvedMessageProvider,
+          senderId: params.senderId ?? null,
+          senderName: params.senderName ?? null,
+          senderIsOwner: params.senderIsOwner,
+          groupId: params.groupId ?? null,
+          spawnedBy: params.spawnedBy ?? null,
+          sourceProvider: params.sourceProvider,
           messageCountAfter,
           tokensAfter,
           compactedCount,

@@ -700,6 +700,30 @@ export async function runMemoryFlushIfNeeded(params: {
           ...senderContext,
           ...runBaseParams,
           allowGatewaySubagentBinding: true,
+          // Thread identity context so hooks fired during memory flush
+          // see the same trust fields as the originating user turn.
+          // Override senderContext (from live session template) with the
+          // stored run values to ensure consistency across all code paths.
+          sourceProvider: params.followupRun.run.sourceProvider,
+          senderId: params.followupRun.run.senderId,
+          senderName: params.followupRun.run.senderName,
+          senderUsername: params.followupRun.run.senderUsername,
+          senderE164: params.followupRun.run.senderE164,
+          senderIsOwner: params.followupRun.run.senderIsOwner,
+          spawnedBy: params.followupRun.run.spawnedBy,
+          groupId: params.followupRun.run.groupId,
+          groupChannel: params.followupRun.run.groupChannel,
+          groupSpace: params.followupRun.run.groupSpace,
+          // Pin delivery routing to stored run values (same as
+          // agent-runner-execution.ts) so memory flush runs use the
+          // original channel credentials, not whatever the live session
+          // template reflects at flush time.
+          ...(params.followupRun.run.messageProvider != null && {
+            messageProvider: params.followupRun.run.messageProvider,
+          }),
+          ...(params.followupRun.run.agentAccountId != null && {
+            agentAccountId: params.followupRun.run.agentAccountId,
+          }),
           trigger: "memory",
           memoryFlushWritePath,
           prompt: resolveMemoryFlushPromptForRun({
