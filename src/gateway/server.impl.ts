@@ -824,6 +824,17 @@ export async function startGatewayServer(
 
   const { getRuntimeSnapshot, startChannels, startChannel, stopChannel, markChannelLoggedOut } =
     channelManager;
+
+  /** Wrapper that catches config-error crashes from getRuntimeSnapshot(). */
+  const safeGetRuntimeSnapshot = () => {
+    try {
+      return getRuntimeSnapshot();
+    } catch (err) {
+      log.warn("getRuntimeSnapshot() failed during health refresh", { error: err });
+      return undefined;
+    }
+  };
+
   let agentUnsub: (() => void) | null = null;
   let heartbeatUnsub: (() => void) | null = null;
   let transcriptUnsub: (() => void) | null = null;
@@ -876,7 +887,8 @@ export async function startGatewayServer(
           nodeSendToAllSubscribed,
           getPresenceVersion,
           getHealthVersion,
-          refreshGatewayHealthSnapshot,
+          refreshGatewayHealthSnapshot: (opts) =>
+            refreshGatewayHealthSnapshot({ ...opts, runtimeSnapshot: safeGetRuntimeSnapshot() }),
           logHealth,
           dedupe,
           chatAbortControllers,
@@ -1136,7 +1148,8 @@ export async function startGatewayServer(
       execApprovalManager,
       loadGatewayModelCatalog,
       getHealthCache,
-      refreshHealthSnapshot: refreshGatewayHealthSnapshot,
+      refreshHealthSnapshot: (opts) =>
+        refreshGatewayHealthSnapshot({ ...opts, runtimeSnapshot: safeGetRuntimeSnapshot() }),
       logHealth,
       logGateway: log,
       incrementPresenceVersion,
