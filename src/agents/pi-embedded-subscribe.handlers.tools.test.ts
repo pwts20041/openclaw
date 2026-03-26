@@ -595,6 +595,53 @@ describe("circuit breaker arg signature for messaging tools", () => {
   });
 });
 
+describe("circuit breaker arg signature for sessions_send label routing", () => {
+  async function runSessionsSend(
+    ctx: ToolHandlerContext,
+    label: string,
+    isError: boolean,
+    id: string,
+  ) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "sessions_send",
+      toolCallId: id,
+      args: { label, message: "hello" },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "sessions_send",
+      toolCallId: id,
+      isError,
+      result: isError ? { type: "text", text: "Error: session not visible" } : { ok: true },
+    });
+  }
+
+  it("does not trip circuit when failures target different session labels", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runSessionsSend(ctx, "agent-a", true, "s1");
+    await runSessionsSend(ctx, "agent-b", true, "s2");
+    await runSessionsSend(ctx, "agent-c", true, "s3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("trips circuit when failures repeatedly target the same session label", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runSessionsSend(ctx, "agent-x", true, "s1");
+    await runSessionsSend(ctx, "agent-x", true, "s2");
+    await runSessionsSend(ctx, "agent-x", true, "s3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("circuit breaker probe-reset prevention", () => {
   async function runExec(ctx: ToolHandlerContext, command: string, isError: boolean, id: string) {
     await handleToolExecutionStart(ctx, {
