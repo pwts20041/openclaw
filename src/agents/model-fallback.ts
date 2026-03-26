@@ -19,6 +19,7 @@ import {
   describeFailoverError,
   isFailoverError,
   isTimeoutError,
+  type PartialExecution,
 } from "./failover-error.js";
 import {
   shouldAllowCooldownProbeForReason,
@@ -68,6 +69,8 @@ export function isFallbackSummaryError(err: unknown): err is FallbackSummaryErro
 
 export type ModelFallbackRunOptions = {
   allowTransientCooldownProbe?: boolean;
+  previousFailureReason?: FailoverReason;
+  previousPartialExecution?: PartialExecution;
 };
 
 type ModelFallbackRunFn<T> = (
@@ -606,6 +609,8 @@ export async function runWithModelFallback<T>(params: {
     : null;
   const attempts: FallbackAttempt[] = [];
   let lastError: unknown;
+  let previousFailureReason: FailoverReason | undefined;
+  let lastPartialExecution: PartialExecution | undefined;
   const cooldownProbeUsedProviders = new Set<string>();
 
   const hasFallbackCandidates = candidates.length > 1;
@@ -728,11 +733,19 @@ export async function runWithModelFallback<T>(params: {
       }
     }
 
+    const effectiveOptions: ModelFallbackRunOptions | undefined =
+      previousFailureReason || lastPartialExecution || runOptions
+        ? {
+            ...runOptions,
+            ...(previousFailureReason && { previousFailureReason }),
+            ...(lastPartialExecution && { previousPartialExecution: lastPartialExecution }),
+          }
+        : undefined;
     const attemptRun = await runFallbackAttempt({
       run: params.run,
       ...candidate,
       attempts,
-      options: runOptions,
+      options: effectiveOptions,
     });
     if ("success" in attemptRun) {
       if (i > 0 || attempts.length > 0 || attemptedDuringCooldown) {
@@ -791,6 +804,27 @@ export async function runWithModelFallback<T>(params: {
 
       lastError = isKnownFailover ? normalized : err;
       const described = describeFailoverError(normalized);
+      previousFailureReason = described.reason ?? "unknown";
+      // Merge partial execution state across attempts: union tool names and OR
+      // the messaging flag so later retries don't lose side-effect history from
+      // earlier failed attempts (e.g. attempt 1 sent a message, attempt 2 only
+      // read a file — the messaging warning must carry forward).
+      if (described.partialExecution) {
+        lastPartialExecution = lastPartialExecution
+          ? {
+              ...lastPartialExecution,
+              toolNames: [
+                ...new Set([
+                  ...lastPartialExecution.toolNames,
+                  ...described.partialExecution.toolNames,
+                ]),
+              ],
+              didSendViaMessagingTool:
+                lastPartialExecution.didSendViaMessagingTool ||
+                described.partialExecution.didSendViaMessagingTool,
+            }
+          : described.partialExecution;
+      }
       attempts.push({
         provider: candidate.provider,
         model: candidate.model,
