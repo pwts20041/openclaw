@@ -336,6 +336,7 @@ export async function handleBashChatCommand(params: {
     const timeoutSec = params.cfg.tools?.exec?.timeoutSec;
     const notifyOnExit = params.cfg.tools?.exec?.notifyOnExit;
     const notifyOnExitEmptySuccess = params.cfg.tools?.exec?.notifyOnExitEmptySuccess;
+    const shellProfile = params.cfg.commands?.shellProfile;
     const execTool = createExecTool({
       scopeKey: CHAT_BASH_SCOPE_KEY,
       allowBackground: true,
@@ -343,6 +344,7 @@ export async function handleBashChatCommand(params: {
       sessionKey: params.sessionKey,
       notifyOnExit,
       notifyOnExitEmptySuccess,
+      shellProfile,
       elevated: {
         enabled: params.elevated.enabled,
         allowed: params.elevated.allowed,

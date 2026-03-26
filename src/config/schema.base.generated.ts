@@ -8313,6 +8313,9 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
               },
             },
           },
+          shellProfile: {
+            type: "string",
+          },
         },
         required: ["native", "nativeSkills", "restart", "ownerDisplay"],
         additionalProperties: false,
@@ -13967,6 +13970,11 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
       label: "Command Elevated Access Rules",
       help: "Defines elevated command allow rules by channel and sender for owner-level command surfaces. Use narrow provider-specific identities so privileged commands are not exposed to broad chat audiences.",
       tags: ["access"],
+    },
+    "commands.shellProfile": {
+      label: "Shell Profile Path",
+      help: "Path to a shell profile file to source before executing commands on the gateway host. When set and non-empty, PowerShell, bash, and other shells will load this profile (e.g., for custom environment variables, aliases, functions). This setting does NOT apply to sandbox execution (host=sandbox, container has isolated filesystem) or node execution (host=node, commands run directly without shell). Leave unset for default behavior without profile loading.",
+      tags: ["storage"],
     },
     mcp: {
       label: "MCP",
