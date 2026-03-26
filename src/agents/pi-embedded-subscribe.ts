@@ -11,12 +11,17 @@ import {
   isMessagingToolDuplicateNormalized,
   normalizeTextForComparison,
 } from "./pi-embedded-helpers.js";
+import type { BlockReplyPayload } from "./pi-embedded-payloads.js";
 import { createEmbeddedPiSessionEventHandler } from "./pi-embedded-subscribe.handlers.js";
+import { consumePendingToolMediaIntoReply } from "./pi-embedded-subscribe.handlers.messages.js";
 import type {
   EmbeddedPiSubscribeContext,
   EmbeddedPiSubscribeState,
 } from "./pi-embedded-subscribe.handlers.types.js";
-import { filterToolResultMediaUrls } from "./pi-embedded-subscribe.tools.js";
+import {
+  extractToolResultAudioAsVoice,
+  filterToolResultMediaUrls,
+} from "./pi-embedded-subscribe.tools.js";
 import type { SubscribeEmbeddedPiSessionParams } from "./pi-embedded-subscribe.types.js";
 import { formatReasoningMessage, stripDowngradedToolCallText } from "./pi-embedded-utils.js";
 import { hasNonzeroUsage, normalizeUsage, type UsageLike } from "./usage.js";
@@ -78,6 +83,8 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     pendingMessagingTargets: new Map(),
     successfulCronAdds: 0,
     pendingMessagingMediaUrls: new Map(),
+    pendingToolMediaUrls: [],
+    pendingToolAudioAsVoice: false,
     deterministicApprovalPromptSent: false,
   };
   const usageTotals = {
@@ -112,6 +119,9 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
       .catch((err) => {
         log.warn(`block reply callback failed: ${String(err)}`);
       });
+  };
+  const emitBlockReply = (payload: BlockReplyPayload) => {
+    emitBlockReplySafely(consumePendingToolMediaIntoReply(state, payload));
   };
 
   const resetAssistantMessageState = (nextAssistantTextBaseline: number) => {
@@ -333,7 +343,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
   const emitToolResultMessage = (
     toolName: string | undefined,
     message: string,
-    audioAsVoice?: boolean,
+    result?: unknown,
   ) => {
     if (!params.onToolResult) {
       return;
@@ -343,8 +353,10 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
       mediaUrls,
       audioAsVoice: parsedAudioAsVoice,
     } = parseReplyDirectives(message);
-    const filteredMediaUrls = filterToolResultMediaUrls(toolName, mediaUrls ?? []);
-    const resolvedAudioAsVoice = Boolean(audioAsVoice || parsedAudioAsVoice);
+    const filteredMediaUrls = filterToolResultMediaUrls(toolName, mediaUrls ?? [], result);
+    const resolvedAudioAsVoice = Boolean(
+      parsedAudioAsVoice || extractToolResultAudioAsVoice(result),
+    );
     if (!cleanedText && filteredMediaUrls.length === 0 && !resolvedAudioAsVoice) {
       return;
     }
@@ -364,12 +376,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     });
     emitToolResultMessage(toolName, agg);
   };
-  const emitToolOutput = (
-    toolName?: string,
-    meta?: string,
-    output?: string,
-    audioAsVoice?: boolean,
-  ) => {
+  const emitToolOutput = (toolName?: string, meta?: string, output?: string, result?: unknown) => {
     if (!output) {
       return;
     }
@@ -377,7 +384,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
       markdown: useMarkdown,
     });
     const message = `${agg}\n${formatToolOutputBlock(output)}`;
-    emitToolResultMessage(toolName, message, audioAsVoice);
+    emitToolResultMessage(toolName, message, result);
   };
 
   const stripBlockTags = (
@@ -538,7 +545,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     if (!cleanedText && (!mediaUrls || mediaUrls.length === 0) && !audioAsVoice) {
       return;
     }
-    emitBlockReplySafely({
+    emitBlockReply({
       text: cleanedText,
       mediaUrls: mediaUrls?.length ? mediaUrls : undefined,
       audioAsVoice,
@@ -614,6 +621,8 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     pendingMessagingTargets.clear();
     state.successfulCronAdds = 0;
     state.pendingMessagingMediaUrls.clear();
+    state.pendingToolMediaUrls = [];
+    state.pendingToolAudioAsVoice = false;
     state.deterministicApprovalPromptSent = false;
     resetAssistantMessageState(0);
   };
@@ -639,6 +648,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     stripBlockTags,
     emitBlockChunk,
     flushBlockReplyBuffer,
+    emitBlockReply,
     emitReasoningStream,
     consumeReplyDirectives,
     consumePartialReplyDirectives,

@@ -2,19 +2,18 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveStateDir } from "../../../src/config/paths.js";
 import { resolvePreferredOpenClawTmpDir } from "../../../src/infra/tmp-openclaw-dir.js";
 import { optimizeImageToPng } from "../../../src/media/image-ops.js";
 import { mockPinnedHostnameResolution } from "../../../src/test-helpers/ssrf.js";
-import { captureEnv } from "../../../src/test-utils/env.js";
+import { captureEnv } from "../../../test/helpers/extensions/env.js";
 import { sendVoiceMessageDiscord } from "../../discord/src/send.js";
-import {
-  LocalMediaAccessError,
-  loadWebMedia,
-  loadWebMediaRaw,
-  optimizeImageToJpeg,
-} from "./media.js";
+
+let LocalMediaAccessError: typeof import("./media.js").LocalMediaAccessError;
+let loadWebMedia: typeof import("./media.js").loadWebMedia;
+let loadWebMediaRaw: typeof import("./media.js").loadWebMediaRaw;
+let optimizeImageToJpeg: typeof import("./media.js").optimizeImageToJpeg;
 
 const { convertHeicToJpegMock, detectMimeMock, runFfprobeMock } = vi.hoisted(() => ({
   convertHeicToJpegMock: vi.fn(),
@@ -32,29 +31,21 @@ vi.mock("../../../src/media/image-ops.js", async () => {
   };
 });
 
-vi.mock("../../../src/media/mime.js", async () => {
-  const actual = await vi.importActual<typeof import("../../../src/media/mime.js")>(
-    "../../../src/media/mime.js",
+vi.mock("openclaw/plugin-sdk/media-runtime", async () => {
+  const actual = await vi.importActual<typeof import("openclaw/plugin-sdk/media-runtime")>(
+    "openclaw/plugin-sdk/media-runtime",
   );
   detectMimeMock.mockImplementation((...args: Parameters<typeof actual.detectMime>) =>
     actual.detectMime(...args),
-  );
-  return {
-    ...actual,
-    detectMime: (...args: Parameters<typeof actual.detectMime>) => detectMimeMock(...args),
-  };
-});
-
-vi.mock("../../../src/media/ffmpeg-exec.js", async () => {
-  const actual = await vi.importActual<typeof import("../../../src/media/ffmpeg-exec.js")>(
-    "../../../src/media/ffmpeg-exec.js",
   );
   runFfprobeMock.mockImplementation((...args: Parameters<typeof actual.runFfprobe>) =>
     actual.runFfprobe(...args),
   );
   return {
     ...actual,
+    detectMime: (...args: Parameters<typeof actual.detectMime>) => detectMimeMock(...args),
     runFfprobe: (...args: Parameters<typeof actual.runFfprobe>) => runFfprobeMock(...args),
+    convertHeicToJpeg: (...args: unknown[]) => convertHeicToJpegMock(...args),
   };
 });
 
@@ -98,6 +89,8 @@ function cloneStatWithDev<T extends { dev: number | bigint }>(stat: T, dev: numb
 }
 
 beforeAll(async () => {
+  ({ LocalMediaAccessError, loadWebMedia, loadWebMediaRaw, optimizeImageToJpeg } =
+    await import("./media.js"));
   fixtureRoot = await fs.mkdtemp(
     path.join(resolvePreferredOpenClawTmpDir(), "openclaw-media-test-"),
   );
@@ -432,6 +425,21 @@ describe("local media root guard", () => {
     expect(result.kind).toBe("image");
   });
 
+  it("rejects remote-host file URLs before filesystem checks", async () => {
+    const realpathSpy = vi.spyOn(fs, "realpath");
+
+    try {
+      await expect(
+        loadWebMedia("file://attacker/share/evil.png", 1024 * 1024, {
+          localRoots: [resolvePreferredOpenClawTmpDir()],
+        }),
+      ).rejects.toMatchObject({ code: "invalid-file-url" });
+      expect(realpathSpy).not.toHaveBeenCalled();
+    } finally {
+      realpathSpy.mockRestore();
+    }
+  });
+
   it("accepts win32 dev=0 stat mismatch for local file loads", async () => {
     const actualLstat = await fs.lstat(tinyPngFile);
     const actualStat = await fs.stat(tinyPngFile);
@@ -452,6 +460,23 @@ describe("local media root guard", () => {
     } finally {
       statSpy.mockRestore();
       lstatSpy.mockRestore();
+      platformSpy.mockRestore();
+    }
+  });
+
+  it("rejects Windows network paths before filesystem checks", async () => {
+    const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const realpathSpy = vi.spyOn(fs, "realpath");
+
+    try {
+      await expect(
+        loadWebMedia("\\\\attacker\\share\\evil.png", 1024 * 1024, {
+          localRoots: [resolvePreferredOpenClawTmpDir()],
+        }),
+      ).rejects.toMatchObject({ code: "network-path-not-allowed" });
+      expect(realpathSpy).not.toHaveBeenCalled();
+    } finally {
+      realpathSpy.mockRestore();
       platformSpy.mockRestore();
     }
   });

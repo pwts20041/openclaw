@@ -7,7 +7,7 @@ import type { PluginRuntime } from "./types.js";
 export function createRuntimeMedia(): PluginRuntime["media"] {
   return {
     loadWebMedia: async (...args) => {
-      const { loadWebMedia } = await import("./runtime-media-loader.runtime.js");
+      const { loadWebMedia } = await import("./runtime-whatsapp-boundary.js");
       return await loadWebMedia(...args);
     },
     detectMime,
