@@ -2185,6 +2185,28 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
                     },
                     additionalProperties: false,
                   },
+                  episodic: {
+                    type: "object",
+                    properties: {
+                      enabled: {
+                        type: "boolean",
+                      },
+                      encoderModel: {
+                        type: "string",
+                      },
+                      minConversationTurns: {
+                        type: "integer",
+                        exclusiveMinimum: 0,
+                        maximum: 9007199254740991,
+                      },
+                      importanceThreshold: {
+                        type: "number",
+                        minimum: 0,
+                        maximum: 1,
+                      },
+                    },
+                    additionalProperties: false,
+                  },
                 },
                 additionalProperties: false,
               },
@@ -3744,6 +3766,28 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
                           type: "integer",
                           exclusiveMinimum: 0,
                           maximum: 9007199254740991,
+                        },
+                      },
+                      additionalProperties: false,
+                    },
+                    episodic: {
+                      type: "object",
+                      properties: {
+                        enabled: {
+                          type: "boolean",
+                        },
+                        encoderModel: {
+                          type: "string",
+                        },
+                        minConversationTurns: {
+                          type: "integer",
+                          exclusiveMinimum: 0,
+                          maximum: 9007199254740991,
+                        },
+                        importanceThreshold: {
+                          type: "number",
+                          minimum: 0,
+                          maximum: 1,
                         },
                       },
                       additionalProperties: false,
