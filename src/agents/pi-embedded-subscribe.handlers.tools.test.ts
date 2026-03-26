@@ -811,6 +811,24 @@ describe("circuit breaker arg signature for action-based tools with url/path arg
     });
   }
 
+  it("does not trip circuit when browser URLs differ only beyond 200 chars", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    const base = "https://example.com/" + "x".repeat(190);
+    const urlA = base + "A";
+    const urlB = base + "B";
+    const urlC = base + "C";
+    expect(urlA.slice(0, 200)).toBe(urlB.slice(0, 200)); // confirm shared prefix
+
+    await runBrowser(ctx, urlA, true, "b-long-1");
+    await runBrowser(ctx, urlB, true, "b-long-2");
+    await runBrowser(ctx, urlC, true, "b-long-3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("does not trip circuit when action-based calls have different URLs", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
