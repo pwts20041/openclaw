@@ -54,12 +54,6 @@ function installTmpDirHarness(params: { prefix: string }) {
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), params.prefix));
-describe("memory plugin e2e", () => {
-  let tmpDir: string;
-  let dbPath: string;
-
-  beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-memory-test-"));
     dbPath = path.join(tmpDir, "lancedb");
   });
 
@@ -117,7 +111,7 @@ function createRuntimeLoader(
 }
 
 describe("memory plugin e2e", () => {
-  const { getDbPath } = installTmpDirHarness({ prefix: "openclaw-memory-test-" });
+  const { getDbPath, getTmpDir } = installTmpDirHarness({ prefix: "openclaw-memory-test-" });
 
   async function parseConfig(overrides: Record<string, unknown> = {}) {
     const { default: memoryPlugin } = await import("./index.js");
@@ -141,21 +135,12 @@ describe("memory plugin e2e", () => {
 
   test("config schema parses valid config", async () => {
     const config = await parseConfig({
-    const { default: memoryPlugin } = await import("./index.js");
-
-    const config = memoryPlugin.configSchema?.parse?.({
-      embedding: {
-        apiKey: OPENAI_API_KEY,
-        model: "text-embedding-3-small",
-      },
-      dbPath,
       autoCapture: true,
       autoRecall: true,
     });
 
     expect(config?.embedding?.apiKey).toBe(OPENAI_API_KEY);
     expect(config?.dbPath).toBe(getDbPath());
-    expect(config?.dbPath).toBe(dbPath);
     expect(config?.captureMaxChars).toBe(500);
   });
 
@@ -184,7 +169,6 @@ describe("memory plugin e2e", () => {
       memoryPlugin.configSchema?.parse?.({
         embedding: {},
         dbPath: getDbPath(),
-        dbPath,
       });
     }).toThrow("embedding.apiKey is required");
   });
@@ -196,7 +180,6 @@ describe("memory plugin e2e", () => {
       memoryPlugin.configSchema?.parse?.({
         embedding: { apiKey: OPENAI_API_KEY },
         dbPath: getDbPath(),
-        dbPath,
         captureMaxChars: 99,
       });
     }).toThrow("captureMaxChars must be between 100 and 10000");
@@ -204,14 +187,6 @@ describe("memory plugin e2e", () => {
 
   test("config schema accepts captureMaxChars override", async () => {
     const config = await parseConfig({
-    const { default: memoryPlugin } = await import("./index.js");
-
-    const config = memoryPlugin.configSchema?.parse?.({
-      embedding: {
-        apiKey: OPENAI_API_KEY,
-        model: "text-embedding-3-small",
-      },
-      dbPath,
       captureMaxChars: 1800,
     });
 
@@ -220,15 +195,6 @@ describe("memory plugin e2e", () => {
 
   test("config schema keeps autoCapture disabled by default", async () => {
     const config = await parseConfig();
-    const { default: memoryPlugin } = await import("./index.js");
-
-    const config = memoryPlugin.configSchema?.parse?.({
-      embedding: {
-        apiKey: OPENAI_API_KEY,
-        model: "text-embedding-3-small",
-      },
-      dbPath,
-    });
 
     expect(config?.autoCapture).toBe(false);
     expect(config?.autoRecall).toBe(true);
@@ -283,7 +249,6 @@ describe("memory plugin e2e", () => {
             dimensions: 1024,
           },
           dbPath: getDbPath(),
-          dbPath,
           autoCapture: false,
           autoRecall: false,
         },
@@ -503,7 +468,7 @@ describe("memory plugin e2e", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       const registeredTools: any[] = [];
       const mockApi = buildMockApi({
-        dbPath,
+        dbPath: getDbPath(),
         embeddingsCreate,
         vectorSearch,
         queryWhere,
@@ -587,13 +552,13 @@ describe("memory plugin e2e", () => {
 
       // Use tmpDir for audit log by temporarily pointing homedir there
       const originalHome = process.env.HOME;
-      process.env.HOME = tmpDir;
+      process.env.HOME = getTmpDir();
 
       // oxlint-disable-next-line typescript/no-explicit-any
       let result: any;
       try {
         const mockApi = buildMockApi({
-          dbPath,
+          dbPath: getDbPath(),
           embeddingsCreate,
           vectorSearch,
           queryWhere,
@@ -639,7 +604,7 @@ describe("memory plugin e2e", () => {
       expect(addCall.importance).toBe(0.9);
 
       // Check audit log was written
-      auditLogPath = `${tmpDir}/.openclaw/memory/refresh-audit.jsonl`;
+      auditLogPath = `${getTmpDir()}/.openclaw/memory/refresh-audit.jsonl`;
       const auditContent = await import("node:fs/promises").then((fs) =>
         fs.readFile(auditLogPath!, "utf8").catch(() => null),
       );
@@ -696,7 +661,7 @@ describe("memory plugin e2e", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       const registeredTools: any[] = [];
       const mockApi = buildMockApi({
-        dbPath,
+        dbPath: getDbPath(),
         embeddingsCreate,
         vectorSearch,
         queryWhere,
@@ -788,7 +753,7 @@ describe("memory plugin e2e", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       const registeredTools: any[] = [];
       const mockApi = buildMockApi({
-        dbPath,
+        dbPath: getDbPath(),
         embeddingsCreate,
         vectorSearch,
         queryWhere,
@@ -886,7 +851,7 @@ describe("memory plugin e2e", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       const registeredTools: any[] = [];
       const mockApi = buildMockApi({
-        dbPath,
+        dbPath: getDbPath(),
         embeddingsCreate,
         vectorSearch,
         queryWhere,
@@ -965,7 +930,7 @@ describe("memory plugin e2e", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       const registeredTools: any[] = [];
       const mockApi = buildMockApi({
-        dbPath,
+        dbPath: getDbPath(),
         embeddingsCreate,
         vectorSearch,
         queryWhere,
@@ -1062,7 +1027,7 @@ describe("memory plugin e2e", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       const registeredTools: any[] = [];
       const mockApi = buildMockApi({
-        dbPath,
+        dbPath: getDbPath(),
         embeddingsCreate,
         vectorSearch,
         queryWhere,
@@ -1221,19 +1186,6 @@ describe("lancedb runtime loader", () => {
 // Live tests that require OpenAI API key and actually use LanceDB
 describeLive("memory plugin live tests", () => {
   const { getDbPath } = installTmpDirHarness({ prefix: "openclaw-memory-live-" });
-  let tmpDir: string;
-  let dbPath: string;
-
-  beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-memory-live-"));
-    dbPath = path.join(tmpDir, "lancedb");
-  });
-
-  afterEach(async () => {
-    if (tmpDir) {
-      await fs.rm(tmpDir, { recursive: true, force: true });
-    }
-  });
 
   test("memory tools work end-to-end", async () => {
     const { default: memoryPlugin } = await import("./index.js");
@@ -1261,7 +1213,6 @@ describeLive("memory plugin live tests", () => {
           model: "text-embedding-3-small",
         },
         dbPath: getDbPath(),
-        dbPath,
         autoCapture: false,
         autoRecall: false,
       },
@@ -1299,10 +1250,6 @@ describeLive("memory plugin live tests", () => {
     memoryPlugin.register(mockApi as any);
 
     // Check registration
-    expect(registeredTools.length).toBe(3);
-    expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_recall");
-    expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_store");
-    expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_forget");
     expect(registeredTools.length).toBe(4);
     expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_recall");
     expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_store");
