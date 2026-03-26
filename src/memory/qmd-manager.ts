@@ -763,16 +763,12 @@ export class QmdMemoryManager implements MemorySearchManager {
     ): Promise<QmdQueryResult[]> => {
       try {
         if (mcporterEnabled) {
-          const tool: "search" | "vector_search" | "deep_search" =
-            qmdSearchCommand === "search"
-              ? "search"
-              : qmdSearchCommand === "vsearch"
-                ? "vector_search"
-                : "deep_search";
+          const tool = this.resolveQmdMcpTool(qmdSearchCommand);
           const minScore = opts?.minScore ?? 0;
           if (collectionNames.length > 1) {
             return await this.runMcporterAcrossCollections({
               tool,
+              searchCommand: qmdSearchCommand,
               query: trimmed,
               limit,
               minScore,
@@ -782,6 +778,7 @@ export class QmdMemoryManager implements MemorySearchManager {
           return await this.runQmdSearchViaMcporter({
             mcporter: this.qmd.mcporter,
             tool,
+            searchCommand: qmdSearchCommand,
             query: trimmed,
             limit,
             minScore,
@@ -1219,6 +1216,88 @@ export class QmdMemoryManager implements MemorySearchManager {
     });
   }
 
+  /**
+   * QMD 1.1+ unified all search modes under a single "query" MCP tool
+   * that accepts a `searches` array with typed sub-queries (lex, vec, hyde).
+   * QMD <1.1 exposed separate tools: search, vector_search, deep_search.
+   *
+   * This method probes the MCP server once to detect which interface is
+   * available and caches the result for subsequent calls.
+   */
+  private qmdMcpToolVersion: "v2" | "v1" | null = null;
+
+  private resolveQmdMcpTool(
+    searchCommand: string,
+  ): "query" | "search" | "vector_search" | "deep_search" {
+    if (this.qmdMcpToolVersion === "v2") {
+      return "query";
+    }
+    if (this.qmdMcpToolVersion === "v1") {
+      return searchCommand === "search"
+        ? "search"
+        : searchCommand === "vsearch"
+          ? "vector_search"
+          : "deep_search";
+    }
+    // Not yet probed — default to v2 (current QMD).
+    // If the call fails with "not found", markQmdV1Fallback() will retry with v1 names.
+    return "query";
+  }
+
+  private markQmdV1Fallback(): void {
+    if (this.qmdMcpToolVersion !== "v1") {
+      this.qmdMcpToolVersion = "v1";
+      log.warn(
+        "QMD MCP server does not expose the v2 'query' tool; falling back to v1 tool names (search/vector_search/deep_search).",
+      );
+    }
+  }
+
+  private markQmdV2(): void {
+    this.qmdMcpToolVersion = "v2";
+  }
+
+  /**
+   * Build the `searches` array for QMD 1.1+ `query` tool, respecting
+   * the configured searchMode so lexical-only or vector-only modes
+   * don't trigger unnecessary LLM/embedding work.
+   */
+  private buildV2Searches(
+    query: string,
+    searchCommand?: string,
+  ): Array<{ type: string; query: string }> {
+    switch (searchCommand) {
+      case "search":
+        // BM25 keyword search only
+        return [{ type: "lex", query }];
+      case "vsearch":
+        // Vector search only
+        return [{ type: "vec", query }];
+      case "query":
+      case undefined:
+      default:
+        // Full hybrid: lex + vec + hyde (query expansion)
+        return [
+          { type: "lex", query },
+          { type: "vec", query },
+          { type: "hyde", query },
+        ];
+    }
+  }
+
+  private isToolNotFoundError(err: unknown): boolean {
+    const message = err instanceof Error ? err.message : String(err);
+    // Match the specific MCP error pattern for missing tools.
+    // Be strict to avoid false-positives when user query text appears
+    // in the error (the full mcporter command + args is in the message).
+    // Known patterns from MCP servers:
+    //   "MCP error -32602: Tool query not found"
+    //   "Tool 'query' not found"
+    //   "tool not found: query"
+    // Require "Tool" near "not found" with no sentence boundary between them.
+    return /\bTool\b[^.!?\n]{0,40}\bnot found\b/i.test(message);
+  }
+
   private async ensureMcporterDaemonStarted(mcporter: ResolvedQmdMcporterConfig): Promise<void> {
     if (!mcporter.enabled) {
       return;
@@ -1270,7 +1349,8 @@ export class QmdMemoryManager implements MemorySearchManager {
 
   private async runQmdSearchViaMcporter(params: {
     mcporter: ResolvedQmdMcporterConfig;
-    tool: "search" | "vector_search" | "deep_search";
+    tool: "query" | "search" | "vector_search" | "deep_search";
+    searchCommand?: string;
     query: string;
     limit: number;
     minScore: number;
@@ -1279,29 +1359,74 @@ export class QmdMemoryManager implements MemorySearchManager {
   }): Promise<QmdQueryResult[]> {
     await this.ensureMcporterDaemonStarted(params.mcporter);
 
-    const selector = `${params.mcporter.serverName}.${params.tool}`;
-    const callArgs: Record<string, unknown> = {
-      query: params.query,
-      limit: params.limit,
-      minScore: params.minScore,
-    };
+    // If the version is already known as v1 but we received a stale "query" tool name
+    // (e.g. from runMcporterAcrossCollections iterating after the first collection
+    // triggered the fallback), resolve the correct v1 tool name immediately.
+    const effectiveTool =
+      params.tool === "query" && this.qmdMcpToolVersion === "v1"
+        ? this.resolveQmdMcpTool(params.searchCommand ?? "query")
+        : params.tool;
+
+    const selector = `${params.mcporter.serverName}.${effectiveTool}`;
+    const callArgs: Record<string, unknown> =
+      effectiveTool === "query"
+        ? {
+            // QMD 1.1+ "query" tool accepts typed sub-queries via `searches` array.
+            // Derive sub-query types from searchCommand to respect searchMode config.
+            // Note: minScore is intentionally omitted — QMD 1.1+'s query tool uses
+            // its own reranking pipeline and does not accept a minScore parameter.
+            searches: this.buildV2Searches(params.query, params.searchCommand),
+            limit: params.limit,
+          }
+        : {
+            // QMD 1.x tools accept a flat query string.
+            query: params.query,
+            limit: params.limit,
+            minScore: params.minScore,
+          };
     if (params.collection) {
       callArgs.collection = params.collection;
     }
 
-    const result = await this.runMcporter(
-      [
-        "call",
-        selector,
-        "--args",
-        JSON.stringify(callArgs),
-        "--output",
-        "json",
-        "--timeout",
-        String(Math.max(0, params.timeoutMs)),
-      ],
-      { timeoutMs: Math.max(params.timeoutMs + 2_000, 5_000) },
-    );
+    let result: { stdout: string };
+    try {
+      result = await this.runMcporter(
+        [
+          "call",
+          selector,
+          "--args",
+          JSON.stringify(callArgs),
+          "--output",
+          "json",
+          "--timeout",
+          String(Math.max(0, params.timeoutMs)),
+        ],
+        { timeoutMs: Math.max(params.timeoutMs + 2_000, 5_000) },
+      );
+      // If we got here with the v2 "query" tool, confirm v2 for future calls.
+      if (effectiveTool === "query" && this.qmdMcpToolVersion === null) {
+        this.markQmdV2();
+      }
+    } catch (err) {
+      // If the v2 "query" tool is not found, fall back to v1 tool names.
+      // No need to guard on qmdMcpToolVersion !== "v1" here — if the version
+      // were already "v1", effectiveTool would have been resolved to a v1 tool
+      // name at the top of this function (not "query"). The effectiveTool ===
+      // "query" check alone prevents infinite retry loops since the recursive
+      // call passes a v1 tool name. Removing the version guard also fixes a
+      // race condition where concurrent searches both probe with "query" while
+      // the version is null — the second call would otherwise fail after the
+      // first sets the version to "v1".
+      if (effectiveTool === "query" && this.isToolNotFoundError(err)) {
+        this.markQmdV1Fallback();
+        const v1Tool = this.resolveQmdMcpTool(params.searchCommand ?? "query");
+        return this.runQmdSearchViaMcporter({
+          ...params,
+          tool: v1Tool,
+        });
+      }
+      throw err;
+    }
 
     const parsedUnknown: unknown = JSON.parse(result.stdout);
     const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -2004,7 +2129,8 @@ export class QmdMemoryManager implements MemorySearchManager {
   }
 
   private async runMcporterAcrossCollections(params: {
-    tool: "search" | "vector_search" | "deep_search";
+    tool: "query" | "search" | "vector_search" | "deep_search";
+    searchCommand?: string;
     query: string;
     limit: number;
     minScore: number;
@@ -2015,6 +2141,7 @@ export class QmdMemoryManager implements MemorySearchManager {
       const parsed = await this.runQmdSearchViaMcporter({
         mcporter: this.qmd.mcporter,
         tool: params.tool,
+        searchCommand: params.searchCommand,
         query: params.query,
         limit: params.limit,
         minScore: params.minScore,
