@@ -637,6 +637,36 @@ describe("circuit breaker arg signature for file_path alias", () => {
   });
 });
 
+describe("circuit breaker arg signature for file alias", () => {
+  async function runEdit(ctx: ToolHandlerContext, file: string, isError: boolean, id: string) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "edit",
+      toolCallId: id,
+      args: { file, old_string: "foo", new_string: "bar" },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "edit",
+      toolCallId: id,
+      isError,
+      result: isError ? { type: "text", text: "Error: not found" } : { ok: true },
+    });
+  }
+
+  it("does not trip circuit when edit failures target different file values", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runEdit(ctx, "/tmp/a.txt", true, "e1");
+    await runEdit(ctx, "/tmp/b.txt", true, "e2");
+    await runEdit(ctx, "/tmp/c.txt", true, "e3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+});
+
 describe("circuit breaker arg signature for action-based tools with url/path args", () => {
   async function runBrowser(ctx: ToolHandlerContext, url: string, isError: boolean, id: string) {
     await handleToolExecutionStart(ctx, {
