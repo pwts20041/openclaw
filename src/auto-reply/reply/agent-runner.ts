@@ -328,6 +328,7 @@ export async function runReplyAgent(params: {
       outputTokens: undefined,
       totalTokens: undefined,
       totalTokensFresh: false,
+      totalTokensEstimate: undefined,
       estimatedCostUsd: undefined,
       cacheRead: undefined,
       cacheWrite: undefined,

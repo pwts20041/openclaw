@@ -177,7 +177,10 @@ export async function inspectGatewayRestart(params: {
     new Set([
       ...gatewayListeners
         .filter((listener) => Number.isFinite(listener.pid))
-        .filter((listener) => {
+        .filter((listener): listener is typeof listener & { pid: number } => {
+          if (typeof listener.pid !== "number") {
+            return false;
+          }
           if (!running) {
             return true;
           }
@@ -186,7 +189,7 @@ export async function inspectGatewayRestart(params: {
           }
           return !listenerOwnedByRuntimePid({ listener, runtimePid });
         })
-        .map((listener) => listener.pid as number),
+        .map((listener) => listener.pid),
       ...fallbackListenerPids.filter(
         (pid) => runtime.pid == null || pid !== runtime.pid || !running,
       ),

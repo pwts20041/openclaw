@@ -65,7 +65,7 @@ import {
 } from "../pi-embedded-helpers.js";
 import { ensureRuntimePluginsLoaded } from "../runtime-plugins.js";
 import { isLikelyMutatingToolName } from "../tool-mutation.js";
-import { derivePromptTokens, normalizeUsage, type UsageLike } from "../usage.js";
+import { derivePromptTokens, hasNonzeroUsage, normalizeUsage, type UsageLike } from "../usage.js";
 import { redactRunIdentifier, resolveRunWorkspaceDir } from "../workspace-run.js";
 import { runPostCompactionSideEffects } from "./compact.js";
 import { buildEmbeddedCompactionRuntimeContext } from "./compaction-runtime-context.js";
@@ -199,14 +199,18 @@ function buildErrorAgentMeta(params: {
     lastRunPromptUsage: params.lastRunPromptUsage,
     lastTurnTotal: params.lastTurnTotal,
   });
+  const hasAuthoritativeUsage = hasNonzeroUsage(usageMeta.lastCallUsage);
   return {
     sessionId: params.sessionId,
     provider: params.provider,
     model: params.model,
     // Only include usage fields when we have actual data from prior API calls.
     ...(usageMeta.usage ? { usage: usageMeta.usage } : {}),
-    ...(usageMeta.lastCallUsage ? { lastCallUsage: usageMeta.lastCallUsage } : {}),
-    ...(usageMeta.promptTokens ? { promptTokens: usageMeta.promptTokens } : {}),
+    ...(hasAuthoritativeUsage ? { lastCallUsage: usageMeta.lastCallUsage } : {}),
+    ...(typeof usageMeta.promptTokens === "number" &&
+    (usageMeta.promptTokens > 0 || hasAuthoritativeUsage)
+      ? { promptTokens: usageMeta.promptTokens }
+      : {}),
   };
 }
 

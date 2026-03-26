@@ -12,6 +12,7 @@ import {
 } from "../../config/sessions.js";
 import { getRemoteSkillEligibility } from "../../infra/skills-remote.js";
 import { resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
+
 export { drainFormattedSystemEvents } from "./session-system-events.js";
 
 async function persistSessionEntryUpdate(params: {
@@ -146,6 +147,10 @@ export async function ensureSkillSnapshot(params: {
   return { sessionEntry: nextEntry, skillsSnapshot, systemSent };
 }
 
+/**
+ * Increment the compaction count for a session.
+ * Optionally updates session ID and token counts if provided.
+ */
 export async function incrementCompactionCount(params: {
   sessionEntry?: SessionEntry;
   sessionStore?: Record<string, SessionEntry>;
@@ -155,7 +160,7 @@ export async function incrementCompactionCount(params: {
   amount?: number;
   /** Token count after compaction - if provided, updates session token counts */
   tokensAfter?: number;
-  /** Session id after compaction, when the runtime rotated transcripts. */
+  /** New session ID if the session was reset/replaced after compaction */
   newSessionId?: string;
 }): Promise<number | undefined> {
   const {
@@ -192,9 +197,24 @@ export async function incrementCompactionCount(params: {
     });
   }
   // If tokensAfter is provided, update the cached token counts to reflect post-compaction state
-  if (tokensAfter != null && tokensAfter > 0) {
+  if (tokensAfter != null && tokensAfter >= 0) {
+    const prevEstimate = entry.totalTokensEstimate;
+    const prevTotal = entry.totalTokens;
+
     updates.totalTokens = tokensAfter;
-    updates.totalTokensFresh = true;
+    updates.totalTokensFresh = tokensAfter > 0;
+
+    if (tokensAfter > 0) {
+      updates.totalTokensEstimate = tokensAfter;
+    }
+
+    if (tokensAfter === 0 && !updates.totalTokensFresh) {
+      const fallback = prevEstimate ?? prevTotal;
+      if (fallback !== undefined && fallback > 0) {
+        updates.totalTokensEstimate = fallback;
+      }
+    }
+
     // Clear input/output breakdown since we only have the total estimate after compaction
     updates.inputTokens = undefined;
     updates.outputTokens = undefined;

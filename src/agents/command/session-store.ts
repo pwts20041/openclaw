@@ -69,10 +69,29 @@ export async function updateSessionStoreAfterAgentRun(params: {
     updatedAt: Date.now(),
     contextTokens,
   };
+
+  const lastModel = entry.model;
+  const lastProvider = entry.modelProvider;
+  const modelChanged =
+    (lastModel !== undefined && lastModel !== modelUsed) ||
+    (lastProvider !== undefined && lastProvider !== providerUsed);
+
   setSessionRuntimeModel(next, {
     provider: providerUsed,
     model: modelUsed,
   });
+
+  if (modelChanged) {
+    next.totalTokens = undefined;
+    next.totalTokensFresh = false;
+    next.totalTokensEstimate = undefined;
+  } else if (entry.totalTokensEstimate !== undefined) {
+    next.totalTokensEstimate = entry.totalTokensEstimate;
+  } else if (entry.totalTokens !== undefined && entry.totalTokensFresh !== false) {
+    // Refresh or backfill estimate baseline from the last known fresh total.
+    next.totalTokensEstimate = entry.totalTokens;
+  }
+
   if (isCliProvider(providerUsed, cfg)) {
     const cliSessionId = result.meta.agentMeta?.sessionId?.trim();
     if (cliSessionId) {
@@ -83,38 +102,82 @@ export async function updateSessionStoreAfterAgentRun(params: {
   if (result.meta.systemPromptReport) {
     next.systemPromptReport = result.meta.systemPromptReport;
   }
-  if (hasNonzeroUsage(usage)) {
-    const input = usage.input ?? 0;
-    const output = usage.output ?? 0;
+  if (hasNonzeroUsage(usage) || (typeof promptTokens === "number" && promptTokens >= 0)) {
+    const input = usage?.input;
+    const output = usage?.output;
     const totalTokens = deriveSessionTotalTokens({
       usage,
       contextTokens,
       promptTokens,
     });
-    const runEstimatedCostUsd = resolveNonNegativeNumber(
-      estimateUsageCost({
-        usage,
-        cost: resolveModelCostConfig({
-          provider: providerUsed,
-          model: modelUsed,
-          config: cfg,
-        }),
-      }),
-    );
-    next.inputTokens = input;
-    next.outputTokens = output;
-    if (typeof totalTokens === "number" && Number.isFinite(totalTokens) && totalTokens > 0) {
+    const runEstimatedCostUsd = usage
+      ? resolveNonNegativeNumber(
+          estimateUsageCost({
+            usage,
+            cost: resolveModelCostConfig({
+              provider: providerUsed,
+              model: modelUsed,
+              config: cfg,
+            }),
+          }),
+        )
+      : undefined;
+    const lastCallUsage = result.meta.agentMeta?.lastCallUsage;
+    const hasCurrentUsage =
+      hasNonzeroUsage(usage) ||
+      Boolean(lastCallUsage) ||
+      (typeof promptTokens === "number" && promptTokens >= 0);
+    const useFallback = !modelChanged && !hasCurrentUsage;
+    next.inputTokens = input ?? (useFallback ? entry.inputTokens : undefined);
+    next.outputTokens = output ?? (useFallback ? entry.outputTokens : undefined);
+    const prevEstimate = entry.totalTokensEstimate;
+    const prevTotal = entry.totalTokens;
+    const prevWasZero = prevEstimate === 0 || (prevEstimate === undefined && prevTotal === 0);
+
+    const hasFreshContextSnapshot =
+      hasNonzeroUsage(lastCallUsage) || (typeof promptTokens === "number" && promptTokens > 0);
+
+    if (typeof totalTokens === "number" && Number.isFinite(totalTokens) && totalTokens >= 0) {
       next.totalTokens = totalTokens;
-      next.totalTokensFresh = true;
+      next.totalTokensFresh = totalTokens > 0 || hasFreshContextSnapshot || prevWasZero;
+
+      if (modelChanged) {
+        next.totalTokensEstimate = undefined;
+      } else {
+        if (totalTokens > 0) {
+          next.totalTokensEstimate = totalTokens;
+        }
+        if (totalTokens === 0 && !next.totalTokensFresh) {
+          const fallback = prevEstimate ?? prevTotal;
+          if (fallback !== undefined && fallback > 0) {
+            next.totalTokensEstimate = fallback;
+          }
+        }
+      }
     } else {
       next.totalTokens = undefined;
       next.totalTokensFresh = false;
     }
-    next.cacheRead = usage.cacheRead ?? 0;
-    next.cacheWrite = usage.cacheWrite ?? 0;
+    next.cacheRead = usage?.cacheRead ?? (useFallback ? entry.cacheRead : undefined);
+    next.cacheWrite = usage?.cacheWrite ?? (useFallback ? entry.cacheWrite : undefined);
     if (runEstimatedCostUsd !== undefined) {
       next.estimatedCostUsd =
         (resolveNonNegativeNumber(entry.estimatedCostUsd) ?? 0) + runEstimatedCostUsd;
+    }
+  } else {
+    next.inputTokens = undefined;
+    next.outputTokens = undefined;
+    next.totalTokens = undefined;
+    next.totalTokensFresh = false;
+    next.cacheRead = undefined;
+    next.cacheWrite = undefined;
+
+    if (modelChanged) {
+      next.totalTokensEstimate = undefined;
+    } else if (entry.totalTokensEstimate !== undefined) {
+      next.totalTokensEstimate = entry.totalTokensEstimate;
+    } else if (entry.totalTokens !== undefined && entry.totalTokensFresh !== false) {
+      next.totalTokensEstimate = entry.totalTokens;
     }
   }
   if (compactionsThisRun > 0) {

@@ -465,6 +465,9 @@ export async function approveDevicePairing(
     const state = await loadState(baseDir);
     const pending = state.pendingById[requestId];
     if (!pending) {
+      console.log(
+        `[pairing] approveDevicePairing failed: pending request not found for ${requestId}`,
+      );
       return null;
     }
     const approvalRole = resolvePendingApprovalRole(pending);
@@ -478,6 +481,9 @@ export async function approveDevicePairing(
         allowedScopes: options.callerScopes,
       });
       if (missingScope) {
+        console.log(
+          `[pairing] approveDevicePairing failed: missing scope ${missingScope} for role ${approvalRole}`,
+        );
         return { status: "forbidden", missingScope };
       }
     }

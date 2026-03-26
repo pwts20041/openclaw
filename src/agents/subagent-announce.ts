@@ -17,6 +17,7 @@ import { normalizeAccountId, normalizeMainKey } from "../routing/session-key.js"
 import { defaultRuntime } from "../runtime.js";
 import { isCronSessionKey } from "../sessions/session-key-utils.js";
 import { extractTextFromChatContent } from "../shared/chat-content.js";
+import { resolveTotalTokens } from "../shared/subagents-format.js";
 import {
   type DeliveryContext,
   deliveryContextFromSession,
@@ -665,7 +666,7 @@ async function buildCompactAnnounceStatsLine(params: {
   const input = typeof entry?.inputTokens === "number" ? entry.inputTokens : 0;
   const output = typeof entry?.outputTokens === "number" ? entry.outputTokens : 0;
   const ioTotal = input + output;
-  const promptCache = typeof entry?.totalTokens === "number" ? entry.totalTokens : undefined;
+  const promptCache = resolveTotalTokens(entry);
   const runtimeMs =
     typeof params.startedAt === "number" && typeof params.endedAt === "number"
       ? Math.max(0, params.endedAt - params.startedAt)

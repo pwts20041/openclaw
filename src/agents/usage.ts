@@ -143,11 +143,18 @@ export function derivePromptTokens(usage?: {
   if (!usage) {
     return undefined;
   }
+  if (
+    usage.input === undefined &&
+    usage.cacheRead === undefined &&
+    usage.cacheWrite === undefined
+  ) {
+    return undefined;
+  }
   const input = usage.input ?? 0;
   const cacheRead = usage.cacheRead ?? 0;
   const cacheWrite = usage.cacheWrite ?? 0;
   const sum = input + cacheRead + cacheWrite;
-  return sum > 0 ? sum : undefined;
+  return sum >= 0 ? sum : undefined;
 }
 
 export function deriveSessionTotalTokens(params: {
@@ -163,7 +170,7 @@ export function deriveSessionTotalTokens(params: {
 }): number | undefined {
   const promptOverride = params.promptTokens;
   const hasPromptOverride =
-    typeof promptOverride === "number" && Number.isFinite(promptOverride) && promptOverride > 0;
+    typeof promptOverride === "number" && Number.isFinite(promptOverride) && promptOverride >= 0;
 
   const usage = params.usage;
   if (!usage && !hasPromptOverride) {
@@ -174,13 +181,16 @@ export function deriveSessionTotalTokens(params: {
   // It intentionally excludes completion/output tokens.
   const promptTokens = hasPromptOverride
     ? promptOverride
-    : derivePromptTokens({
+    : (derivePromptTokens({
         input: usage?.input,
         cacheRead: usage?.cacheRead,
         cacheWrite: usage?.cacheWrite,
-      });
+      }) ??
+      (usage?.total !== undefined && usage.total >= 0 && usage.output === 0
+        ? usage.total
+        : undefined));
 
-  if (!(typeof promptTokens === "number") || !Number.isFinite(promptTokens) || promptTokens <= 0) {
+  if (!(typeof promptTokens === "number") || !Number.isFinite(promptTokens) || promptTokens < 0) {
     return undefined;
   }
 

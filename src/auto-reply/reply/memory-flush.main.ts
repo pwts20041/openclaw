@@ -5,8 +5,7 @@ import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
 import { DEFAULT_PI_COMPACTION_RESERVE_TOKENS_FLOOR } from "../../agents/pi-settings.js";
 import { parseNonNegativeByteSize } from "../../config/byte-size.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { type SessionEntry } from "../../config/sessions.js";
-import { resolveTotalTokens } from "../../shared/subagents-format.js";
+import { resolveFreshSessionTotalTokens, type SessionEntry } from "../../config/sessions.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
 
 export const DEFAULT_MEMORY_FLUSH_SOFT_TOKENS = 4000;
@@ -62,8 +61,7 @@ export function resolveMemoryFlushRelativePathForRun(params: {
   cfg?: OpenClawConfig;
   nowMs?: number;
 }): string {
-  const nowMs =
-    typeof params.nowMs === "number" && Number.isFinite(params.nowMs) ? params.nowMs : Date.now();
+  const nowMs = Number.isFinite(params.nowMs) ? (params.nowMs as number) : Date.now();
   const { userTimezone } = resolveCronStyleNow(params.cfg ?? {}, nowMs);
   const dateStamp = formatDateStampInTimezone(nowMs, userTimezone);
   return `memory/${dateStamp}.md`;
@@ -74,8 +72,7 @@ export function resolveMemoryFlushPromptForRun(params: {
   cfg?: OpenClawConfig;
   nowMs?: number;
 }): string {
-  const nowMs =
-    typeof params.nowMs === "number" && Number.isFinite(params.nowMs) ? params.nowMs : Date.now();
+  const nowMs = Number.isFinite(params.nowMs) ? (params.nowMs as number) : Date.now();
   const { timeLine } = resolveCronStyleNow(params.cfg ?? {}, nowMs);
   const dateStamp = resolveMemoryFlushRelativePathForRun({
     cfg: params.cfg,
@@ -167,47 +164,8 @@ export function resolveMemoryFlushContextWindowTokens(params: {
   agentCfgContextTokens?: number;
 }): number {
   return (
-    lookupContextTokens(params.modelId, { allowAsyncLoad: false }) ??
-    params.agentCfgContextTokens ??
-    DEFAULT_CONTEXT_TOKENS
+    lookupContextTokens(params.modelId) ?? params.agentCfgContextTokens ?? DEFAULT_CONTEXT_TOKENS
   );
-}
-
-function resolvePositiveTokenCount(value: number | undefined): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? Math.floor(value)
-    : undefined;
-}
-
-function resolveMemoryFlushGateState<
-  TEntry extends Pick<SessionEntry, "totalTokens" | "totalTokensFresh">,
->(params: {
-  entry?: TEntry;
-  tokenCount?: number;
-  contextWindowTokens: number;
-  reserveTokensFloor: number;
-  softThresholdTokens: number;
-}): { entry: TEntry; totalTokens: number; threshold: number } | null {
-  if (!params.entry) {
-    return null;
-  }
-
-  const totalTokens =
-    resolvePositiveTokenCount(params.tokenCount) ??
-    resolveTotalTokens(params.entry, { allowStaleEstimate: true });
-  if (!totalTokens || totalTokens <= 0) {
-    return null;
-  }
-
-  const contextWindow = Math.max(1, Math.floor(params.contextWindowTokens));
-  const reserveTokens = Math.max(0, Math.floor(params.reserveTokensFloor));
-  const softThreshold = Math.max(0, Math.floor(params.softThresholdTokens));
-  const threshold = Math.max(0, contextWindow - reserveTokens - softThreshold);
-  if (threshold <= 0) {
-    return null;
-  }
-
-  return { entry: params.entry, totalTokens, threshold };
 }
 
 export function shouldRunMemoryFlush(params: {
@@ -225,32 +183,36 @@ export function shouldRunMemoryFlush(params: {
   reserveTokensFloor: number;
   softThresholdTokens: number;
 }): boolean {
-  const state = resolveMemoryFlushGateState(params);
-  if (!state || state.totalTokens < state.threshold) {
+  if (!params.entry) {
     return false;
   }
 
-  if (hasAlreadyFlushedForCurrentCompaction(state.entry)) {
+  const override = params.tokenCount;
+  const overrideTokens =
+    typeof override === "number" && Number.isFinite(override) && override > 0
+      ? Math.floor(override)
+      : undefined;
+
+  const totalTokens = overrideTokens ?? resolveFreshSessionTotalTokens(params.entry);
+  if (!totalTokens || totalTokens <= 0) {
+    return false;
+  }
+  const contextWindow = Math.max(1, Math.floor(params.contextWindowTokens));
+  const reserveTokens = Math.max(0, Math.floor(params.reserveTokensFloor));
+  const softThreshold = Math.max(0, Math.floor(params.softThresholdTokens));
+  const threshold = Math.max(0, contextWindow - reserveTokens - softThreshold);
+  if (threshold <= 0) {
+    return false;
+  }
+  if (totalTokens < threshold) {
+    return false;
+  }
+
+  if (hasAlreadyFlushedForCurrentCompaction(params.entry)) {
     return false;
   }
 
   return true;
-}
-
-export function shouldRunPreflightCompaction(params: {
-  entry?: Pick<SessionEntry, "totalTokens" | "totalTokensFresh">;
-  /**
-   * Optional projected token count override for pre-run compaction gating.
-   * When provided, this value is treated as a fresh estimate and used instead
-   * of any cached SessionEntry total.
-   */
-  tokenCount?: number;
-  contextWindowTokens: number;
-  reserveTokensFloor: number;
-  softThresholdTokens: number;
-}): boolean {
-  const state = resolveMemoryFlushGateState(params);
-  return Boolean(state && state.totalTokens >= state.threshold);
 }
 
 /**

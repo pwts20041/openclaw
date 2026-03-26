@@ -335,17 +335,23 @@ export function buildSafeExternalPrompt(params: {
 }
 
 /**
- * Checks if a session key indicates an external hook source.
+ * Checks if a session key or explicit provenance indicates an external hook source.
  */
-export function isExternalHookSession(sessionKey: string): boolean {
-  return resolveHookExternalContentSource(sessionKey) !== undefined;
+export function isExternalHookSession(
+  sessionKey: string,
+  explicitSource?: HookExternalContentSource,
+): boolean {
+  return explicitSource !== undefined || resolveHookExternalContentSource(sessionKey) !== undefined;
 }
 
 /**
- * Extracts the hook type from a session key.
+ * Extracts the hook type from a session key or explicit provenance.
  */
-export function getHookType(sessionKey: string): ExternalContentSource {
-  const source = resolveHookExternalContentSource(sessionKey);
+export function getHookType(
+  sessionKey: string,
+  explicitSource?: HookExternalContentSource,
+): ExternalContentSource {
+  const source = explicitSource ?? resolveHookExternalContentSource(sessionKey);
   return source ? mapHookExternalContentSource(source) : "unknown";
 }
 

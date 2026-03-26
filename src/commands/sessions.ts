@@ -155,11 +155,12 @@ export async function sessionsCommand(
       activeMinutes: activeMinutes ?? null,
       sessions: rows.map((r) => {
         const model = resolveSessionDisplayModel(cfg, r, displayDefaults);
+        const freshTotal = resolveFreshSessionTotalTokens(r);
         return {
           ...r,
-          totalTokens: resolveFreshSessionTotalTokens(r) ?? null,
+          totalTokens: freshTotal ?? r.totalTokensEstimate ?? null,
           totalTokensFresh:
-            typeof r.totalTokens === "number" ? r.totalTokensFresh !== false : false,
+            r.totalTokensFresh ?? (typeof r.totalTokens === "number" && r.totalTokens > 0),
           contextTokens:
             r.contextTokens ?? lookupContextTokens(model) ?? configContextTokens ?? null,
           model,
@@ -202,7 +203,7 @@ export async function sessionsCommand(
   for (const row of rows) {
     const model = resolveSessionDisplayModel(cfg, row, displayDefaults);
     const contextTokens = row.contextTokens ?? lookupContextTokens(model) ?? configContextTokens;
-    const total = resolveFreshSessionTotalTokens(row);
+    const total = resolveFreshSessionTotalTokens(row) ?? row.totalTokensEstimate;
 
     const line = [
       ...(showAgentColumn
