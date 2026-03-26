@@ -193,7 +193,7 @@ Notes:
 ## Browserless (hosted remote CDP)
 
 [Browserless](https://browserless.io) is a hosted Chromium service that exposes
-CDP endpoints over HTTPS. You can point an OpenClaw browser profile at a
+CDP endpoints over WebSocket. You can point an OpenClaw browser profile at a
 Browserless region endpoint and authenticate with your API key.
 
 Example:
@@ -207,7 +207,7 @@ Example:
     remoteCdpHandshakeTimeoutMs: 4000,
     profiles: {
       browserless: {
-        cdpUrl: "https://production-sfo.browserless.io?token=<BROWSERLESS_API_KEY>",
+        cdpUrl: "wss://production-sfo.browserless.io?token=<BROWSERLESS_API_KEY>",
         color: "#00AA00",
       },
     },
@@ -219,13 +219,15 @@ Notes:
 
 - Replace `<BROWSERLESS_API_KEY>` with your real Browserless token.
 - Choose the region endpoint that matches your Browserless account (see their docs).
+- Use `wss://` for `cdpUrl`; Browserless REST endpoints may use `https://`, but
+  Chrome DevTools Protocol connections must use WebSocket.
 
 ## Direct WebSocket CDP providers
 
 Some hosted browser services expose a **direct WebSocket** endpoint rather than
 the standard HTTP-based CDP discovery (`/json/version`). OpenClaw supports both:
 
-- **HTTP(S) endpoints** (e.g. Browserless) — OpenClaw calls `/json/version` to
+- **HTTP(S) endpoints** — OpenClaw calls `/json/version` to
   discover the WebSocket debugger URL, then connects.
 - **WebSocket endpoints** (`ws://` / `wss://`) — OpenClaw connects directly,
   skipping `/json/version`. Use this for services like
