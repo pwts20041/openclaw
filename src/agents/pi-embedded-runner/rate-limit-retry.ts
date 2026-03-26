@@ -43,9 +43,18 @@ function getRetryAfterRaw(headers: unknown): string | undefined {
 }
 
 export function parseRetryAfterMs(err: unknown): number | undefined {
+  return walkRetryAfter(err, new Set());
+}
+
+function walkRetryAfter(err: unknown, seen: Set<unknown>): number | undefined {
   if (!err || typeof err !== "object") {
     return undefined;
   }
+  if (seen.has(err)) {
+    return undefined;
+  }
+  seen.add(err);
+
   const obj = err as Record<string, unknown>;
   const raw =
     getRetryAfterRaw(obj.headers) ??
@@ -67,11 +76,8 @@ export function parseRetryAfterMs(err: unknown): number | undefined {
     }
   }
 
-  const cause = obj.cause;
-  if (cause && typeof cause === "object" && cause !== err) {
-    return parseRetryAfterMs(cause);
-  }
-  return undefined;
+  // Walk .error and .cause to match failover-error's findErrorProperty traversal
+  return walkRetryAfter(obj.error, seen) ?? walkRetryAfter(obj.cause, seen);
 }
 
 async function sleepWithAbortReason(

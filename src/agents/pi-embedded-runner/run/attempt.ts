@@ -114,7 +114,6 @@ import {
 import { getDmHistoryLimitFromSessionKey, limitHistoryTurns } from "../history.js";
 import { log } from "../logger.js";
 import { buildEmbeddedMessageActionDiscoveryInput } from "../message-action-discovery-input.js";
-import { buildModelAliasLines } from "../model.js";
 import { retryPromptOnRateLimit } from "../rate-limit-retry.js";
 import {
   clearActiveEmbeddedRun,

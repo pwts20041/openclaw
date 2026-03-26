@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveFailoverReasonFromError } from "../failover-error.js";
+import { classifyFailoverReason } from "../pi-embedded-helpers.js";
 import type { PromptRetryContext } from "./rate-limit-retry.js";
 const computeBackoffMock = vi.fn((_attempt: number) => 1_000);
 const sleepWithAbortMock = vi.fn(async (_ms: number, _signal?: AbortSignal) => undefined);
@@ -261,6 +263,46 @@ describe("retryPromptOnRateLimit", () => {
   });
 });
 
+describe("exhausted error → downstream failover classification bridge", () => {
+  beforeEach(() => {
+    computeBackoffMock.mockClear();
+    computeBackoffMock.mockImplementation((attempt: number) => attempt * 1_000);
+    sleepWithAbortMock.mockReset();
+    sleepWithAbortMock.mockImplementation(async () => undefined);
+  });
+
+  it("exhausted thrown 429 is classified as rate_limit by resolveFailoverReasonFromError", async () => {
+    const error = make429Error({ headers: { "retry-after": "1" } });
+    const prompt = vi.fn<PromptRetryContext["prompt"]>().mockRejectedValue(error);
+
+    const thrown = await retryPromptOnRateLimit(makeContext({ prompt })).catch(
+      (err: unknown) => err,
+    );
+
+    // The exact error reference passes through to the run loop
+    expect(thrown).toBe(error);
+    // The run loop uses resolveFailoverReasonFromError for profile rotation
+    expect(resolveFailoverReasonFromError(thrown)).toBe("rate_limit");
+  });
+
+  it("exhausted terminal assistant errorMessage is classified as rate_limit by classifyFailoverReason", async () => {
+    const errorMessage = "Too many requests";
+    let promptCalls = 0;
+    const prompt = vi.fn<PromptRetryContext["prompt"]>(async () => {
+      promptCalls += 1;
+    });
+    const classifyTerminalFailure = vi.fn(() => ({
+      isRateLimit: true,
+      rawError: { errorMessage },
+    }));
+
+    await retryPromptOnRateLimit(makeContext({ prompt, classifyTerminalFailure, rewind: vi.fn() }));
+
+    // The run loop uses classifyFailoverReason on the assistant's errorMessage
+    expect(classifyFailoverReason(errorMessage)).toBe("rate_limit");
+  });
+});
+
 describe("parseRetryAfterMs", () => {
   beforeEach(() => {
     vi.useRealTimers();
@@ -276,6 +318,8 @@ describe("parseRetryAfterMs", () => {
     [{ headers: { "RETRY-AFTER": "4" } }, 4_000],
     [{ response: { headers: { "retry-after": "7" } } }, 7_000],
     [{ cause: { headers: { "retry-after": "3" } } }, 3_000],
+    [{ error: { headers: { "retry-after": "11" } } }, 11_000],
+    [{ cause: { error: { headers: { "retry-after": "9" } } } }, 9_000],
   ])("parses delta-seconds from common header shapes", (error, expected) => {
     expect(parseRetryAfterMs(error)).toBe(expected);
   });
