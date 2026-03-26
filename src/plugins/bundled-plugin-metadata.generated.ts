@@ -2582,6 +2582,48 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
     },
   },
   {
+    dirName: "oracle",
+    idHint: "oracle",
+    source: {
+      source: "./index.ts",
+      built: "index.js",
+    },
+    packageName: "@openclaw/oracle-provider",
+    packageVersion: "2026.3.23",
+    packageDescription: "Oracle OCI Generative AI provider plugin",
+    packageManifest: {
+      extensions: ["./index.ts"],
+    },
+    manifest: {
+      id: "oracle",
+      configSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {},
+      },
+      providers: ["oracle"],
+      providerAuthEnvVars: {
+        oracle: ["OCI_CONFIG_FILE", "OCI_PROFILE", "OCI_CLI_PROFILE", "OCI_COMPARTMENT_ID"],
+      },
+      providerAuthChoices: [
+        {
+          provider: "oracle",
+          method: "oci-config",
+          choiceId: "oracle-oci-config",
+          choiceLabel: "OCI config file",
+          choiceHint: "API key auth via OCI config + private key",
+          groupId: "oracle",
+          groupLabel: "Oracle OCI",
+          groupHint: "OCI config file + private key",
+          optionKey: "oracleConfigFile",
+          cliFlag: "--oracle-config-file",
+          cliOption: "--oracle-config-file <path>",
+          cliDescription: "Path to OCI config file",
+        },
+      ],
+    },
+  },
+  {
     dirName: "perplexity",
     idHint: "perplexity-plugin",
     source: {
