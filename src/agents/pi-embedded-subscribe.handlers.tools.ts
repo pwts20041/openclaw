@@ -98,9 +98,15 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
   // When an action field is present, build a composite signature that also captures the
   // primary argument so that calls with the same action but different targets/content are
   // not collapsed into the same signature.
-  // Priority: routing-destination fields first (to/target/channelId…), then general
-  // primary-argument fields (url/path/…). This ensures both messaging tools and
-  // action-based tools (e.g. browser action:"open" url:"…") are correctly distinguished.
+  // Priority order:
+  //   1. Specific routing fields (to/channelId/userId/…)
+  //   2. Precise target identifiers (url/targetUrl/targetId)
+  //   3. Nested request object — checked BEFORE top-level "target" because browser passes
+  //      target="host"/"sandbox" (a constant window selector) alongside a request payload
+  //      that carries the real differentiator (request.kind + request.targetId/ref/selector).
+  //      If we checked "target" first, all browser act calls would collapse to
+  //      action=act,target=host regardless of what the request contains.
+  //   4. Remaining top-level fields (target, path, id, content fields…)
   const actionVal = typeof record.action === "string" ? record.action.trim().slice(0, 50) : null;
   if (actionVal !== null) {
     for (const argKey of [
@@ -112,11 +118,31 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
       "requestId",
       "sessionId",
       "jobId",
-      // url/targetUrl/targetId before target: browser passes target="current"|"new" (window
-      // selector) alongside url/targetId as primary content; these must win over target.
       "url",
       "targetUrl",
       "targetId",
+    ]) {
+      const val = record[argKey];
+      if (typeof val === "string" && val.trim()) {
+        return `action=${actionVal},${argKey}=${val.trim()}`;
+      }
+    }
+    // Nested request object (e.g. browser action:"act") — checked before top-level "target"
+    // so a constant window selector like target="host" does not shadow request.kind/targetId.
+    if (isPlainObject(record.request)) {
+      const req = record.request;
+      const kindVal = typeof req.kind === "string" ? req.kind.trim() : null;
+      if (kindVal) {
+        for (const reqKey of ["targetId", "ref", "selector", "text", "url", "fn"]) {
+          const val = req[reqKey];
+          if (typeof val === "string" && val.trim()) {
+            return `action=${actionVal},request.kind=${kindVal},request.${reqKey}=${val.trim()}`;
+          }
+        }
+        return `action=${actionVal},request.kind=${kindVal}`;
+      }
+    }
+    for (const argKey of [
       "target",
       "path",
       "file_path",
@@ -140,23 +166,6 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
       const val = record[argKey];
       if (typeof val === "string" && val.trim()) {
         return `action=${actionVal},${argKey}=${val.trim()}`;
-      }
-    }
-    // For tools with nested request objects (e.g. browser action:"act" where the main
-    // differentiators are request.kind + request.targetId/ref/selector/text/url), fall back
-    // to scanning inside the request sub-object so that distinct act calls are not collapsed
-    // into the same bare action=act signature.
-    if (isPlainObject(record.request)) {
-      const req = record.request;
-      const kindVal = typeof req.kind === "string" ? req.kind.trim() : null;
-      if (kindVal) {
-        for (const reqKey of ["targetId", "ref", "selector", "text", "url", "fn"]) {
-          const val = req[reqKey];
-          if (typeof val === "string" && val.trim()) {
-            return `action=${actionVal},request.kind=${kindVal},request.${reqKey}=${val.trim()}`;
-          }
-        }
-        return `action=${actionVal},request.kind=${kindVal}`;
       }
     }
     return `action=${actionVal}`;

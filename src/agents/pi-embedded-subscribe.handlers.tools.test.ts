@@ -1174,4 +1174,38 @@ describe("circuit breaker arg signature for browser act nested request fields", 
 
     expect(onError).not.toHaveBeenCalled();
   });
+
+  it("does not trip circuit when act calls share a constant top-level target but differ in request", async () => {
+    // browser passes target="host" (constant window selector) alongside a request payload;
+    // the request fields are the real differentiators and must win over the constant target.
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    async function runActWithTarget(
+      request: Record<string, unknown>,
+      isError: boolean,
+      id: string,
+    ) {
+      await handleToolExecutionStart(ctx, {
+        type: "tool_execution_start",
+        toolName: "browser",
+        toolCallId: id,
+        args: { action: "act", target: "host", request },
+      });
+      await handleToolExecutionEnd(ctx, {
+        type: "tool_execution_end",
+        toolName: "browser",
+        toolCallId: id,
+        isError,
+        result: isError ? { type: "text", text: "Error: act failed" } : { ok: true },
+      });
+    }
+
+    await runActWithTarget({ kind: "click", targetId: "btn-a" }, true, "t1");
+    await runActWithTarget({ kind: "click", targetId: "btn-b" }, true, "t2");
+    await runActWithTarget({ kind: "click", targetId: "btn-c" }, true, "t3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
 });
