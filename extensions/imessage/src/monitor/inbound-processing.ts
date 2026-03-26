@@ -182,13 +182,12 @@ export function resolveIMessageInboundDecision(params: {
         chatId,
         sender,
       });
-      const messageText = params.messageText;
       if (
         params.echoCache &&
-        (messageText || inboundMessageId) &&
+        (params.messageText || inboundMessageId) &&
         params.echoCache.has(
           echoScope,
-          { text: messageText || undefined, messageId: inboundMessageId },
+          { text: params.messageText || undefined, messageId: inboundMessageId },
           true, // skipIdShortCircuit
         )
       ) {
