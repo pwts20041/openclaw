@@ -637,6 +637,48 @@ describe("circuit breaker arg signature for file_path alias", () => {
   });
 });
 
+describe("circuit breaker arg signature for sessionId and jobId selectors", () => {
+  async function runCron(ctx: ToolHandlerContext, jobId: string, isError: boolean, id: string) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "cron",
+      toolCallId: id,
+      args: { action: "remove", jobId },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "cron",
+      toolCallId: id,
+      isError,
+      result: isError ? { type: "text", text: "Error: job not found" } : { ok: true },
+    });
+  }
+
+  it("does not trip circuit when cron failures target different jobIds", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runCron(ctx, "job-1", true, "c1");
+    await runCron(ctx, "job-2", true, "c2");
+    await runCron(ctx, "job-3", true, "c3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("trips circuit when cron failures repeatedly target the same jobId", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runCron(ctx, "job-x", true, "c1");
+    await runCron(ctx, "job-x", true, "c2");
+    await runCron(ctx, "job-x", true, "c3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("circuit breaker arg signature for browser targetId selector", () => {
   async function runFocus(ctx: ToolHandlerContext, targetId: string, isError: boolean, id: string) {
     await handleToolExecutionStart(ctx, {
