@@ -77,6 +77,7 @@ import type { GatewayWsClient } from "./server/ws-types.js";
 import { handleSessionKillHttpRequest } from "./session-kill-http.js";
 import { handleSessionHistoryHttpRequest } from "./sessions-history-http.js";
 import { handleToolsInvokeHttpRequest } from "./tools-invoke-http.js";
+import { handleWorkspaceSyncWebhook } from "./workspace-sync-webhook.js";
 
 type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 
@@ -811,6 +812,15 @@ export function createGatewayHttpServer(opts: {
         ? resolvePluginRoutePathContext(requestPath)
         : null;
       const requestStages: GatewayHttpRequestStage[] = [
+        {
+          name: "workspace-sync",
+          run: async () => {
+            if (req.method !== "POST" || requestPath !== "/hooks/workspace-sync") {
+              return false;
+            }
+            return handleWorkspaceSyncWebhook(req, res, trustedProxies);
+          },
+        },
         {
           name: "hooks",
           run: () => handleHooksRequest(req, res),
