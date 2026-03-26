@@ -84,6 +84,7 @@
   "runtime-store",
   "json-store",
   "keyed-async-queue",
+  "kudosity-sms",
   "line",
   "line-core",
   "line-runtime",

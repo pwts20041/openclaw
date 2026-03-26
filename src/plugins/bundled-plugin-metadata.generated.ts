@@ -1430,6 +1430,42 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
     },
   },
   {
+    dirName: "kudosity-sms",
+    idHint: "kudosity-sms",
+    source: {
+      source: "index.ts",
+      built: "index.js",
+    },
+    packageName: "@openclaw/kudosity-sms",
+    packageVersion: "2026.3.2",
+    packageManifest: {
+      extensions: ["index.ts"],
+    },
+    manifest: {
+      id: "kudosity-sms",
+      configSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {},
+      },
+      channels: ["kudosity-sms"],
+      name: "Kudosity SMS",
+      description:
+        "Cloud SMS channel powered by Kudosity — send and receive SMS via the Kudosity API",
+      uiHints: {
+        apiKey: {
+          label: "API Key",
+          placeholder: "Your Kudosity API key",
+          sensitive: true,
+        },
+        sender: {
+          label: "Sender Number",
+          placeholder: "+61400000000",
+        },
+      },
+    },
+  },
+  {
     dirName: "line",
     idHint: "line",
     source: {
