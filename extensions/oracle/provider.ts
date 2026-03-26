@@ -14,6 +14,7 @@ import {
 } from "openclaw/plugin-sdk/provider-models";
 import {
   buildOracleRuntimeAuthToken,
+  ORACLE_MISSING_CONFIG_FILE_ERROR,
   ORACLE_PROFILE_ID,
   ORACLE_PROVIDER_ID,
   resolveOracleAuth,
@@ -202,19 +203,22 @@ export async function resolveOracleCatalogProvider(
     ctx.agentDir,
     resolvedAuth.profileId ?? ORACLE_PROFILE_ID,
   );
-  const configFile = resolvedAuth.apiKey ?? trimToUndefined(ctx.env.OCI_CONFIG_FILE);
-  if (!configFile) {
-    return null;
+  let auth;
+  try {
+    auth = resolveOracleAuth({
+      agentDir: ctx.agentDir,
+      env: ctx.env,
+      configFile: resolvedAuth.apiKey,
+      profile: storedMetadata.profile,
+      compartmentId: storedMetadata.compartmentId,
+      profileId: resolvedAuth.profileId ?? ORACLE_PROFILE_ID,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === ORACLE_MISSING_CONFIG_FILE_ERROR) {
+      return null;
+    }
+    throw error;
   }
-
-  const auth = resolveOracleAuth({
-    agentDir: ctx.agentDir,
-    env: ctx.env,
-    configFile,
-    profile: storedMetadata.profile,
-    compartmentId: storedMetadata.compartmentId,
-    profileId: resolvedAuth.profileId ?? ORACLE_PROFILE_ID,
-  });
 
   const models = (await listOracleModels(auth.configFile, auth.profile, auth.compartmentId))
     .filter((model) => isOracleChatBaseModel(model))

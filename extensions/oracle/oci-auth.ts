@@ -41,6 +41,8 @@ const DEFAULT_PROFILE_NAME = "DEFAULT";
 
 export const ORACLE_PROVIDER_ID = "oracle";
 export const ORACLE_PROFILE_ID = "oracle:default";
+export const ORACLE_MISSING_CONFIG_FILE_ERROR =
+  "Oracle OCI auth requires an OCI config file. Set OCI_CONFIG_FILE or configure the Oracle provider.";
 export const ORACLE_ENV_VARS = [
   "OCI_CONFIG_FILE",
   "OCI_PROFILE",
@@ -72,6 +74,11 @@ function ensureReadableFile(filePath: string): string {
   const stats = fs.statSync(resolved);
   if (!stats.isFile()) {
     throw new Error(`OCI config path is not a file: ${resolved}`);
+  }
+  try {
+    fs.accessSync(resolved, fs.constants.R_OK);
+  } catch {
+    throw new Error(`OCI config file is not readable: ${resolved}`);
   }
   return resolved;
 }
@@ -143,9 +150,7 @@ export function resolveOracleAuth(params: ResolveOracleAuthParams): OracleResolv
       : undefined);
 
   if (!configFile) {
-    throw new Error(
-      "Oracle OCI auth requires an OCI config file. Set OCI_CONFIG_FILE or configure the Oracle provider.",
-    );
+    throw new Error(ORACLE_MISSING_CONFIG_FILE_ERROR);
   }
 
   const profile =
