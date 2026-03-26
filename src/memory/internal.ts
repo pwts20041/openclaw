@@ -333,7 +333,7 @@ export async function buildMultimodalChunkForIndexing(
 
 export function chunkMarkdown(
   content: string,
-  chunking: { tokens: number; overlap: number },
+  chunking: { tokens: number; overlap: number; headingAware?: boolean },
 ): MemoryChunk[] {
   const lines = content.split("\n");
   if (lines.length === 0) {
@@ -342,9 +342,19 @@ export function chunkMarkdown(
   const maxChars = Math.max(32, chunking.tokens * 4);
   const overlapChars = Math.max(0, chunking.overlap * 4);
   const chunks: MemoryChunk[] = [];
+  const headingAware = chunking.headingAware ?? false;
+
+  // Helper to detect markdown headings
+  const isHeading = (line: string): boolean => {
+    return /^#{1,6}\s+/.test(line.trim());
+  };
 
   let current: Array<{ line: string; lineNo: number }> = [];
   let currentChars = 0;
+  // Heading stack for carrying parent headings into subsections (fix #7)
+  let headingStack: string[] = [];
+  // Track the line number of each heading for 1-indexed line metadata
+  const headingLineNos = new Map<string, number>();
 
   const flush = () => {
     if (current.length === 0) {
@@ -367,7 +377,7 @@ export function chunkMarkdown(
     });
   };
 
-  const carryOverlap = () => {
+  const carryOverlap = (prependHeading?: string, prependLineNo?: number) => {
     if (overlapChars <= 0 || current.length === 0) {
       current = [];
       currentChars = 0;
@@ -386,13 +396,53 @@ export function chunkMarkdown(
         break;
       }
     }
+    // Fix #8: prepend heading line to overlap for oversized section sub-chunks
+    if (prependHeading) {
+      kept.unshift({ line: prependHeading, lineNo: prependLineNo ?? 1 });
+    }
     current = kept;
     currentChars = kept.reduce((sum, entry) => sum + entry.line.length + 1, 0);
   };
 
+  let fenceDelimiter: { char: string; length: number } | null = null;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i] ?? "";
     const lineNo = i + 1;
+
+    // Track fenced code blocks to avoid false heading detection
+    // A closing fence must have the same delimiter char and at least the same length (CommonMark)
+    const fenceMatch = line.trim().match(/^(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const raw = fenceMatch[1]!;
+      const char = raw[0]!;
+      const length = raw.length;
+      if (fenceDelimiter === null) {
+        fenceDelimiter = { char, length };
+      } else if (char === fenceDelimiter.char && length >= fenceDelimiter.length) {
+        fenceDelimiter = null;
+      }
+    }
+
+    // Heading-aware: flush on heading (unless it's the first heading or inside a code fence)
+    if (headingAware && fenceDelimiter === null && isHeading(line)) {
+      // Always update heading stack for parent tracking (fix #7)
+      const headingLevel = (line.match(/^#+/) ?? [""])[0].length;
+      headingStack = headingStack.slice(0, headingLevel - 1);
+      const trimmedHeading = line.trim();
+      headingStack.push(trimmedHeading);
+      headingLineNos.set(trimmedHeading, lineNo);
+
+      if (current.length > 0) {
+        flush();
+        // Fix #6: do NOT carry overlap on heading-triggered flush (avoids defeating heading boundary)
+        // Fix #7: prepend parent headings to next chunk
+        current = headingStack.map((h) => ({ line: h, lineNo: headingLineNos.get(h) ?? 1 }));
+        currentChars = current.reduce((sum, entry) => sum + entry.line.length + 1, 0);
+        // Skip normal segment processing — heading already added via stack
+        continue;
+      }
+    }
+
     const segments: string[] = [];
     if (line.length === 0) {
       segments.push("");
@@ -403,9 +453,18 @@ export function chunkMarkdown(
     }
     for (const segment of segments) {
       const lineSize = segment.length + 1;
+
+      // Enforce cumulative size limit to avoid giant chunks
       if (currentChars + lineSize > maxChars && current.length > 0) {
         flush();
-        carryOverlap();
+        // Fix #8: in heading-aware mode, prepend current heading to overlap
+        const headingToPrepend = headingAware && headingStack.length > 0
+          ? headingStack[headingStack.length - 1]
+          : undefined;
+        const headingLineNoToPrepend = headingToPrepend
+          ? headingLineNos.get(headingToPrepend)
+          : undefined;
+        carryOverlap(headingToPrepend, headingLineNoToPrepend);
       }
       current.push({ line: segment, lineNo });
       currentChars += lineSize;
