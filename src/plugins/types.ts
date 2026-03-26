@@ -21,7 +21,7 @@ import type {
   ChannelStructuredComponents,
 } from "../channels/plugins/types.js";
 import type { OpenClawConfig } from "../config/config.js";
-import type { ModelProviderConfig } from "../config/types.js";
+import type { CliBackendConfig, ModelProviderConfig } from "../config/types.js";
 import type { GatewayRequestHandler } from "../gateway/server-methods/types.js";
 import type { InternalHookHandler } from "../hooks/internal-hooks.js";
 import type { HookEntry } from "../hooks/types.js";
@@ -40,7 +40,6 @@ import type {
   SpeechTelephonySynthesisResult,
   SpeechVoiceOption,
 } from "../tts/provider-types.js";
-import type { VideoGenerationProvider } from "../video-generation/types.js";
 import type { WizardPrompter } from "../wizard/prompts.js";
 import type { SecretInputMode } from "./provider-auth-types.js";
 import type { createVpsAwareOAuthHandlers } from "./provider-oauth-flow.js";
@@ -951,7 +950,6 @@ export type PluginSpeechProviderEntry = SpeechProviderPlugin & {
 
 export type MediaUnderstandingProviderPlugin = MediaUnderstandingProvider;
 export type ImageGenerationProviderPlugin = ImageGenerationProvider;
-export type VideoGenerationProviderPlugin = VideoGenerationProvider;
 
 export type OpenClawPluginGatewayMethod = {
   method: string;
@@ -1290,6 +1288,28 @@ export type OpenClawPluginService = {
   stop?: (ctx: OpenClawPluginServiceContext) => void | Promise<void>;
 };
 
+/** Plugin-owned CLI backend defaults used by the text-only CLI runner. */
+export type CliBackendPlugin = {
+  /** Provider id used in model refs, for example `claude-cli/opus`. */
+  id: string;
+  /** Default backend config before user overrides from `agents.defaults.cliBackends`. */
+  config: CliBackendConfig;
+  /**
+   * Whether OpenClaw should inject bundle MCP config for this backend.
+   *
+   * Keep this opt-in. Only backends that explicitly consume an MCP config file
+   * should enable it.
+   */
+  bundleMcp?: boolean;
+  /**
+   * Optional config normalizer applied after user overrides merge.
+   *
+   * Use this for backend-specific compatibility rewrites when old config
+   * shapes need to stay working.
+   */
+  normalizeConfig?: (config: CliBackendConfig) => CliBackendConfig;
+};
+
 export type OpenClawPluginChannelRegistration = {
   plugin: ChannelPlugin;
 };
@@ -1346,6 +1366,8 @@ export type OpenClawPluginApi = {
   registerGatewayMethod: (method: string, handler: GatewayRequestHandler) => void;
   registerCli: (registrar: OpenClawPluginCliRegistrar, opts?: { commands?: string[] }) => void;
   registerService: (service: OpenClawPluginService) => void;
+  /** Register a text-only CLI backend used by the local CLI runner. */
+  registerCliBackend: (backend: CliBackendPlugin) => void;
   /** Register a native model/provider plugin (text inference capability). */
   registerProvider: (provider: ProviderPlugin) => void;
   /** Register a speech synthesis provider (speech capability). */
@@ -1354,8 +1376,6 @@ export type OpenClawPluginApi = {
   registerMediaUnderstandingProvider: (provider: MediaUnderstandingProviderPlugin) => void;
   /** Register an image generation provider (image generation capability). */
   registerImageGenerationProvider: (provider: ImageGenerationProviderPlugin) => void;
-  /** Register a video generation provider (video generation capability). */
-  registerVideoGenerationProvider: (provider: VideoGenerationProviderPlugin) => void;
   /** Register a web search provider (web search capability). */
   registerWebSearchProvider: (provider: WebSearchProviderPlugin) => void;
   registerInteractiveHandler: (registration: PluginInteractiveHandlerRegistration) => void;

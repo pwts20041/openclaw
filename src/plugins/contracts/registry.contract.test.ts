@@ -130,6 +130,24 @@ describe("plugin contract registry", () => {
     ).toEqual(bundledWebSearchPluginIds);
   });
 
+  it("keeps Kimi Coding onboarding grouped under Moonshot", () => {
+    const kimi = loadPluginManifestRegistry({}).plugins.find(
+      (plugin) => plugin.origin === "bundled" && plugin.id === "kimi",
+    );
+
+    expect(kimi?.providerAuthChoices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          choiceId: "kimi-code-api-key",
+          choiceLabel: "Kimi Code API key (subscription)",
+          groupId: "moonshot",
+          groupLabel: "Moonshot AI (Kimi K2.5)",
+          groupHint: "Kimi K2.5",
+        }),
+      ]),
+    );
+  });
+
   it("does not duplicate bundled image-generation provider ids", () => {
     const ids = imageGenerationProviderContractRegistry.map((entry) => entry.provider.id);
     expect(ids).toEqual([...new Set(ids)]);
@@ -166,7 +184,10 @@ describe("plugin contract registry", () => {
     ]);
     expect(findMediaUnderstandingProviderIdsForPlugin("mistral")).toEqual(["mistral"]);
     expect(findMediaUnderstandingProviderIdsForPlugin("moonshot")).toEqual(["moonshot"]);
-    expect(findMediaUnderstandingProviderIdsForPlugin("openai")).toEqual(["openai"]);
+    expect(findMediaUnderstandingProviderIdsForPlugin("openai")).toEqual([
+      "openai",
+      "openai-codex",
+    ]);
     expect(findMediaUnderstandingProviderIdsForPlugin("zai")).toEqual(["zai"]);
   });
 
@@ -178,29 +199,29 @@ describe("plugin contract registry", () => {
 
   it("keeps bundled provider and web search tool ownership explicit", () => {
     expect(findRegistrationForPlugin("exa")).toMatchObject({
+      cliBackendIds: [],
       providerIds: [],
       speechProviderIds: [],
       mediaUnderstandingProviderIds: [],
       imageGenerationProviderIds: [],
-      videoGenerationProviderIds: [],
       webSearchProviderIds: ["exa"],
       toolNames: [],
     });
     expect(findRegistrationForPlugin("firecrawl")).toMatchObject({
+      cliBackendIds: [],
       providerIds: [],
       speechProviderIds: [],
       mediaUnderstandingProviderIds: [],
       imageGenerationProviderIds: [],
-      videoGenerationProviderIds: [],
       webSearchProviderIds: ["firecrawl"],
       toolNames: ["firecrawl_search", "firecrawl_scrape"],
     });
     expect(findRegistrationForPlugin("tavily")).toMatchObject({
+      cliBackendIds: [],
       providerIds: [],
       speechProviderIds: [],
       mediaUnderstandingProviderIds: [],
       imageGenerationProviderIds: [],
-      videoGenerationProviderIds: [],
       webSearchProviderIds: ["tavily"],
       toolNames: ["tavily_search", "tavily_extract"],
     });
@@ -208,41 +229,49 @@ describe("plugin contract registry", () => {
 
   it("tracks speech registrations on bundled provider plugins", () => {
     expect(findRegistrationForPlugin("fal")).toMatchObject({
+      cliBackendIds: [],
       providerIds: ["fal"],
       speechProviderIds: [],
       mediaUnderstandingProviderIds: [],
       imageGenerationProviderIds: ["fal"],
-      videoGenerationProviderIds: [],
+      webSearchProviderIds: [],
+    });
+    expect(findRegistrationForPlugin("anthropic")).toMatchObject({
+      cliBackendIds: ["claude-cli"],
+      providerIds: ["anthropic"],
+      speechProviderIds: [],
+      mediaUnderstandingProviderIds: ["anthropic"],
+      imageGenerationProviderIds: [],
       webSearchProviderIds: [],
     });
     expect(findRegistrationForPlugin("google")).toMatchObject({
+      cliBackendIds: ["google-gemini-cli"],
       providerIds: ["google", "google-gemini-cli"],
       speechProviderIds: [],
       mediaUnderstandingProviderIds: ["google"],
       imageGenerationProviderIds: ["google"],
-      videoGenerationProviderIds: [],
       webSearchProviderIds: ["gemini"],
     });
     expect(findRegistrationForPlugin("openai")).toMatchObject({
+      cliBackendIds: ["codex-cli"],
       providerIds: ["openai", "openai-codex"],
       speechProviderIds: ["openai"],
-      mediaUnderstandingProviderIds: ["openai"],
+      mediaUnderstandingProviderIds: ["openai", "openai-codex"],
       imageGenerationProviderIds: ["openai"],
-      videoGenerationProviderIds: [],
     });
     expect(findRegistrationForPlugin("elevenlabs")).toMatchObject({
+      cliBackendIds: [],
       providerIds: [],
       speechProviderIds: ["elevenlabs"],
       mediaUnderstandingProviderIds: [],
       imageGenerationProviderIds: [],
-      videoGenerationProviderIds: [],
     });
     expect(findRegistrationForPlugin("microsoft")).toMatchObject({
+      cliBackendIds: [],
       providerIds: [],
       speechProviderIds: ["microsoft"],
       mediaUnderstandingProviderIds: [],
       imageGenerationProviderIds: [],
-      videoGenerationProviderIds: [],
     });
   });
 
