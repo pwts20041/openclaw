@@ -595,6 +595,48 @@ describe("circuit breaker arg signature for messaging tools", () => {
   });
 });
 
+describe("circuit breaker arg signature for file_path alias", () => {
+  async function runRead(ctx: ToolHandlerContext, file_path: string, isError: boolean, id: string) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "read",
+      toolCallId: id,
+      args: { file_path },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "read",
+      toolCallId: id,
+      isError,
+      result: isError ? { type: "text", text: "Error: not found" } : { ok: true },
+    });
+  }
+
+  it("does not trip circuit when read failures target different file_path values", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runRead(ctx, "/tmp/a.txt", true, "r1");
+    await runRead(ctx, "/tmp/b.txt", true, "r2");
+    await runRead(ctx, "/tmp/c.txt", true, "r3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("trips circuit when read failures repeatedly target the same file_path", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runRead(ctx, "/tmp/same.txt", true, "r1");
+    await runRead(ctx, "/tmp/same.txt", true, "r2");
+    await runRead(ctx, "/tmp/same.txt", true, "r3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("circuit breaker arg signature for action-based tools with url/path args", () => {
   async function runBrowser(ctx: ToolHandlerContext, url: string, isError: boolean, id: string) {
     await handleToolExecutionStart(ctx, {

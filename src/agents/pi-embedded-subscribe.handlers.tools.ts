@@ -111,6 +111,7 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
       "threadId",
       "url",
       "path",
+      "file_path",
       "filePath",
       "id",
       "label",
@@ -124,7 +125,16 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
     }
     return `action=${actionVal}`;
   }
-  for (const key of ["path", "filePath", "url", "id", "label", "query", "sessionKey"]) {
+  for (const key of [
+    "path",
+    "file_path",
+    "filePath",
+    "url",
+    "id",
+    "label",
+    "query",
+    "sessionKey",
+  ]) {
     const val = record[key];
     if (typeof val === "string" && val.trim()) {
       return `${key}=${val.trim().slice(0, 100)}`;
