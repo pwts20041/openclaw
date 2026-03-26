@@ -42,6 +42,7 @@ interface OllamaChatRequest {
   model: string;
   messages: OllamaChatMessage[];
   stream: boolean;
+  think?: boolean;
   tools?: OllamaTool[];
   options?: Record<string, unknown>;
 }
@@ -459,10 +460,22 @@ export function createOllamaStreamFn(
           ollamaOptions.num_predict = options.maxTokens;
         }
 
+        // Ollama thinking models (e.g. deepseek-r1, qwq) respect a top-level
+        // `think` boolean. Forward the reasoning level so `think: false` is
+        // sent explicitly when thinking is disabled (#46680).
+        const thinkParam: { think?: boolean } = {};
+        if (options?.reasoning) {
+          thinkParam.think = true;
+        } else if (options) {
+          // Thinking explicitly disabled – tell Ollama not to think.
+          thinkParam.think = false;
+        }
+
         const body: OllamaChatRequest = {
           model: model.id,
           messages: ollamaMessages,
           stream: true,
+          ...thinkParam,
           ...(ollamaTools.length > 0 ? { tools: ollamaTools } : {}),
           options: ollamaOptions,
         };
