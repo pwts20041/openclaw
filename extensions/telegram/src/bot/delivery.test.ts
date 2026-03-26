@@ -642,7 +642,10 @@ describe("deliverReplies", () => {
     const runtime = createRuntime();
     const sendMessage = vi
       .fn()
-      .mockRejectedValueOnce(
+      // Reject both the HTML attempt and the plain-text fallback with 400 so neither
+      // returns a message object. The plain fallback runs because hasFallbackText is
+      // true for "hello"; both rejections match EMPTY_TEXT_ERR_RE for silent-skip.
+      .mockRejectedValue(
         new Error("Call to 'sendMessage' failed! (400: Bad Request: text must be non-empty)"),
       );
     const bot = createBot({ sendMessage });
@@ -660,8 +663,8 @@ describe("deliverReplies", () => {
       replyToMode: "off",
       textLimit: 4000,
     });
-    // sendMessage was called and threw 400; silently skipped → not delivered.
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    // sendMessage called twice (HTML + plain fallback), both threw 400; silently skipped.
+    expect(sendMessage).toHaveBeenCalledTimes(2);
     expect(result.delivered).toBe(false);
   });
 
