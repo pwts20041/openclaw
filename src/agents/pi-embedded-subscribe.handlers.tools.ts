@@ -126,6 +126,16 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
       "label",
       "query",
       "sessionKey",
+      // Content/payload fields: canvas eval uses javaScript, image-generate uses prompt/image,
+      // nodes notifications use body. These are the primary differentiators when no
+      // routing/path field is present, so we fall through to them rather than returning a bare
+      // action=<...> signature that would collapse all distinct calls into one key.
+      "javaScript",
+      "prompt",
+      "image",
+      "body",
+      "jsonl",
+      "jsonlPath",
     ]) {
       const val = record[argKey];
       if (typeof val === "string" && val.trim()) {

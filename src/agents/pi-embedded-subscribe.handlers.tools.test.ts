@@ -1069,3 +1069,50 @@ describe("circuit breaker arg signature for fallback url key (e.g. web_fetch)", 
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("circuit breaker arg signature for action-based content fields (canvas eval / image-generate)", () => {
+  async function runCanvas(
+    ctx: ToolHandlerContext,
+    javaScript: string,
+    isError: boolean,
+    id: string,
+  ) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "canvas",
+      toolCallId: id,
+      args: { action: "eval", javaScript },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "canvas",
+      toolCallId: id,
+      isError,
+      result: isError ? { type: "text", text: "Error: eval failed" } : { ok: true },
+    });
+  }
+
+  it("does not trip circuit when canvas eval failures use different scripts", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runCanvas(ctx, "document.title", true, "c1");
+    await runCanvas(ctx, "window.location.href", true, "c2");
+    await runCanvas(ctx, "document.body.innerText", true, "c3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("trips circuit when canvas eval repeatedly runs the same script", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runCanvas(ctx, "document.querySelector('#btn').click()", true, "c1");
+    await runCanvas(ctx, "document.querySelector('#btn').click()", true, "c2");
+    await runCanvas(ctx, "document.querySelector('#btn').click()", true, "c3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
