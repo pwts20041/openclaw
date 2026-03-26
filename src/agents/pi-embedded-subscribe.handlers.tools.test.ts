@@ -637,6 +637,48 @@ describe("circuit breaker arg signature for file_path alias", () => {
   });
 });
 
+describe("circuit breaker arg signature for nodes tool selectors", () => {
+  async function runNodes(ctx: ToolHandlerContext, node: string, isError: boolean, id: string) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "nodes",
+      toolCallId: id,
+      args: { action: "status", node },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "nodes",
+      toolCallId: id,
+      isError,
+      result: isError ? { type: "text", text: "Error: node unreachable" } : { ok: true },
+    });
+  }
+
+  it("does not trip circuit when failures target different nodes", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runNodes(ctx, "node-a", true, "n1");
+    await runNodes(ctx, "node-b", true, "n2");
+    await runNodes(ctx, "node-c", true, "n3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("trips circuit when failures repeatedly target the same node", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runNodes(ctx, "node-x", true, "n1");
+    await runNodes(ctx, "node-x", true, "n2");
+    await runNodes(ctx, "node-x", true, "n3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("circuit breaker arg signature for file alias", () => {
   async function runEdit(ctx: ToolHandlerContext, file: string, isError: boolean, id: string) {
     await handleToolExecutionStart(ctx, {

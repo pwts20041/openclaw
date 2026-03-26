@@ -109,6 +109,8 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
       "channelId",
       "userId",
       "threadId",
+      "node",
+      "requestId",
       "url",
       "path",
       "file_path",
