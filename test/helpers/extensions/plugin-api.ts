@@ -14,6 +14,7 @@ export function createTestPluginApi(api: TestPluginApiInput): OpenClawPluginApi 
     registerGatewayMethod() {},
     registerCli() {},
     registerService() {},
+    registerCliBackend() {},
     registerProvider() {},
     registerSpeechProvider() {},
     registerMediaUnderstandingProvider() {},
@@ -24,6 +25,7 @@ export function createTestPluginApi(api: TestPluginApiInput): OpenClawPluginApi 
     registerCommand() {},
     registerContextEngine() {},
     registerMemoryPromptSection() {},
+    registerMemoryFlushPlan() {},
     resolvePath(input: string) {
       return input;
     },
