@@ -652,6 +652,25 @@ describe("circuit breaker probe-reset prevention", () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
+  it("does not trip circuit when long commands differ only beyond 100 chars", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    // Build two commands that share the first 100 chars but differ afterward.
+    const prefix = 'node -e \'require("fs").writeFileSync("/tmp/out.txt", ' + "x".repeat(50);
+    const cmdA = prefix + "A'.repeat(1))'\n";
+    const cmdB = prefix + "B'.repeat(1))'\n";
+    expect(cmdA.slice(0, 100)).toBe(cmdB.slice(0, 100)); // confirm shared prefix
+    expect(cmdA).not.toBe(cmdB);
+
+    // Three failures alternating between the two long commands — should NOT trip breaker
+    await runExec(ctx, cmdA, true, "t1");
+    await runExec(ctx, cmdB, true, "t2");
+    await runExec(ctx, cmdA, true, "t3");
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("resets circuit when exact same pipe-containing command succeeds after trip", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();

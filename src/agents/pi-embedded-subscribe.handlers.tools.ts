@@ -91,7 +91,9 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
   const norm = toolName.trim().toLowerCase();
   if (norm === "exec" || norm === "bash") {
     const cmd = record.command ?? record.cmd;
-    return typeof cmd === "string" ? cmd.slice(0, 100) : "";
+    // Use the full command text — truncating would collapse distinct long commands
+    // (e.g. heredoc/script invocations) that share a common prefix into the same signature.
+    return typeof cmd === "string" ? cmd : "";
   }
   // When an action field is present, build a composite signature that also captures the
   // routing destination so that calls with different recipients are not treated as identical.
