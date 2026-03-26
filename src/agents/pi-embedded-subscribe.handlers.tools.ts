@@ -567,11 +567,17 @@ export async function handleToolExecutionEnd(
     }
   }
 
+  // Retrieve hook-adjusted params before computing the circuit-breaker signature so that
+  // the signature reflects the args the tool actually executed with, not the pre-hook args.
+  const adjustedArgs = consumeAdjustedParamsForToolCall(toolCallId, runId);
+  const effectiveArgs =
+    adjustedArgs && typeof adjustedArgs === "object" ? adjustedArgs : startData?.args;
+
   // Circuit breaker: track consecutive identical tool errors and fire callback at threshold.
   // Include arg-derived signature so calls with different params don't share a count.
   const CONSECUTIVE_ERROR_THRESHOLD = 3;
   if (isToolError) {
-    const argSig = buildCircuitBreakerArgSig(toolName, startData?.args);
+    const argSig = buildCircuitBreakerArgSig(toolName, effectiveArgs);
     const errorSig = `${argSig}|${(errorMessage ?? "").slice(0, 120)}`;
     const prev = ctx.state.consecutiveToolErrors;
     if (prev && prev.toolName === toolName && prev.errorSignature === errorSig) {
@@ -606,7 +612,7 @@ export async function handleToolExecutionEnd(
       // must not reset the circuit — the original problem isn't solved yet.
       // Only reset when: a different tool succeeds (real change of approach), OR
       // the exact same tool+args that was failing now succeeds (problem resolved).
-      const argSig = buildCircuitBreakerArgSig(toolName, startData?.args);
+      const argSig = buildCircuitBreakerArgSig(toolName, effectiveArgs);
       const isProbe = tripped && toolName === prevTool && argSig !== prevArgSig;
       if (isProbe) {
         // Mark that a probe occurred so the next failure re-fires the steer exactly once.
@@ -642,7 +648,6 @@ export async function handleToolExecutionEnd(
     startData?.args && typeof startData.args === "object"
       ? (startData.args as Record<string, unknown>)
       : {};
-  const adjustedArgs = consumeAdjustedParamsForToolCall(toolCallId, runId);
   const afterToolCallArgs =
     adjustedArgs && typeof adjustedArgs === "object"
       ? (adjustedArgs as Record<string, unknown>)
