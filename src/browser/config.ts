@@ -332,6 +332,7 @@ export function resolveProfile(
       cdpIsLoopback: true,
       userDataDir: resolveUserPath(profile.userDataDir?.trim() || "") || undefined,
       color: profile.color,
+    headless: profile.headless,
       driver,
       attachOnly: true,
     };
