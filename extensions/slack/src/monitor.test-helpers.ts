@@ -48,6 +48,12 @@ type SlackClient = {
   reactions: {
     add: (...args: unknown[]) => unknown;
   };
+  chatStream: Mock<
+    (...args: unknown[]) => {
+      append: Mock<(...args: unknown[]) => Promise<{ ok: boolean }>>;
+      stop: Mock<(...args: unknown[]) => Promise<{ ok: boolean }>>;
+    }
+  >;
 };
 
 export const getSlackHandlers = () => ensureSlackTestRuntime().handlers;
@@ -88,6 +94,10 @@ function ensureSlackTestRuntime(): {
       reactions: {
         add: (...args: unknown[]) => slackTestState.reactMock(...args),
       },
+      chatStream: vi.fn().mockReturnValue({
+        append: vi.fn().mockResolvedValue({ ok: true }),
+        stop: vi.fn().mockResolvedValue({ ok: true }),
+      }),
     };
   }
   return {
@@ -197,6 +207,7 @@ vi.mock("openclaw/plugin-sdk/config-runtime", async (importOriginal) => {
     resolveSessionKey: vi.fn(),
     readSessionUpdatedAt: vi.fn(() => undefined),
     recordSessionMetaFromInbound: vi.fn().mockResolvedValue(undefined),
+    resolveSlackNativeStreaming: () => false,
   };
 });
 
