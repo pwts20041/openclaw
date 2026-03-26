@@ -721,14 +721,41 @@ export async function runHeartbeatOnce(opts: {
     const suppressToolErrorWarnings = heartbeat?.suppressToolErrorWarnings === true;
     const bootstrapContextMode: "lightweight" | undefined =
       heartbeat?.lightContext === true ? "lightweight" : undefined;
+    // Event-driven heartbeats (exec completion, cron, hook/wake, node
+    // notifications, etc.) must drain system events so the agent can see the
+    // results referenced by their prompt.  Only truly periodic heartbeats
+    // (interval timer, retry) skip the drain to avoid silently consuming
+    // events that won't be persisted to the session transcript.
+    //
+    // We invert the check: instead of enumerating every event-driven reason,
+    // we treat everything as event-driven UNLESS it's a known periodic reason.
+    // This is safer — new event sources get drain by default.
+    //
+    // Safety net: even periodic runs check whether events are queued.  Normally
+    // each event type triggers its own event-driven wake (e.g. exec completions
+    // fire reason "exec:<id>:exit" → reasonKind "other" → drain).  But if a
+    // wake was missed (e.g. heartbeats were temporarily disabled when the event
+    // arrived), the next interval run is the only chance to pick them up.
+    // Without this fallback, those events would stay stuck until a user message
+    // or another event-driven wake happens to drain the queue.
+    const reasonKind = resolveHeartbeatReasonKind(opts.reason);
+    const isPeriodicHeartbeat = reasonKind === "interval" || reasonKind === "retry";
+    const hasQueuedEvents = preflight.pendingEventEntries.length > 0;
+    const isEventDriven = !isPeriodicHeartbeat || hasCronEvents || hasQueuedEvents;
     const replyOpts = heartbeatModelOverride
       ? {
           isHeartbeat: true,
+          isEventDrivenHeartbeat: isEventDriven,
           heartbeatModelOverride,
           suppressToolErrorWarnings,
           bootstrapContextMode,
         }
-      : { isHeartbeat: true, suppressToolErrorWarnings, bootstrapContextMode };
+      : {
+          isHeartbeat: true,
+          isEventDrivenHeartbeat: isEventDriven,
+          suppressToolErrorWarnings,
+          bootstrapContextMode,
+        };
     const replyResult = await getReplyFromConfig(ctx, replyOpts, cfg);
     const replyPayload = resolveHeartbeatReplyPayload(replyResult);
     const includeReasoning = heartbeat?.includeReasoning === true;
