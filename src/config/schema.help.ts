@@ -1498,6 +1498,18 @@ export const FIELD_HELP: Record<string, string> = {
     "Enable native Slack text streaming (chat.startStream/chat.appendStream/chat.stopStream) when channels.slack.streaming is partial (default: true).",
   "channels.slack.streamMode":
     "Legacy Slack preview mode alias (replace | status_final | append); auto-migrated to channels.slack.streaming.",
+  "channels.slack.execApprovals":
+    "Slack-native exec approval routing and approver authorization. Enable this only when Slack should act as an explicit exec-approval client for the selected bot account.",
+  "channels.slack.execApprovals.enabled":
+    "Enable Slack exec approvals for this account. When false or unset, Slack buttons cannot approve exec requests.",
+  "channels.slack.execApprovals.approvers":
+    "Slack user IDs allowed to approve exec requests for this bot account. Prompts are only delivered to these approvers when target includes dm.",
+  "channels.slack.execApprovals.agentFilter":
+    'Use this to keep Slack approval prompts scoped to specific agents, for example `["main", "ops-agent"]`. When omitted, all agents are eligible.',
+  "channels.slack.execApprovals.sessionFilter":
+    "Optional session-key filters matched as substring or regex-style patterns before Slack approval routing is used.",
+  "channels.slack.execApprovals.target":
+    'Where to send Slack exec approval prompts: "dm" (default) sends to approver DMs, "channel" posts in the originating channel, "both" sends to both.',
   "channels.telegram.customCommands":
     "Additional Telegram bot menu commands (merged with native; conflicts ignored).",
   "messages.suppressToolErrors":

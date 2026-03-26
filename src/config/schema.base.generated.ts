@@ -15853,6 +15853,36 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
       help: "Enable agent-authored Slack interactive reply directives (`[[slack_buttons: ...]]`, `[[slack_select: ...]]`). Default: false.",
       tags: ["network", "channels"],
     },
+    "channels.slack.execApprovals": {
+      label: "Slack Exec Approvals",
+      help: "Slack-native exec approval routing and approver authorization. Enable this only when Slack should act as an explicit exec-approval client for the selected bot account.",
+      tags: ["network", "channels"],
+    },
+    "channels.slack.execApprovals.enabled": {
+      label: "Slack Exec Approvals Enabled",
+      help: "Enable Slack exec approvals for this account. When false or unset, Slack buttons cannot approve exec requests.",
+      tags: ["network", "channels"],
+    },
+    "channels.slack.execApprovals.approvers": {
+      label: "Slack Exec Approval Approvers",
+      help: "Slack user IDs allowed to approve exec requests for this bot account. Prompts are only delivered to these approvers when target includes dm.",
+      tags: ["network", "channels"],
+    },
+    "channels.slack.execApprovals.agentFilter": {
+      label: "Slack Exec Approval Agent Filter",
+      help: 'Use this to keep Slack approval prompts scoped to specific agents, for example `["main", "ops-agent"]`. When omitted, all agents are eligible.',
+      tags: ["network", "channels"],
+    },
+    "channels.slack.execApprovals.sessionFilter": {
+      label: "Slack Exec Approval Session Filter",
+      help: "Optional session-key filters matched as substring or regex-style patterns before Slack approval routing is used.",
+      tags: ["network", "storage", "channels"],
+    },
+    "channels.slack.execApprovals.target": {
+      label: "Slack Exec Approval Target",
+      help: 'Where to send Slack exec approval prompts: "dm" (default) sends to approver DMs, "channel" posts in the originating channel, "both" sends to both.',
+      tags: ["network", "channels"],
+    },
     "channels.slack.streaming": {
       label: "Slack Streaming Mode",
       help: 'Unified Slack stream preview mode: "off" | "partial" | "block" | "progress". Legacy boolean/streamMode keys are auto-mapped.',
