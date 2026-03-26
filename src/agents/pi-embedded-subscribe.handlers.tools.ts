@@ -552,6 +552,7 @@ export async function handleToolExecutionEnd(
         argSig,
         count: 1,
         tripped: false,
+        probeDetected: false,
       };
     }
     const consecutive = ctx.state.consecutiveToolErrors;
@@ -560,8 +561,10 @@ export async function handleToolExecutionEnd(
         // First trip: fire once.
         consecutive.tripped = true;
         ctx.params.onConsecutiveToolError?.(toolName, consecutive.count, errorMessage ?? "");
-      } else if (consecutive.tripped && consecutive.count > CONSECUTIVE_ERROR_THRESHOLD) {
-        // Re-fire: circuit was kept armed through a probe and the error recurred.
+      } else if (consecutive.tripped && consecutive.probeDetected) {
+        // Re-fire only after a probe was detected (a success that didn't reset the circuit).
+        // This avoids flooding the context with duplicate steer messages on plain consecutive failures.
+        consecutive.probeDetected = false;
         ctx.params.onConsecutiveToolError?.(toolName, consecutive.count, errorMessage ?? "");
       }
     }
@@ -574,7 +577,10 @@ export async function handleToolExecutionEnd(
       // the exact same tool+args that was failing now succeeds (problem resolved).
       const argSig = buildCircuitBreakerArgSig(toolName, startData?.args);
       const isProbe = tripped && toolName === prevTool && argSig !== prevArgSig;
-      if (!isProbe) {
+      if (isProbe) {
+        // Mark that a probe occurred so the next failure re-fires the steer exactly once.
+        ctx.state.consecutiveToolErrors.probeDetected = true;
+      } else {
         ctx.state.consecutiveToolErrors = null;
       }
     }

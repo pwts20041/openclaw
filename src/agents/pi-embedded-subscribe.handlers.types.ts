@@ -34,6 +34,12 @@ export type ConsecutiveToolErrorState = {
   count: number;
   /** True after the threshold was first hit; prevents probe commands from resetting the circuit. */
   tripped: boolean;
+  /**
+   * Set to true when a probe success is detected while the circuit is tripped.
+   * The steer callback re-fires only on the next failure after a probe, not on every
+   * subsequent failure, to avoid flooding the context with duplicate steering messages.
+   */
+  probeDetected: boolean;
 };
 
 export type ToolCallSummary = {

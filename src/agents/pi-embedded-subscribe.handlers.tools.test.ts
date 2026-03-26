@@ -635,6 +635,23 @@ describe("circuit breaker probe-reset prevention", () => {
     expect(onError).toHaveBeenCalledTimes(2);
   });
 
+  it("does not re-fire steer on plain consecutive failures after threshold (no probe)", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    // Trip at count 3
+    await runExec(ctx, "ls /restricted", true, "t1");
+    await runExec(ctx, "ls /restricted", true, "t2");
+    await runExec(ctx, "ls /restricted", true, "t3");
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    // Further failures with no probe in between — must NOT re-fire
+    await runExec(ctx, "ls /restricted", true, "t4");
+    await runExec(ctx, "ls /restricted", true, "t5");
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
   it("resets circuit when exact same pipe-containing command succeeds after trip", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
