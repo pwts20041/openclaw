@@ -89,10 +89,15 @@ export function buildInboundUserContextPrefix(
   const messageIdFull = safeTrim(ctx.MessageSidFull);
   const resolvedMessageId = messageId ?? messageIdFull;
   const timestampStr = formatConversationTimestamp(ctx.Timestamp, envelope);
+  const editTargetId =
+    typeof ctx.EditTargetTimestamp === "number" && Number.isFinite(ctx.EditTargetTimestamp)
+      ? String(ctx.EditTargetTimestamp)
+      : undefined;
 
   const conversationInfo = {
     message_id: shouldIncludeConversationInfo ? resolvedMessageId : undefined,
     reply_to_id: shouldIncludeConversationInfo ? safeTrim(ctx.ReplyToId) : undefined,
+    edit_target_id: editTargetId,
     sender_id: shouldIncludeConversationInfo ? safeTrim(ctx.SenderId) : undefined,
     conversation_label: isDirect ? undefined : safeTrim(ctx.ConversationLabel),
     sender: shouldIncludeConversationInfo
@@ -111,6 +116,7 @@ export function buildInboundUserContextPrefix(
     is_group_chat: !isDirect ? true : undefined,
     was_mentioned: ctx.WasMentioned === true ? true : undefined,
     has_reply_context: ctx.ReplyToBody ? true : undefined,
+    has_edit_context: editTargetId ? true : undefined,
     has_forwarded_context: ctx.ForwardedFrom ? true : undefined,
     has_thread_starter: safeTrim(ctx.ThreadStarterBody) ? true : undefined,
     history_count:
@@ -176,6 +182,17 @@ export function buildInboundUserContextPrefix(
           null,
           2,
         ),
+        "```",
+      ].join("\n"),
+    );
+  }
+
+  if (ctx.EditOriginalBody) {
+    blocks.push(
+      [
+        "Edited message original body (untrusted, for context):",
+        "```json",
+        JSON.stringify({ body: ctx.EditOriginalBody }, null, 2),
         "```",
       ].join("\n"),
     );

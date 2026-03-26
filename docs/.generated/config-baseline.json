@@ -27375,6 +27375,16 @@
       "hasChildren": false
     },
     {
+      "path": "channels.signal.accounts.*.injectLinkPreviews",
+      "kind": "channel",
+      "type": "boolean",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
       "path": "channels.signal.accounts.*.markdown",
       "kind": "channel",
       "type": "object",
@@ -27413,6 +27423,16 @@
       "path": "channels.signal.accounts.*.name",
       "kind": "channel",
       "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.signal.accounts.*.preserveTextStyles",
+      "kind": "channel",
+      "type": "boolean",
       "required": false,
       "deprecated": false,
       "sensitive": false,
@@ -28129,6 +28149,16 @@
       "hasChildren": false
     },
     {
+      "path": "channels.signal.injectLinkPreviews",
+      "kind": "channel",
+      "type": "boolean",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
       "path": "channels.signal.markdown",
       "kind": "channel",
       "type": "object",
@@ -28167,6 +28197,16 @@
       "path": "channels.signal.name",
       "kind": "channel",
       "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.signal.preserveTextStyles",
+      "kind": "channel",
+      "type": "boolean",
       "required": false,
       "deprecated": false,
       "sensitive": false,
@@ -32737,6 +32777,16 @@
       "hasChildren": false
     },
     {
+      "path": "channels.telegram.accounts.*.injectLinkPreviews",
+      "kind": "channel",
+      "type": "boolean",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
       "path": "channels.telegram.accounts.*.linkPreview",
       "kind": "channel",
       "type": "boolean",
@@ -32820,6 +32870,16 @@
         "ipv4first",
         "verbatim"
       ],
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.telegram.accounts.*.preserveTextStyles",
+      "kind": "channel",
+      "type": "boolean",
+      "required": false,
       "deprecated": false,
       "sensitive": false,
       "tags": [],
@@ -34810,6 +34870,16 @@
       "hasChildren": false
     },
     {
+      "path": "channels.telegram.injectLinkPreviews",
+      "kind": "channel",
+      "type": "boolean",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
       "path": "channels.telegram.linkPreview",
       "kind": "channel",
       "type": "boolean",
@@ -34898,6 +34968,16 @@
         "ipv4first",
         "verbatim"
       ],
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.telegram.preserveTextStyles",
+      "kind": "channel",
+      "type": "boolean",
+      "required": false,
       "deprecated": false,
       "sensitive": false,
       "tags": [],

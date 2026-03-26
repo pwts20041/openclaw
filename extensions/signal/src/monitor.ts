@@ -377,6 +377,8 @@ export async function monitorSignalProvider(opts: MonitorSignalOpts = {}): Promi
   const mediaMaxBytes = (opts.mediaMaxMb ?? accountInfo.config.mediaMaxMb ?? 8) * 1024 * 1024;
   const ignoreAttachments = opts.ignoreAttachments ?? accountInfo.config.ignoreAttachments ?? false;
   const sendReadReceipts = Boolean(opts.sendReadReceipts ?? accountInfo.config.sendReadReceipts);
+  const injectLinkPreviews = accountInfo.config.injectLinkPreviews ?? true;
+  const preserveTextStyles = accountInfo.config.preserveTextStyles ?? true;
   const waitForTransportReadyFn = opts.waitForTransportReady ?? waitForTransportReady;
 
   const autoStart = opts.autoStart ?? accountInfo.config.autoStart ?? !accountInfo.config.httpUrl;
@@ -428,6 +430,9 @@ export async function monitorSignalProvider(opts: MonitorSignalOpts = {}): Promi
       }
     }
 
+    const injectLinkPreviews = accountInfo.config.injectLinkPreviews !== false;
+    const preserveTextStyles = accountInfo.config.preserveTextStyles !== false;
+
     const handleEvent = createSignalEventHandler({
       runtime,
       cfg,
@@ -449,6 +454,8 @@ export async function monitorSignalProvider(opts: MonitorSignalOpts = {}): Promi
       ignoreAttachments,
       sendReadReceipts,
       readReceiptsViaDaemon,
+      injectLinkPreviews,
+      preserveTextStyles,
       fetchAttachment,
       deliverReplies: (params) => deliverReplies({ ...params, chunkMode }),
       resolveSignalReactionTargets,
