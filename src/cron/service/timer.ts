@@ -1099,6 +1099,7 @@ export async function executeJobCore(
             reason,
             agentId: job.agentId,
             sessionKey: targetMainSessionKey,
+            heartbeat: { target: "last" },
           });
           return { status: "ok", summary: text };
         }
@@ -1120,6 +1121,11 @@ export async function executeJobCore(
         reason: `cron:${job.id}`,
         agentId: job.agentId,
         sessionKey: targetMainSessionKey,
+        // Cron-triggered heartbeats should deliver to the last active channel.
+        // Without this override, heartbeat target defaults to "none" and cron
+        // main-session responses are silently swallowed (same fix as wakeMode=now).
+        // See: https://github.com/openclaw/openclaw/issues/28508
+        heartbeat: { target: "last" },
       });
       return { status: "ok", summary: text };
     }
