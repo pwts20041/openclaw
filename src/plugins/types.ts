@@ -1403,6 +1403,7 @@ export type PluginHookName =
   | "before_model_resolve"
   | "before_prompt_build"
   | "before_agent_start"
+  | "before_agent_reply"
   | "llm_input"
   | "llm_output"
   | "agent_end"
@@ -1431,6 +1432,7 @@ export const PLUGIN_HOOK_NAMES = [
   "before_model_resolve",
   "before_prompt_build",
   "before_agent_start",
+  "before_agent_reply",
   "llm_input",
   "llm_output",
   "agent_end",
@@ -1570,6 +1572,21 @@ export const stripPromptMutationFieldsFromLegacyHookResult = (
   return Object.keys(remaining).length > 0
     ? (remaining as PluginHookBeforeAgentStartOverrideResult)
     : undefined;
+};
+
+// before_agent_reply hook
+export type PluginHookBeforeAgentReplyEvent = {
+  /** The final user message text heading to the LLM (after commands/directives). */
+  cleanedBody: string;
+};
+
+export type PluginHookBeforeAgentReplyResult = {
+  /** Whether the plugin is claiming this message (short-circuits the LLM agent). */
+  handled: boolean;
+  /** Synthetic reply that short-circuits the LLM agent. */
+  reply?: ReplyPayload;
+  /** Reason for interception (for logging/debugging). */
+  reason?: string;
 };
 
 // llm_input hook
@@ -1949,6 +1966,10 @@ export type PluginHookHandlerMap = {
     event: PluginHookBeforeAgentStartEvent,
     ctx: PluginHookAgentContext,
   ) => Promise<PluginHookBeforeAgentStartResult | void> | PluginHookBeforeAgentStartResult | void;
+  before_agent_reply: (
+    event: PluginHookBeforeAgentReplyEvent,
+    ctx: PluginHookAgentContext,
+  ) => Promise<PluginHookBeforeAgentReplyResult | void> | PluginHookBeforeAgentReplyResult | void;
   llm_input: (event: PluginHookLlmInputEvent, ctx: PluginHookAgentContext) => Promise<void> | void;
   llm_output: (
     event: PluginHookLlmOutputEvent,
