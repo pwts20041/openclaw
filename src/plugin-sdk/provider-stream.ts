@@ -30,7 +30,3 @@ export {
   getOpenRouterModelCapabilities,
   loadOpenRouterModelCapabilities,
 } from "../agents/pi-embedded-runner/openrouter-model-capabilities.js";
-export {
-  createVeniceE2EEStreamWrapper,
-  isVeniceE2EEModel,
-} from "../agents/pi-embedded-runner/venice-e2ee-stream-wrapper.js";

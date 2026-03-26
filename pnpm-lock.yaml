@@ -161,9 +161,6 @@ importers:
       uuid:
         specifier: ^13.0.0
         version: 13.0.0
-      venice-e2ee:
-        specifier: github:elkimek/venice-e2ee
-        version: https://codeload.github.com/elkimek/venice-e2ee/tar.gz/521536f5ff68fbcfda6ab896e823200d44ef1197
       ws:
         specifier: ^8.20.0
         version: 8.20.0
@@ -632,7 +629,11 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
 
-  extensions/venice: {}
+  extensions/venice:
+    dependencies:
+      venice-e2ee:
+        specifier: github:elkimek/venice-e2ee
+        version: https://codeload.github.com/elkimek/venice-e2ee/tar.gz/be02cd50e5d33c736c4d16c1afe42b072e0287f2
 
   extensions/vercel-ai-gateway: {}
 
@@ -6615,8 +6616,8 @@ packages:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
 
-  venice-e2ee@https://codeload.github.com/elkimek/venice-e2ee/tar.gz/521536f5ff68fbcfda6ab896e823200d44ef1197:
-    resolution: {tarball: https://codeload.github.com/elkimek/venice-e2ee/tar.gz/521536f5ff68fbcfda6ab896e823200d44ef1197}
+  venice-e2ee@https://codeload.github.com/elkimek/venice-e2ee/tar.gz/be02cd50e5d33c736c4d16c1afe42b072e0287f2:
+    resolution: {tarball: https://codeload.github.com/elkimek/venice-e2ee/tar.gz/be02cd50e5d33c736c4d16c1afe42b072e0287f2}
     version: 0.1.0
     peerDependencies:
       '@phala/dcap-qvl': ^0.3.9
@@ -13539,7 +13540,7 @@ snapshots:
 
   vary@1.1.2: {}
 
-  venice-e2ee@https://codeload.github.com/elkimek/venice-e2ee/tar.gz/521536f5ff68fbcfda6ab896e823200d44ef1197:
+  venice-e2ee@https://codeload.github.com/elkimek/venice-e2ee/tar.gz/be02cd50e5d33c736c4d16c1afe42b072e0287f2:
     dependencies:
       '@noble/hashes': 2.0.1
       '@noble/secp256k1': 2.3.0

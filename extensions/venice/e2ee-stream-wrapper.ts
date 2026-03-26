@@ -18,9 +18,6 @@ import {
   type Context,
 } from "@mariozechner/pi-ai";
 import { createVeniceE2EE, encryptMessage, decryptChunk, type E2EESession } from "venice-e2ee";
-import { createSubsystemLogger } from "../../logging/subsystem.js";
-
-const log = createSubsystemLogger("venice-e2ee");
 
 // ── Module-level session cache ──────────────────────────────────────────────
 
@@ -81,7 +78,9 @@ function formatAttestationBanner(session: E2EESession): string {
 function logAttestation(session: E2EESession): void {
   const a = session.attestation;
   if (!a) {
-    log.warn("E2EE session established without attestation data (verification disabled?)");
+    console.warn(
+      "[venice-e2ee] E2EE session established without attestation data (verification disabled?)",
+    );
     return;
   }
 
@@ -96,13 +95,11 @@ function logAttestation(session: E2EESession): void {
     summary.push(`dcap=${a.dcap.status}`);
   }
 
-  log.info(`E2EE session established (${summary.join(", ")})`);
-  log.debug(`client pubkey: ${session.pubKeyHex}`);
-  log.debug(`model pubkey:  ${session.modelPubKeyHex}`);
+  console.log(`[venice-e2ee] E2EE session established (${summary.join(", ")})`);
 
   if (a.errors.length > 0) {
     for (const err of a.errors) {
-      log.error(`attestation error: ${err}`);
+      console.error(`[venice-e2ee] attestation error: ${err}`);
     }
   }
 }
@@ -199,7 +196,6 @@ export function createVeniceE2EEStreamWrapper(baseStreamFn: StreamFn | undefined
               delta: bannerDelta,
               partial: patchPartialText(event.partial, event.contentIndex, bannerDelta),
             });
-            // Then push the actual decrypted delta
             resultStream.push({
               ...event,
               delta: decrypted,
