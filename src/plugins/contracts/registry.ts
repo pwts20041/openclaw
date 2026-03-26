@@ -37,6 +37,7 @@ import volcenginePlugin from "../../../extensions/volcengine/index.js";
 import xaiPlugin from "../../../extensions/xai/index.js";
 import xiaomiPlugin from "../../../extensions/xiaomi/index.js";
 import zaiPlugin from "../../../extensions/zai/index.js";
+import zenmuxPlugin from "../../../extensions/zenmux/index.js";
 import { bundledWebSearchPluginRegistrations } from "../../bundled-web-search-registry.js";
 import { createCapturedPluginRegistration } from "../captured-registration.js";
 import { resolvePluginProviders } from "../provider-auth-choice.runtime.js";
@@ -388,6 +389,7 @@ const bundledProviderPlugins = dedupePlugins([
   xaiPlugin,
   xiaomiPlugin,
   zaiPlugin,
+  zenmuxPlugin,
 ]);
 
 const bundledPluginRegistrationList = dedupePlugins([

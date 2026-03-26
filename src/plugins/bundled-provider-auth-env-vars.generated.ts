@@ -41,4 +41,5 @@ export const BUNDLED_PROVIDER_AUTH_ENV_VAR_CANDIDATES = {
   xai: ["XAI_API_KEY"],
   xiaomi: ["XIAOMI_API_KEY"],
   zai: ["ZAI_API_KEY", "Z_AI_API_KEY"],
+  zenmux: ["ZENMUX_API_KEY"],
 } as const satisfies Record<string, readonly string[]>;
