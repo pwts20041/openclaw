@@ -338,7 +338,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
   const MAX_RAW_UPDATE_ARRAY = 20;
   const stringifyUpdate = (update: unknown) => {
     const seen = new WeakSet();
-    return JSON.stringify(update ?? null, (key, value) => {
+    return JSON.stringify(update ?? null, (_key, value) => {
       if (typeof value === "string" && value.length > MAX_RAW_UPDATE_STRING) {
         return `${value.slice(0, MAX_RAW_UPDATE_STRING)}...`;
       }
@@ -545,7 +545,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
     telegramDeps,
   });
 
-  registerTelegramHandlers({
+  const { unregisterDebouncer } = registerTelegramHandlers({
     cfg,
     accountId: account.accountId,
     bot,
@@ -566,6 +566,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
 
   const originalStop = bot.stop.bind(bot);
   bot.stop = ((...args: Parameters<typeof originalStop>) => {
+    unregisterDebouncer();
     threadBindingManager?.stop();
     return originalStop(...args);
   }) as typeof bot.stop;
