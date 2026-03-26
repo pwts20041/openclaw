@@ -1020,3 +1020,52 @@ describe("circuit breaker probe-reset prevention", () => {
     expect(ctx.state.consecutiveToolErrors).toBeNull();
   });
 });
+
+describe("circuit breaker arg signature for fallback url key (e.g. web_fetch)", () => {
+  async function runWebFetch(ctx: ToolHandlerContext, url: string, isError: boolean, id: string) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "web_fetch",
+      toolCallId: id,
+      args: { url },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "web_fetch",
+      toolCallId: id,
+      isError,
+      result: isError ? { type: "text", text: "Error: fetch failed" } : { ok: true },
+    });
+  }
+
+  it("does not trip circuit when web_fetch URLs share a 100-char prefix but differ after it", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    // Build URLs that share the first 100 chars but differ afterward
+    const base = "https://example.com/search?q=" + "x".repeat(72);
+    const urlA = base + "A";
+    const urlB = base + "B";
+    const urlC = base + "C";
+    expect(urlA.slice(0, 100)).toBe(urlB.slice(0, 100)); // confirm shared prefix at 100
+
+    await runWebFetch(ctx, urlA, true, "wf1");
+    await runWebFetch(ctx, urlB, true, "wf2");
+    await runWebFetch(ctx, urlC, true, "wf3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("trips circuit when web_fetch repeatedly fetches the same URL", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runWebFetch(ctx, "https://example.com/api/data", true, "wf1");
+    await runWebFetch(ctx, "https://example.com/api/data", true, "wf2");
+    await runWebFetch(ctx, "https://example.com/api/data", true, "wf3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});

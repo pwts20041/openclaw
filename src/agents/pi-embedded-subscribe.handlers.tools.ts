@@ -147,7 +147,7 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
   ]) {
     const val = record[key];
     if (typeof val === "string" && val.trim()) {
-      return `${key}=${val.trim().slice(0, 100)}`;
+      return `${key}=${val.trim()}`;
     }
   }
   return "";
