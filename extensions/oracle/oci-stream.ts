@@ -600,7 +600,7 @@ function toOracleToolCalls(content: unknown): OracleFunctionCall[] | undefined {
     arguments?: unknown;
     input?: unknown;
   }>) {
-    if (block.type !== "toolCall" && block.type !== "tool_use") {
+    if (block.type !== "toolCall" && block.type !== "tool_use" && block.type !== "toolUse") {
       continue;
     }
 
@@ -612,7 +612,8 @@ function toOracleToolCalls(content: unknown): OracleFunctionCall[] | undefined {
       typeof block.name === "string" && block.name.trim().length > 0
         ? block.name.trim()
         : undefined;
-    const rawArguments = block.type === "tool_use" ? block.input : block.arguments;
+    const rawArguments =
+      block.type === "tool_use" || block.type === "toolUse" ? block.input : block.arguments;
     const argumentsText =
       typeof rawArguments === "string" ? rawArguments : JSON.stringify(rawArguments ?? {});
 

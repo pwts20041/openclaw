@@ -33,6 +33,7 @@ type OracleModelSummary = {
 };
 
 type OracleListModelsResponse = {
+  opcNextPage?: string;
   modelCollection?: {
     items?: OracleModelSummary[];
   };
@@ -182,10 +183,19 @@ async function listOracleModels(configFile: string, profile: string, compartment
   );
   const client = new GenerativeAiClient({ authenticationDetailsProvider });
   try {
-    const response = (await client.listModels({
-      compartmentId,
-    })) as OracleListModelsResponse;
-    return response.modelCollection?.items ?? [];
+    const models: OracleModelSummary[] = [];
+    let page: string | undefined;
+
+    do {
+      const response = (await client.listModels({
+        compartmentId,
+        ...(page ? { page } : {}),
+      })) as OracleListModelsResponse;
+      models.push(...(response.modelCollection?.items ?? []));
+      page = trimToUndefined(response.opcNextPage);
+    } while (page);
+
+    return models;
   } finally {
     try {
       client.close();
@@ -208,7 +218,9 @@ export async function resolveOracleCatalogProvider(
     auth = resolveOracleAuth({
       agentDir: ctx.agentDir,
       env: ctx.env,
-      configFile: resolvedAuth.apiKey,
+      // Provider discovery should resolve the real OCI config path, not the
+      // env/profile marker string used for runtime/provider selection.
+      configFile: resolvedAuth.discoveryApiKey,
       profile: storedMetadata.profile,
       compartmentId: storedMetadata.compartmentId,
       profileId: resolvedAuth.profileId ?? ORACLE_PROFILE_ID,
