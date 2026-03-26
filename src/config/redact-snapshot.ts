@@ -659,7 +659,31 @@ function restoreRedactedValuesWithLookup(
         ) {
           result[key] = restoreOriginalValueOrThrow({ key, path: candidate, original: orig });
         } else if (typeof value === "object" && value !== null) {
-          result[key] = restoreRedactedValuesWithLookup(value, orig[key], lookup, candidate, hints);
+          // If this is a sensitive path and the incoming object is a partially-redacted
+          // SecretRef (id replaced with sentinel), restore the whole original value.
+          // This mirrors the redact side which uses redactSecretRefId for sensitive paths.
+          const objValue = value as Record<string, unknown>;
+          if (
+            hints[candidate]?.sensitive === true &&
+            isSecretRefShape(objValue) &&
+            objValue.id === REDACTED_SENTINEL
+          ) {
+            // Restore only the secret id from the snapshot; preserve any edits the
+            // user made to non-secret fields (source, provider, etc.) in this save.
+            const origRef = restoreOriginalValueOrThrow({ key, path: candidate, original: orig });
+            result[key] =
+              typeof origRef === "object" && origRef !== null
+                ? { ...objValue, id: (origRef as Record<string, unknown>).id }
+                : origRef;
+          } else {
+            result[key] = restoreRedactedValuesWithLookup(
+              value,
+              orig[key],
+              lookup,
+              candidate,
+              hints,
+            );
+          }
         }
         break;
       }
