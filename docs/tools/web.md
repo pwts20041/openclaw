@@ -46,9 +46,9 @@ returns results. Results are cached by query for 15 minutes (configurable).
 ## Choosing a provider
 
 <CardGroup cols={2}>
-  <Card title="Baidu" icon="globe" href="/tools/baidu">
+  <Card title="Baidu" icon="globe" href="/tools/baidu-search">
     Structured results with snippets.
-  </Card> 
+  </Card>
   <Card title="Brave Search" icon="shield" href="/tools/brave-search">
     Structured results with snippets. Supports `llm-context` mode, country/language filters. Free tier available.
   </Card>
