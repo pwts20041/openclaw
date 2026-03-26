@@ -169,7 +169,7 @@ function setConfiguredAnnounceTimeout(timeoutMs: number): void {
 async function runAnnounceFlowForTest(
   childRunId: string,
   overrides: Partial<AnnounceFlowParams> = {},
-): Promise<boolean> {
+): Promise<boolean | -1> {
   return await runSubagentAnnounceFlow({
     ...baseAnnounceFlowParams,
     childRunId,
