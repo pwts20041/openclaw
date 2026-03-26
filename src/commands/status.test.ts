@@ -504,8 +504,8 @@ describe("statusCommand", () => {
     expect(payload.sessions.recent[0].flags).toContain("verbose:on");
     expect(payload.securityAudit.summary.critical).toBe(1);
     expect(payload.securityAudit.summary.warn).toBe(1);
-    expect(payload.gatewayService.label).toBe("LaunchAgent");
-    expect(payload.nodeService.label).toBe("LaunchAgent");
+    expect(payload.gatewayService.label).toBe("Daemon");
+    expect(payload.nodeService.label).toBe("Node");
     expect(payload.pluginCompatibility).toEqual({
       count: 0,
       warnings: [],
@@ -559,7 +559,7 @@ describe("statusCommand", () => {
       "+1000",
       "50%",
       "40% cached",
-      "LaunchAgent",
+      "Daemon",
       "FAQ:",
       "Troubleshooting:",
       "Next steps:",
