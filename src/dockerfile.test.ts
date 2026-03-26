@@ -42,6 +42,12 @@ describe("Dockerfile", () => {
     const extDepsCopyIndex = dockerfile.indexOf("COPY --from=ext-deps /out/ ./extensions/");
     const prodInstallIndex = dockerfile.indexOf("pnpm install --frozen-lockfile --prod");
     const fullCopyIndex = dockerfile.indexOf("COPY . .");
+    const runtimeExtensionsCopyIndex = dockerfile.indexOf(
+      "COPY --from=runtime-assets --chown=node:node /app/extensions ./extensions",
+    );
+    const prodExtensionsOverlayIndex = dockerfile.indexOf(
+      "COPY --from=prod-deps --chown=node:node /app/extensions ./extensions",
+    );
 
     expect(dockerfile).toContain("FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS prod-deps");
     expect(extDepsCopyIndex).toBeGreaterThan(-1);
@@ -53,6 +59,9 @@ describe("Dockerfile", () => {
     expect(dockerfile).toContain(
       "COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules",
     );
+    expect(runtimeExtensionsCopyIndex).toBeGreaterThan(-1);
+    expect(prodExtensionsOverlayIndex).toBeGreaterThan(-1);
+    expect(prodExtensionsOverlayIndex).toBeGreaterThan(runtimeExtensionsCopyIndex);
     expect(dockerfile).not.toContain("CI=true pnpm prune --prod");
     expect(dockerfile).not.toContain('npm install --prefix "extensions/$ext" --omit=dev --silent');
   });
