@@ -73,7 +73,10 @@ export type RunningChrome = {
   proc: ChildProcess;
 };
 
-function resolveBrowserExecutable(resolved: ResolvedBrowserConfig): BrowserExecutable | null {
+function resolveBrowserExecutable(resolved: ResolvedBrowserConfig, profile?: ResolvedBrowserProfile): BrowserExecutable | null {
+  if (profile?.executablePath) {
+    return { path: profile.executablePath, kind: "chrome" as const };
+  }
   return resolveBrowserExecutableForPlatform(resolved, process.platform);
 }
 
@@ -300,7 +303,7 @@ export async function launchOpenClawChrome(
   }
   await ensurePortAvailable(profile.cdpPort);
 
-  const exe = resolveBrowserExecutable(resolved);
+  const exe = resolveBrowserExecutable(resolved, profile);
   if (!exe) {
     throw new Error(
       "No supported browser found (Chrome/Brave/Edge/Chromium on macOS, Linux, or Windows).",
