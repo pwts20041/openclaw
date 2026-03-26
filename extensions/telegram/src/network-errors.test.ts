@@ -3,6 +3,7 @@ import {
   getTelegramNetworkErrorOrigin,
   isRecoverableTelegramNetworkError,
   isSafeToRetrySendError,
+  isStaleConnectionError,
   isTelegramClientRejection,
   isTelegramPollingNetworkError,
   isTelegramServerError,
@@ -217,5 +218,78 @@ describe("isTelegramClientRejection", () => {
     const inner = Object.assign(new Error("Forbidden"), { error_code: 403 });
     const outer = Object.assign(new Error("wrapped"), { cause: inner });
     expect(isTelegramClientRejection(outer)).toBe(true);
+  });
+});
+
+describe("isStaleConnectionError", () => {
+  it.each([
+    ["ECONNRESET", "read ECONNRESET"],
+    ["ETIMEDOUT", "connect ETIMEDOUT"],
+    ["ECONNREFUSED", "connect ECONNREFUSED"],
+    ["ENOTFOUND", "getaddrinfo ENOTFOUND"],
+    ["UND_ERR_CONNECT_TIMEOUT", "connect timeout"],
+    ["UND_ERR_SOCKET", "socket error"],
+  ])("detects connection-level error code %s as stale", (code, message) => {
+    expect(isStaleConnectionError(errorWithCode(message, code))).toBe(true);
+  });
+
+  it("detects our own health check timeout as stale", () => {
+    expect(isStaleConnectionError(new Error("Health check timeout"))).toBe(true);
+  });
+
+  it("detects fetch failed as stale", () => {
+    expect(isStaleConnectionError(new TypeError("fetch failed"))).toBe(true);
+  });
+
+  it("detects socket hang up as stale", () => {
+    expect(isStaleConnectionError(new Error("socket hang up"))).toBe(true);
+  });
+
+  it("does NOT treat HTTP 504 Gateway Timeout as stale", () => {
+    // 504 means the Telegram server responded -- TCP connection is alive
+    const err = Object.assign(new Error("Gateway Timeout"), { error_code: 504 });
+    expect(isStaleConnectionError(err)).toBe(false);
+    // Verify it IS recoverable (it should still be retried, just not treated as stale)
+    expect(isRecoverableTelegramNetworkError(err, { context: "polling" })).toBe(true);
+  });
+
+  it("does NOT treat HTTP 502 Bad Gateway as stale", () => {
+    const err = Object.assign(new Error("Bad Gateway"), { error_code: 502 });
+    expect(isStaleConnectionError(err)).toBe(false);
+  });
+
+  it("does NOT treat HTTP 429 Too Many Requests as stale", () => {
+    const err = Object.assign(new Error("Too Many Requests: retry after 30"), { error_code: 429 });
+    expect(isStaleConnectionError(err)).toBe(false);
+  });
+
+  it("does NOT treat HTTP 500 Internal Server Error as stale", () => {
+    const err = Object.assign(new Error("Internal Server Error"), { error_code: 500 });
+    expect(isStaleConnectionError(err)).toBe(false);
+  });
+
+  it("detects connection error nested in cause chain", () => {
+    const root = Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+    const wrapped = Object.assign(new TypeError("fetch failed"), { cause: root });
+    expect(isStaleConnectionError(wrapped)).toBe(true);
+  });
+
+  it("does NOT treat HTTP error wrapped in HttpError as stale", () => {
+    // Grammy wraps API errors in HttpError with .error property
+    const inner = Object.assign(new Error("Gateway Timeout"), { error_code: 504 });
+    const outer = Object.assign(new Error("Network request for 'getMe' failed!"), {
+      name: "HttpError",
+      error: inner,
+    });
+    expect(isStaleConnectionError(outer)).toBe(false);
+  });
+
+  it("returns false for null/undefined", () => {
+    expect(isStaleConnectionError(null)).toBe(false);
+    expect(isStaleConnectionError(undefined)).toBe(false);
+  });
+
+  it("returns false for unrelated errors", () => {
+    expect(isStaleConnectionError(new Error("invalid token"))).toBe(false);
   });
 });

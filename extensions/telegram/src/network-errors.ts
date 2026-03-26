@@ -193,6 +193,78 @@ export function isTelegramClientRejection(err: unknown): boolean {
   return hasTelegramErrorCode(err, (code) => code >= 400 && code < 500);
 }
 
+/**
+ * Connection-level message snippets for stale-connection detection.
+ * Intentionally excludes the broad "timeout" / "timed out" snippets from
+ * RECOVERABLE_MESSAGE_SNIPPETS because those match HTTP timeout responses
+ * (e.g. 504 Gateway Timeout) where the server actually responded.
+ */
+const STALE_CONNECTION_MESSAGE_SNIPPETS = [
+  "undici",
+  "network error",
+  "network request",
+  "client network socket disconnected",
+  "socket hang up",
+  "getaddrinfo",
+  "health check timeout",
+];
+
+/**
+ * Returns true when the error indicates a dead or stale TCP connection rather than
+ * a Telegram API-level HTTP error response.
+ *
+ * Key distinction: an HTTP 504 Gateway Timeout (or any other HTTP status error) means
+ * the server actually responded -- the underlying TCP link is alive and the health-check
+ * watchdog should NOT treat it as a stale socket.  Only connection-level failures
+ * (ECONNRESET, ETIMEDOUT, socket hang up, fetch failed, our own "Health check timeout",
+ * etc.) indicate that the TCP connection itself is dead or unusable.
+ *
+ * Used by the health-check watchdog so it does not force-restart polling sessions
+ * during transient Telegram-side outages that return HTTP errors.
+ */
+export function isStaleConnectionError(err: unknown): boolean {
+  if (!err) {
+    return false;
+  }
+  // If the error carries a Telegram HTTP error_code, the server responded --
+  // the connection is alive regardless of the status code (429, 5xx, etc.).
+  if (hasTelegramErrorCode(err, () => true)) {
+    return false;
+  }
+
+  for (const candidate of collectTelegramErrorCandidates(err)) {
+    // Skip candidates that are themselves Telegram HTTP error objects
+    if (
+      candidate &&
+      typeof candidate === "object" &&
+      "error_code" in candidate &&
+      typeof (candidate as { error_code: unknown }).error_code === "number"
+    ) {
+      continue;
+    }
+
+    const code = normalizeCode(getErrorCode(candidate));
+    if (code && RECOVERABLE_ERROR_CODES.has(code)) {
+      return true;
+    }
+
+    const name = readErrorName(candidate);
+    if (name && RECOVERABLE_ERROR_NAMES.has(name)) {
+      return true;
+    }
+
+    const message = formatErrorMessage(candidate).trim().toLowerCase();
+    if (message && ALWAYS_RECOVERABLE_MESSAGES.has(message)) {
+      return true;
+    }
+    if (message && STALE_CONNECTION_MESSAGE_SNIPPETS.some((snippet) => message.includes(snippet))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function isRecoverableTelegramNetworkError(
   err: unknown,
   options: { context?: TelegramNetworkErrorContext; allowMessageMatch?: boolean } = {},
