@@ -402,6 +402,7 @@ export async function compactEmbeddedPiSessionDirect(
     sessionFile: params.sessionFile,
     sessionId: params.sessionId,
     cwd: effectiveWorkspace,
+    sessionKey: params.sessionKey,
   });
 
   let restoreSkillEnv: (() => void) | undefined;

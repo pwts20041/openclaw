@@ -175,6 +175,7 @@ export async function ensureSessionHeader(params: {
   sessionFile: string;
   sessionId: string;
   cwd: string;
+  sessionKey?: string;
 }) {
   const file = params.sessionFile;
   try {
@@ -191,6 +192,7 @@ export async function ensureSessionHeader(params: {
     id: params.sessionId,
     timestamp: new Date().toISOString(),
     cwd: params.cwd,
+    ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
   };
   await fs.writeFile(file, `${JSON.stringify(entry)}\n`, "utf-8");
 }
