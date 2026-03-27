@@ -39,6 +39,7 @@ export const BUNDLED_PROVIDER_AUTH_ENV_VAR_CANDIDATES = {
   "vercel-ai-gateway": ["AI_GATEWAY_API_KEY"],
   vllm: ["VLLM_API_KEY"],
   volcengine: ["VOLCANO_ENGINE_API_KEY"],
+  "volcengine-tts": ["VOLCENGINE_TTS_APPID", "VOLCENGINE_TTS_TOKEN"],
   xai: ["XAI_API_KEY"],
   xiaomi: ["XIAOMI_API_KEY"],
   zai: ["ZAI_API_KEY", "Z_AI_API_KEY"],

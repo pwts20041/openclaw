@@ -17805,6 +17805,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
       providers: ["volcengine", "volcengine-plan"],
       providerAuthEnvVars: {
         volcengine: ["VOLCANO_ENGINE_API_KEY"],
+        "volcengine-tts": ["VOLCENGINE_TTS_APPID", "VOLCENGINE_TTS_TOKEN"],
       },
       providerAuthChoices: [
         {
@@ -17821,6 +17822,9 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
           cliDescription: "Volcano Engine API key",
         },
       ],
+      contracts: {
+        speechProviders: ["volcengine"],
+      },
     },
   },
   {
