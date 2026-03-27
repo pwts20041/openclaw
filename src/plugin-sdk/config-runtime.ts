@@ -81,6 +81,7 @@ export type {
   TtsProvider,
 } from "../config/types.js";
 export {
+  appendAssistantMessageToSessionTranscript,
   loadSessionStore,
   readSessionUpdatedAt,
   recordSessionMetaFromInbound,

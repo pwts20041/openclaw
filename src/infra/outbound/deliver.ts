@@ -783,8 +783,15 @@ async function deliverOutboundPayloadsCore(
     }
   }
   if (params.mirror && results.length > 0) {
+    // Channel adapters (e.g. Discord components) may attach richer transcript text
+    // via meta.transcriptText; prefer it over the plain mirror text so that
+    // interactive elements (buttons, selects) are captured in the transcript.
+    const adapterTranscriptText = results
+      .map((r) => (typeof r.meta?.transcriptText === "string" ? r.meta.transcriptText : ""))
+      .filter(Boolean)
+      .join("\n");
     const mirrorText = resolveMirroredTranscriptText({
-      text: params.mirror.text,
+      text: adapterTranscriptText || params.mirror.text,
       mediaUrls: params.mirror.mediaUrls,
     });
     if (mirrorText) {
