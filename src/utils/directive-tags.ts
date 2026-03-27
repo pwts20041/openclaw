@@ -30,6 +30,7 @@ function normalizeDirectiveWhitespace(text: string): string {
     .replace(/\r\n/g, "\n")
     .replace(/([^\s])[ \t]{2,}([^\s])/g, "$1 $2")
     .replace(/^\n+/, "")
+    .replace(/^[ \t](?=\S)/, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trimEnd();
