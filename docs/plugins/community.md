@@ -97,6 +97,19 @@ supports direct messages & group chats, streaming replies, and proactive messagi
 openclaw plugins install @wecom/wecom-openclaw-plugin
 ```
 
+### VibeClaw
+
+Zero-config skill discovery and installation via Vibe Index (93,600+ skills,
+plugins, and MCP servers). When the AI agent encounters a task it cannot handle,
+VibeClaw automatically searches, security-checks, and installs the right skill.
+
+- **npm:** `vibeclaw`
+- **repo:** [github.com/taehojo/vibeclaw](https://github.com/taehojo/vibeclaw)
+
+```bash
+openclaw plugins install vibeclaw
+```
+  
 ## Submit your plugin
 
 We welcome community plugins that are useful, documented, and safe to operate.
