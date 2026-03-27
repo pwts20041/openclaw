@@ -251,6 +251,52 @@ describe("buildSessionEntry", () => {
     expect(userLine).toMatch(/^User: What is the status/);
   });
 
+  it("preserves assistant messages that begin with [[reply_to_current]] verbatim", async () => {
+    // Assistant messages may legitimately begin with [[reply_to_current]] or
+    // [[reply_to:...]] (e.g. structured reply formatting or quoting the directive
+    // protocol in a response). Stripping them would corrupt the searchable index.
+    const assistantContent = "[[reply_to_current]] Here is the information you requested.";
+    const jsonlLines = [
+      JSON.stringify({
+        type: "message",
+        message: { role: "assistant", content: assistantContent },
+      }),
+    ];
+    const filePath = path.join(tmpDir, "assistant-reply-to-current.jsonl");
+    await fs.writeFile(filePath, jsonlLines.join("\n"));
+
+    const entry = await buildSessionEntry(filePath);
+    expect(entry).not.toBeNull();
+
+    // The leading directive tag must NOT be stripped from assistant content
+    expect(entry!.content).toContain("[[reply_to_current]]");
+    expect(entry!.content).toContain("Here is the information you requested.");
+    const assistantLine = entry!.content.split("\n")[0];
+    expect(assistantLine).toMatch(/^Assistant: \[\[reply_to_current\]\]/);
+  });
+
+  it("preserves assistant messages that begin with [[reply_to:...]] verbatim", async () => {
+    // Same gating check for the reply_to:<id> variant.
+    const assistantContent = "[[reply_to:msg-456]] I am responding to that specific message.";
+    const jsonlLines = [
+      JSON.stringify({
+        type: "message",
+        message: { role: "assistant", content: assistantContent },
+      }),
+    ];
+    const filePath = path.join(tmpDir, "assistant-reply-to-id.jsonl");
+    await fs.writeFile(filePath, jsonlLines.join("\n"));
+
+    const entry = await buildSessionEntry(filePath);
+    expect(entry).not.toBeNull();
+
+    // The leading directive tag must NOT be stripped from assistant content
+    expect(entry!.content).toContain("[[reply_to:msg-456]]");
+    expect(entry!.content).toContain("I am responding to that specific message.");
+    const assistantLine = entry!.content.split("\n")[0];
+    expect(assistantLine).toMatch(/^Assistant: \[\[reply_to:msg-456\]\]/);
+  });
+
   it("preserves assistant messages that begin with a timestamp-like prefix verbatim", async () => {
     // Assistant responses may legitimately start with timestamp-formatted content,
     // e.g. quoting log lines, schedule entries, or cron expressions. The timestamp
