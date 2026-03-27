@@ -60,6 +60,7 @@ export {
   resolveDefaultGroupPolicy,
   warnMissingProviderGroupPolicyFallbackOnce,
 } from "../config/runtime-group-policy.js";
+export { resolveChannelGroupRequireMention } from "../config/group-policy.js";
 export type { BlockStreamingCoalesceConfig, DmPolicy, GroupPolicy } from "../config/types.js";
 export {
   BlockStreamingCoalesceSchema,
