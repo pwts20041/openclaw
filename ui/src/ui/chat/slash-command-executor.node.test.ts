@@ -525,3 +525,287 @@ describe("executeSlashCommand directives", () => {
     });
   });
 });
+
+describe("executeSlashCommand /steer (soft inject)", () => {
+  it("injects into the current session via chat.send with deliver: false", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "sessions.list") {
+        return { sessions: [row("agent:main:main")] };
+      }
+      if (method === "chat.send") {
+        return { status: "started", runId: "run-1", messageSeq: 2 };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "agent:main:main",
+      "steer",
+      "try a different approach",
+    );
+
+    expect(result.content).toBe("Steered.");
+    expect(request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        sessionKey: "agent:main:main",
+        message: "try a different approach",
+        deliver: false,
+      }),
+    );
+  });
+
+  it("injects into a matching subagent when the first word resolves to one", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "sessions.list") {
+        return {
+          sessions: [
+            row("agent:main:main"),
+            row("agent:main:subagent:researcher", { spawnedBy: "agent:main:main" }),
+          ],
+        };
+      }
+      if (method === "chat.send") {
+        return { status: "started", runId: "run-2", messageSeq: 1 };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "agent:main:main",
+      "steer",
+      "researcher try a different approach",
+    );
+
+    expect(result.content).toBe("Steered `researcher`.");
+    expect(request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        sessionKey: "agent:main:subagent:researcher",
+        message: "try a different approach",
+        deliver: false,
+      }),
+    );
+  });
+
+  it("does not treat 'all' as a subagent wildcard", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "chat.send") {
+        return { status: "started", runId: "run-3", messageSeq: 1 };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "agent:main:main",
+      "steer",
+      "all good now",
+    );
+
+    expect(result.content).toBe("Steered.");
+    expect(request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        sessionKey: "agent:main:main",
+        message: "all good now",
+        deliver: false,
+      }),
+    );
+  });
+
+  it("does not match agent id as target — treats 'main' as message text", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "sessions.list") {
+        return {
+          sessions: [
+            row("agent:main:main"),
+            row("agent:main:subagent:researcher", { spawnedBy: "agent:main:main" }),
+          ],
+        };
+      }
+      if (method === "chat.send") {
+        return { status: "started", runId: "run-4", messageSeq: 1 };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "agent:main:main",
+      "steer",
+      "main refine the plan",
+    );
+
+    expect(result.content).toBe("Steered.");
+    expect(request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        sessionKey: "agent:main:main",
+        message: "main refine the plan",
+        deliver: false,
+      }),
+    );
+  });
+
+  it("ignores ended subagent sessions when resolving target", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "sessions.list") {
+        return {
+          sessions: [
+            row("agent:main:main"),
+            row("agent:main:subagent:researcher", {
+              spawnedBy: "agent:main:main",
+              endedAt: Date.now() - 60_000,
+            }),
+          ],
+        };
+      }
+      if (method === "chat.send") {
+        return { status: "started", runId: "run-5", messageSeq: 1 };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "agent:main:main",
+      "steer",
+      "researcher try again",
+    );
+
+    // "researcher" is ended, so the full string is sent to current session
+    expect(result.content).toBe("Steered.");
+    expect(request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        sessionKey: "agent:main:main",
+        message: "researcher try again",
+        deliver: false,
+      }),
+    );
+  });
+
+  it("returns usage when no message is provided", async () => {
+    const request = vi.fn();
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "agent:main:main",
+      "steer",
+      "",
+    );
+
+    expect(result.content).toBe("Usage: `/steer [id] <message>`");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("returns error message on RPC failure", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "sessions.list") {
+        return { sessions: [row("agent:main:main")] };
+      }
+      throw new Error("connection lost");
+    });
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "agent:main:main",
+      "steer",
+      "try again",
+    );
+
+    expect(result.content).toBe("Failed to steer: Error: connection lost");
+  });
+});
+
+describe("executeSlashCommand /redirect (hard kill-and-restart)", () => {
+  it("calls sessions.steer to abort and restart the current session", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "sessions.list") {
+        return { sessions: [row("agent:main:main")] };
+      }
+      if (method === "sessions.steer") {
+        return { status: "started", runId: "run-1", messageSeq: 2, interruptedActiveRun: true };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "agent:main:main",
+      "redirect",
+      "start over with a new plan",
+    );
+
+    expect(result.content).toBe("Redirected.");
+    expect(request).toHaveBeenCalledWith("sessions.steer", {
+      key: "agent:main:main",
+      message: "start over with a new plan",
+    });
+  });
+
+  it("redirects a matching subagent when the first word resolves to one", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "sessions.list") {
+        return {
+          sessions: [
+            row("agent:main:main"),
+            row("agent:main:subagent:researcher", { spawnedBy: "agent:main:main" }),
+          ],
+        };
+      }
+      if (method === "sessions.steer") {
+        return { status: "started", runId: "run-2", messageSeq: 1 };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "agent:main:main",
+      "redirect",
+      "researcher start over completely",
+    );
+
+    expect(result.content).toBe("Redirected `researcher`.");
+    expect(request).toHaveBeenCalledWith("sessions.steer", {
+      key: "agent:main:subagent:researcher",
+      message: "start over completely",
+    });
+  });
+
+  it("returns usage when no message is provided", async () => {
+    const request = vi.fn();
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "agent:main:main",
+      "redirect",
+      "",
+    );
+
+    expect(result.content).toBe("Usage: `/redirect [id] <message>`");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("returns error message on RPC failure", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "sessions.list") {
+        return { sessions: [row("agent:main:main")] };
+      }
+      throw new Error("connection lost");
+    });
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "agent:main:main",
+      "redirect",
+      "try again",
+    );
+
+    expect(result.content).toBe("Failed to redirect: Error: connection lost");
+  });
+});
