@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { setActivePluginRegistry } from "../../plugins/runtime.js";
 import { createTestRegistry } from "../../test-utils/channel-plugins.js";
-import { resolveAnnounceTargetFromKey } from "./sessions-send-helpers.js";
+import { resolveAnnounceTargetFromKey, resolvePingPongTurns } from "./sessions-send-helpers.js";
 
 describe("resolveAnnounceTargetFromKey", () => {
   beforeEach(() => {
@@ -96,5 +96,45 @@ describe("resolveAnnounceTargetFromKey", () => {
       to: "-100123",
       threadId: "99",
     });
+  });
+});
+
+describe("resolvePingPongTurns", () => {
+  it("returns default (5) when config is undefined", () => {
+    expect(resolvePingPongTurns(undefined)).toBe(5);
+  });
+
+  it("returns default when agentToAgent is not set", () => {
+    expect(resolvePingPongTurns({ session: {} } as never)).toBe(5);
+  });
+
+  it("respects configured value within range", () => {
+    expect(
+      resolvePingPongTurns({ session: { agentToAgent: { maxPingPongTurns: 10 } } } as never),
+    ).toBe(10);
+  });
+
+  it("allows values up to 20", () => {
+    expect(
+      resolvePingPongTurns({ session: { agentToAgent: { maxPingPongTurns: 20 } } } as never),
+    ).toBe(20);
+  });
+
+  it("clamps values above 20 to 20", () => {
+    expect(
+      resolvePingPongTurns({ session: { agentToAgent: { maxPingPongTurns: 50 } } } as never),
+    ).toBe(20);
+  });
+
+  it("allows 0 to disable ping-pong", () => {
+    expect(
+      resolvePingPongTurns({ session: { agentToAgent: { maxPingPongTurns: 0 } } } as never),
+    ).toBe(0);
+  });
+
+  it("clamps negative values to 0", () => {
+    expect(
+      resolvePingPongTurns({ session: { agentToAgent: { maxPingPongTurns: -1 } } } as never),
+    ).toBe(0);
   });
 });
