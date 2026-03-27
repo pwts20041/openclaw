@@ -399,13 +399,17 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
             sizeBytes: contentSize,
             maxBytes: mediaMaxBytes,
             file: contentFile,
+            originalFilename: typeof content.body === "string" ? content.body.trim() : undefined,
           });
         } catch (err) {
           logVerboseMessage(`matrix: media download failed: ${String(err)}`);
         }
       }
 
-      const bodyText = rawBody || media?.placeholder || "";
+      let bodyText = rawBody || media?.placeholder || "";
+      if (media?.path) {
+        bodyText = bodyText ? `${bodyText}\nMEDIA: \`${media.path}\`` : `MEDIA: \`${media.path}\``;
+      }
       if (!bodyText) {
         return;
       }

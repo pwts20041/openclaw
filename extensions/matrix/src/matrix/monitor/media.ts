@@ -74,6 +74,7 @@ export async function downloadMatrixMedia(params: {
   sizeBytes?: number;
   maxBytes: number;
   file?: EncryptedFile;
+  originalFilename?: string;
 }): Promise<{
   path: string;
   contentType?: string;
@@ -109,6 +110,7 @@ export async function downloadMatrixMedia(params: {
     headerType,
     "inbound",
     params.maxBytes,
+    params.originalFilename,
   );
   return {
     path: saved.path,
