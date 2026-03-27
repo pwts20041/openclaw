@@ -3,6 +3,8 @@ import { getFreePort, installGatewayTestHooks } from "./test-helpers.js";
 
 installGatewayTestHooks({ scope: "suite" });
 
+const READ_SCOPE_HEADER = { "x-openclaw-scopes": "operator.read" };
+
 let startGatewayServer: typeof import("./server.js").startGatewayServer;
 let enabledServer: Awaited<ReturnType<typeof startServer>>;
 let enabledPort: number;
@@ -30,6 +32,7 @@ async function getModels(pathname: string, headers?: Record<string, string>) {
   return await fetch(`http://127.0.0.1:${enabledPort}${pathname}`, {
     headers: {
       authorization: "Bearer secret",
+      ...READ_SCOPE_HEADER,
       ...headers,
     },
   });
@@ -43,8 +46,10 @@ describe("OpenAI-compatible models HTTP API (e2e)", () => {
     expect(json.object).toBe("list");
     expect(Array.isArray(json.data)).toBe(true);
     expect((json.data?.length ?? 0) > 0).toBe(true);
+    expect(json.data?.map((entry) => entry.id)).toContain("openclaw");
+    expect(json.data?.map((entry) => entry.id)).toContain("openclaw/default");
     expect(
-      json.data?.every((entry) => typeof entry.id === "string" && entry.id?.includes("/")),
+      json.data?.every((entry) => typeof entry.id === "string" && entry.id?.startsWith("openclaw")),
     ).toBe(true);
   });
 
@@ -59,6 +64,49 @@ describe("OpenAI-compatible models HTTP API (e2e)", () => {
     const json = (await res.json()) as { id?: string; object?: string };
     expect(json.object).toBe("model");
     expect(json.id).toBe(firstId);
+  });
+
+  it("rejects operator scopes that lack read access", async () => {
+    const res = await getModels("/v1/models", { "x-openclaw-scopes": "operator.approvals" });
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: {
+        type: "forbidden",
+        message: "missing scope: operator.read",
+      },
+    });
+  });
+
+  it("rejects requests with no declared operator scopes", async () => {
+    const res = await getModels("/v1/models", { "x-openclaw-scopes": "" });
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: {
+        type: "forbidden",
+        message: "missing scope: operator.read",
+      },
+    });
+  });
+
+  it("rejects /v1/models/{id} without read access", async () => {
+    const list = (await (await getModels("/v1/models")).json()) as {
+      data?: Array<{ id?: string }>;
+    };
+    const firstId = list.data?.[0]?.id;
+    expect(typeof firstId).toBe("string");
+    const res = await getModels(`/v1/models/${encodeURIComponent(firstId!)}`, {
+      "x-openclaw-scopes": "operator.approvals",
+    });
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: {
+        type: "forbidden",
+        message: "missing scope: operator.read",
+      },
+    });
   });
 
   it("rejects when disabled", async () => {
