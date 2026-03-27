@@ -52,6 +52,7 @@ vi.mock("./streaming-card.js", async () => {
         this.active = false;
       });
       isActive = vi.fn(() => this.active);
+      getMessageId = vi.fn(() => undefined);
 
       constructor() {
         streamingInstances.push(this);
