@@ -1005,6 +1005,35 @@ describe("spawnAcpDirect", () => {
     expect(hoisted.startAcpSpawnParentStreamRelayMock).not.toHaveBeenCalled();
   });
 
+  it("implicitly streams mode=run ACP spawns for main (non-subagent) sessions", async () => {
+    const handle = createRelayHandle();
+    hoisted.startAcpSpawnParentStreamRelayMock.mockReset().mockReturnValueOnce(handle);
+
+    const result = await spawnAcpDirect(
+      {
+        task: "Hello world test",
+        agentId: "codex",
+      },
+      {
+        agentSessionKey: "agent:main:discord:channel:test-channel",
+        agentChannel: "discord",
+        agentAccountId: "default",
+        agentTo: "channel:test-channel",
+      },
+    );
+
+    expect(result.status).toBe("accepted");
+    expect(result.mode).toBe("run");
+    expect(result.streamLogPath).toBe("/tmp/sess-main.acp-stream.jsonl");
+    expect(hoisted.startAcpSpawnParentStreamRelayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentSessionKey: "agent:main:discord:channel:test-channel",
+        agentId: "codex",
+        logPath: "/tmp/sess-main.acp-stream.jsonl",
+      }),
+    );
+  });
+
   it("does not implicitly stream for subagent requester sessions with thread context", async () => {
     const result = await spawnAcpDirect(
       {
