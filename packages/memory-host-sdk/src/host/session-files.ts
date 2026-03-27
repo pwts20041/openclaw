@@ -60,11 +60,20 @@ function normalizeSessionText(value: string): string {
 function stripRawContentMeta(raw: string, role: "user" | "assistant"): string {
   // Only strip inbound metadata for user messages — assistant responses may
   // legitimately quote or discuss metadata headers (e.g. troubleshooting output).
-  // Fast-path: skip stripping entirely when the text clearly
-  // contains no injected metadata. We check for both '<' (XML-style tag blocks)
-  // and "untrusted metadata" (plain-text sentinel prefix) to cover all formats.
+  // Fast-path: skip stripping entirely when the text clearly contains no injected
+  // metadata. We check several sentinel patterns to cover all formats:
+  //   '<'                        — XML-style fenced blocks
+  //   "untrusted metadata"       — "Conversation info (untrusted metadata):" etc.
+  //   "untrusted, for context"   — "Thread starter (untrusted, for context):" etc.
+  //   "Untrusted context"        — standalone UNTRUSTED_CONTEXT_HEADER prefix
+  //   "[20"                      — timestamp prefix e.g. "[Fri 2026-03-27 …]"
   const mightHaveMeta =
-    role === "user" && (raw.includes("<") || raw.includes("untrusted metadata"));
+    role === "user" &&
+    (raw.includes("<") ||
+      raw.includes("untrusted metadata") ||
+      raw.includes("untrusted, for context") ||
+      raw.includes("Untrusted context") ||
+      raw.includes("[20"));
   const afterMeta = mightHaveMeta ? stripLeadingInboundMetadata(raw) : raw;
   if (!afterMeta.includes("[[")) {
     return afterMeta;
@@ -112,6 +121,11 @@ export function extractSessionText(content: unknown): string | null {
  * The `role` parameter controls whether `stripLeadingInboundMetadata` is applied:
  * only `user` messages have their metadata blocks removed. Assistant messages
  * may legitimately reference metadata headers, so they are kept intact.
+ *
+ * For multipart (array) content: raw parts are joined *before* stripping so
+ * that leading-tag detection sees the whole message rather than each fragment
+ * in isolation (a later fragment starting with `[[reply_to_*]]` is not a
+ * leading directive tag of the overall message).
  */
 function extractAndStripSessionText(content: unknown, role: "user" | "assistant"): string | null {
   if (typeof content === "string") {
@@ -122,7 +136,7 @@ function extractAndStripSessionText(content: unknown, role: "user" | "assistant"
   if (!Array.isArray(content)) {
     return null;
   }
-  const parts: string[] = [];
+  const rawParts: string[] = [];
   for (const block of content) {
     if (!block || typeof block !== "object") {
       continue;
@@ -131,16 +145,19 @@ function extractAndStripSessionText(content: unknown, role: "user" | "assistant"
     if (record.type !== "text" || typeof record.text !== "string") {
       continue;
     }
-    const clean = stripRawContentMeta(record.text, role);
-    const normalized = normalizeSessionText(clean);
-    if (normalized) {
-      parts.push(normalized);
+    if (record.text) {
+      rawParts.push(record.text);
     }
   }
-  if (parts.length === 0) {
+  if (rawParts.length === 0) {
     return null;
   }
-  return parts.join(" ");
+  // Join first so that leading-directive-tag detection operates on the
+  // full message rather than each fragment in isolation.
+  const joined = rawParts.join("\n");
+  const clean = stripRawContentMeta(joined, role);
+  const normalized = normalizeSessionText(clean);
+  return normalized ? normalized : null;
 }
 
 export async function buildSessionEntry(absPath: string): Promise<SessionFileEntry | null> {

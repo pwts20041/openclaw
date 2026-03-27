@@ -155,11 +155,14 @@ describe("buildSessionEntry", () => {
     expect(entry!.content).not.toContain("Conversation info");
     expect(entry!.content).not.toContain("untrusted metadata");
     expect(entry!.content).not.toContain("message_id");
-    // Inline directive tags should be stripped
-    expect(entry!.content).not.toContain("[[reply_to_current]]");
     // The actual user messages should be preserved
     expect(entry!.content).toContain("What time is the meeting?");
     expect(entry!.content).toContain("Also, who is attending?");
+    // The [[reply_to_current]] tag in the second part is NOT a leading tag of the
+    // overall joined message (it appears mid-message), so it should be preserved.
+    // This is the fix for the bot's concern: "a later part that begins with
+    // [[reply_to_*]] would be treated as a leading tag" when stripped per-part.
+    expect(entry!.content).toContain("[[reply_to_current]]");
   });
 
   it("preserves inline mentions of directive tags mid-text (not leading)", async () => {
