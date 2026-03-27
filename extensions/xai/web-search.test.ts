@@ -3,7 +3,9 @@ import {
   resolveWebSearchProviderCredential,
 } from "openclaw/plugin-sdk/provider-web-search";
 import { describe, expect, it } from "vitest";
+import { capturePluginRegistration } from "../../src/plugins/captured-registration.js";
 import { withEnv } from "../../test/helpers/extensions/env.js";
+import xaiPlugin from "./index.js";
 import { resolveXaiCatalogEntry } from "./model-definitions.js";
 import { isModernXaiModel, resolveXaiForwardCompatModel } from "./provider-models.js";
 import { __testing as grokProviderTesting } from "./src/grok-web-search-provider.js";
@@ -39,6 +41,34 @@ describe("xai web search config resolution", () => {
           envVars: ["XAI_API_KEY"],
         }),
       ).toBeUndefined();
+    });
+  });
+
+  it("reuses the plugin web search api key for provider auth fallback", () => {
+    const captured = capturePluginRegistration(xaiPlugin);
+    const provider = captured.providers[0];
+    expect(
+      provider?.resolveSyntheticAuth?.({
+        config: {
+          plugins: {
+            entries: {
+              xai: {
+                config: {
+                  webSearch: {
+                    apiKey: "xai-provider-fallback", // pragma: allowlist secret
+                  },
+                },
+              },
+            },
+          },
+        },
+        provider: "xai",
+        providerConfig: undefined,
+      }),
+    ).toEqual({
+      apiKey: "xai-provider-fallback",
+      source: "plugins.entries.xai.config.webSearch.apiKey",
+      mode: "api-key",
     });
   });
 
