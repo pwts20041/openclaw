@@ -10,6 +10,7 @@ import {
   SecretInputSchema,
   SecretsConfigSchema,
 } from "./zod-schema.core.js";
+import { FailoverRetriesSchema } from "./zod-schema.failover.js";
 import { HookMappingSchema, HooksGmailSchema, InternalHooksSchema } from "./zod-schema.hooks.js";
 import { PluginInstallRecordShape } from "./zod-schema.installs.js";
 import { ChannelsSchema } from "./zod-schema.providers.js";
@@ -363,6 +364,7 @@ export const OpenClawSchema = z
         headless: z.boolean().optional(),
         noSandbox: z.boolean().optional(),
         attachOnly: z.boolean().optional(),
+        extraArgs: z.array(z.string()).optional(),
         cdpPortRangeStart: z.number().int().min(1).max(65535).optional(),
         defaultProfile: z.string().optional(),
         snapshotDefaults: BrowserSnapshotDefaultsSchema,
@@ -403,7 +405,6 @@ export const OpenClawSchema = z
               }),
           )
           .optional(),
-        extraArgs: z.array(z.string()).optional(),
       })
       .strict()
       .optional(),
@@ -442,10 +443,13 @@ export const OpenClawSchema = z
             billingBackoffHours: z.number().positive().optional(),
             billingBackoffHoursByProvider: z.record(z.string(), z.number().positive()).optional(),
             billingMaxHours: z.number().positive().optional(),
+            rateLimitBackoffMinutes: z.number().positive().optional(),
+            rateLimitMaxHours: z.number().positive().optional(),
             failureWindowHours: z.number().positive().optional(),
           })
           .strict()
           .optional(),
+        retries: FailoverRetriesSchema,
       })
       .strict()
       .optional(),

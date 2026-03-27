@@ -18,9 +18,11 @@ Quick provider overview + examples: [/concepts/model-providers](/concepts/model-
 OpenClaw selects models in this order:
 
 1. **Primary** model (`agents.defaults.model.primary` or `agents.defaults.model`).
-2. **Fallbacks** in `agents.defaults.model.fallbacks` (in order).
-3. **Provider auth failover** happens inside a provider before moving to the
-   next model.
+2. **Reason-aware retries** on the current provider/model (when configured and
+   the failure reason is retryable).
+3. **Provider auth profile rotation/cooldown handling** inside that provider.
+4. **Fallbacks** in `agents.defaults.model.fallbacks` (in order), after retry
+   and provider-level options are exhausted.
 
 Related:
 

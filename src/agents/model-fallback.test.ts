@@ -190,6 +190,112 @@ const MODEL_COOLDOWN_MESSAGE = "model_cooldown: All credentials for model gpt-5 
 const CONNECTION_ERROR_MESSAGE = "Connection error.";
 
 describe("runWithModelFallback", () => {
+  it("retries rate_limit failures up to 1 + configured retry count", async () => {
+    const run = vi
+      .fn()
+      .mockRejectedValue({ status: 429, message: OPENAI_RATE_LIMIT_MESSAGE, code: "rate_limit" });
+
+    await expect(
+      runWithModelFallback({
+        cfg: {
+          agents: {
+            defaults: {
+              retries: {
+                rate_limit: 2,
+                overloaded: 0,
+                auth_failure: 0,
+              },
+            },
+          },
+        } as OpenClawConfig,
+        provider: "openai",
+        model: "gpt-4.1-mini",
+        fallbacksOverride: [],
+        run,
+      }),
+    ).rejects.toThrow();
+
+    expect(run).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries overloaded failures up to 1 + configured retry count", async () => {
+    const run = vi.fn().mockRejectedValue({ status: 529, message: "Overloaded" });
+
+    await expect(
+      runWithModelFallback({
+        cfg: {
+          agents: {
+            defaults: {
+              retries: {
+                rate_limit: 0,
+                overloaded: 2,
+                auth_failure: 0,
+              },
+            },
+          },
+        } as OpenClawConfig,
+        provider: "openai",
+        model: "gpt-4.1-mini",
+        fallbacksOverride: [],
+        run,
+      }),
+    ).rejects.toThrow();
+
+    expect(run).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries recoverable auth failures using auth_failure retry budget", async () => {
+    const run = vi.fn().mockRejectedValue({ status: 401, message: "Unauthorized" });
+
+    await expect(
+      runWithModelFallback({
+        cfg: {
+          agents: {
+            defaults: {
+              retries: {
+                rate_limit: 0,
+                overloaded: 0,
+                auth_failure: 2,
+              },
+            },
+          },
+        } as OpenClawConfig,
+        provider: "openai",
+        model: "gpt-4.1-mini",
+        fallbacksOverride: [],
+        run,
+      }),
+    ).rejects.toThrow();
+
+    expect(run).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry auth_permanent failures", async () => {
+    const run = vi.fn().mockRejectedValue({ status: 401, message: "invalid_api_key" });
+
+    await expect(
+      runWithModelFallback({
+        cfg: {
+          agents: {
+            defaults: {
+              retries: {
+                rate_limit: 3,
+                overloaded: 3,
+                auth_failure: 3,
+              },
+            },
+          },
+        } as OpenClawConfig,
+        provider: "openai",
+        model: "gpt-4.1-mini",
+        fallbacksOverride: [],
+        run,
+      }),
+    ).rejects.toThrow();
+
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps openai gpt-5.3 codex on the openai provider before running", async () => {
     const cfg = makeCfg();
     const run = vi.fn().mockResolvedValueOnce("ok");

@@ -2924,6 +2924,35 @@ Notes:
 - See [OAuth](/concepts/oauth).
 - Secrets runtime behavior and `audit/configure/apply` tooling: [Secrets Management](/gateway/secrets).
 
+### Auth failover and retry tuning
+
+```yaml
+agents:
+  defaults:
+    retries:
+      default: 1
+      rate_limit: 3
+      overloaded: 2
+      auth_failure: 1
+
+auth:
+  retries:
+    default: 1
+    rate_limit: 3
+    overloaded: 2
+    auth_failure: 1
+  cooldowns:
+    rateLimitBackoffMinutes: 1
+    rateLimitMaxHours: 1
+```
+
+- `agents.defaults.retries`: per-reason retry budget used by model execution before fallback.
+- `auth.retries`: auth-profile runtime retry defaults with the same shape.
+- Retry keys are `default`, `rate_limit`, `overloaded`, and `auth_failure`.
+- `auth_failure` is a config key and maps to runtime recoverable auth reason `auth`.
+- Runtime `auth_permanent` failures are not retryable and use profile disable behavior (`disabledUntil`).
+- `auth.cooldowns.rateLimitBackoffMinutes` and `auth.cooldowns.rateLimitMaxHours` tune rate-limit cooldown windows.
+
 ---
 
 ## Logging

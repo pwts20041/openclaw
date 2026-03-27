@@ -3,6 +3,7 @@ import {
   resolveAgentModelFallbackValues,
   resolveAgentModelPrimaryValue,
 } from "../config/model-input.js";
+import { retryAsync } from "../infra/retry.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { sanitizeForLog } from "../terminal/ansi.js";
 import {
@@ -13,12 +14,14 @@ import {
   resolveProfilesUnavailableReason,
   resolveAuthProfileOrder,
 } from "./auth-profiles.js";
+import { getSoonestCooldownExpiryWithTimestamp } from "./auth-profiles/usage.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./defaults.js";
 import {
   coerceToFailoverError,
   describeFailoverError,
   isFailoverError,
   isTimeoutError,
+  resolveFailoverReasonFromError,
 } from "./failover-error.js";
 import {
   shouldAllowCooldownProbeForReason,
@@ -162,11 +165,46 @@ async function runFallbackCandidate<T>(params: {
   provider: string;
   model: string;
   options?: ModelFallbackRunOptions;
+  retryConfig?: {
+    default?: number;
+    rate_limit?: number;
+    overloaded?: number;
+    auth_failure?: number;
+  };
 }): Promise<{ ok: true; result: T } | { ok: false; error: unknown }> {
   try {
-    const result = params.options
-      ? await params.run(params.provider, params.model, params.options)
-      : await params.run(params.provider, params.model);
+    const defaultRetryBudget = params.retryConfig?.default ?? 0;
+    const rateLimitRetryBudget = params.retryConfig?.rate_limit ?? defaultRetryBudget;
+    const overloadedRetryBudget = params.retryConfig?.overloaded ?? defaultRetryBudget;
+    const authRetryBudget = params.retryConfig?.auth_failure ?? 0;
+
+    const runFn = async () =>
+      params.options
+        ? await params.run(params.provider, params.model, params.options)
+        : await params.run(params.provider, params.model);
+
+    // Apply internal retry for rate-limiting errors BEFORE giving up and
+    // moving to the next candidate model in the fallback chain.
+    const result = await retryAsync(runFn, {
+      attempts: 1 + Math.max(rateLimitRetryBudget, overloadedRetryBudget, authRetryBudget),
+      minDelayMs: 2000,
+      maxDelayMs: 30000,
+      jitter: 0.1,
+      shouldRetry: (err, attempt) => {
+        const reason = resolveFailoverReasonFromError(err);
+        if (reason === "rate_limit") {
+          return attempt <= rateLimitRetryBudget;
+        }
+        if (reason === "overloaded") {
+          return attempt <= overloadedRetryBudget;
+        }
+        if (reason === "auth") {
+          return attempt <= authRetryBudget;
+        }
+        return false;
+      },
+    });
+
     return {
       ok: true,
       result,
@@ -191,12 +229,19 @@ async function runFallbackAttempt<T>(params: {
   model: string;
   attempts: FallbackAttempt[];
   options?: ModelFallbackRunOptions;
+  retryConfig?: {
+    default?: number;
+    rate_limit?: number;
+    overloaded?: number;
+    auth_failure?: number;
+  };
 }): Promise<{ success: ModelFallbackRunResult<T> } | { error: unknown }> {
   const runResult = await runFallbackCandidate({
     run: params.run,
     provider: params.provider,
     model: params.model,
     options: params.options,
+    retryConfig: params.retryConfig,
   });
   if (runResult.ok) {
     return {
@@ -241,6 +286,7 @@ function resolveFallbackSoonestCooldownExpiry(params: {
   agentDir?: string;
   cfg: OpenClawConfig | undefined;
   candidates: ModelCandidate[];
+  now: number;
 }): number | null {
   if (!params.authStore) {
     return null;
@@ -259,9 +305,12 @@ function resolveFallbackSoonestCooldownExpiry(params: {
       store: refreshedStore,
       provider: candidate.provider,
     });
-    const candidateSoonest = getSoonestCooldownExpiry(refreshedStore, ids, {
-      forModel: candidate.model,
-    });
+    const candidateSoonest = getSoonestCooldownExpiryWithTimestamp(
+      refreshedStore,
+      ids,
+      params.now,
+      candidate.model,
+    );
     if (
       typeof candidateSoonest === "number" &&
       Number.isFinite(candidateSoonest) &&
@@ -409,6 +458,7 @@ const PROBE_MARGIN_MS = 2 * 60 * 1000;
 const PROBE_SCOPE_DELIMITER = "::";
 const PROBE_STATE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_PROBE_KEYS = 256;
+let lastProbeStatePruneAt = 0;
 
 function resolveProbeThrottleKey(provider: string, agentDir?: string): string {
   const scope = String(agentDir ?? "").trim();
@@ -416,6 +466,13 @@ function resolveProbeThrottleKey(provider: string, agentDir?: string): string {
 }
 
 function pruneProbeState(now: number): void {
+  // Lazy pruning: only prune if more than 1 second has passed since last prune
+  const TTL_PRUNE_MS = 1_000;
+  if (now - lastProbeStatePruneAt < TTL_PRUNE_MS) {
+    return;
+  }
+  lastProbeStatePruneAt = now;
+
   for (const [key, ts] of lastProbeAttempt) {
     if (!Number.isFinite(ts) || ts <= 0 || now - ts > PROBE_STATE_TTL_MS) {
       lastProbeAttempt.delete(key);
@@ -475,6 +532,12 @@ function shouldProbePrimaryDuringCooldown(params: {
   });
   if (soonest === null || !Number.isFinite(soonest)) {
     return true;
+  }
+
+  // Don't probe if cooldown expires more than 2 minutes in the future
+  // (allows transient network blips to resolve naturally)
+  if (params.now < soonest - PROBE_MARGIN_MS) {
+    return false;
   }
 
   // Probe when cooldown already expired or within the configured margin.
@@ -607,6 +670,8 @@ export async function runWithModelFallback<T>(params: {
   const attempts: FallbackAttempt[] = [];
   let lastError: unknown;
   const cooldownProbeUsedProviders = new Set<string>();
+  const retryConfig = params.cfg?.agents?.defaults?.retries ?? params.cfg?.auth?.retries;
+  const now = Date.now();
 
   const hasFallbackCandidates = candidates.length > 1;
 
@@ -630,7 +695,6 @@ export async function runWithModelFallback<T>(params: {
 
       if (profileIds.length > 0 && !isAnyProfileAvailable) {
         // All profiles for this provider are in cooldown.
-        const now = Date.now();
         const probeThrottleKey = resolveProbeThrottleKey(candidate.provider, params.agentDir);
         const decision = resolveCooldownDecision({
           candidate,
@@ -733,6 +797,7 @@ export async function runWithModelFallback<T>(params: {
       ...candidate,
       attempts,
       options: runOptions,
+      retryConfig,
     });
     if ("success" in attemptRun) {
       if (i > 0 || attempts.length > 0 || attemptedDuringCooldown) {
@@ -773,6 +838,9 @@ export async function runWithModelFallback<T>(params: {
       // that may have a smaller context window and fail worse.
       const errMessage = err instanceof Error ? err.message : String(err);
       if (isLikelyContextOverflowError(errMessage)) {
+        log.warn(
+          `Context overflow detected on ${sanitizeForLog(candidate.provider)}/${sanitizeForLog(candidate.model)} — rethrowing without fallback`,
+        );
         throw err;
       }
       const normalized =
@@ -840,6 +908,7 @@ export async function runWithModelFallback<T>(params: {
       agentDir: params.agentDir,
       cfg: params.cfg,
       candidates,
+      now,
     }),
   });
 }

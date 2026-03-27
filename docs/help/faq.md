@@ -2386,7 +2386,7 @@ Related: [/concepts/oauth](/concepts/oauth) (OAuth flows, token storage, multi-a
   <Accordion title="Can I control which auth profile is tried first?">
     Yes. Config supports optional metadata for profiles and an ordering per provider (`auth.order.<provider>`). This does **not** store secrets; it maps IDs to provider/mode and sets rotation order.
 
-    OpenClaw may temporarily skip a profile if it's in a short **cooldown** (rate limits/timeouts/auth failures) or a longer **disabled** state (billing/insufficient credits). To inspect this, run `openclaw models status --json` and check `auth.unusableProfiles`. Tuning: `auth.cooldowns.billingBackoffHours*`.
+    OpenClaw may temporarily skip a profile if it's in a short **cooldown** (for example `rate_limit`, `overloaded`, or recoverable `auth`) or a longer **disabled** state (`billing` or `auth_permanent`). To inspect this, run `openclaw models status --json` and check `auth.unusableProfiles`. Tuning: `auth.cooldowns.rateLimitBackoffMinutes`, `auth.cooldowns.rateLimitMaxHours`, and `auth.cooldowns.billingBackoffHours*`.
 
     You can also set a **per-agent** order override (stored in that agent's `auth-profiles.json`) via the CLI:
 
