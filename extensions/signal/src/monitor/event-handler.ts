@@ -114,6 +114,9 @@ export function createSignalEventHandler(deps: SignalEventHandlerDeps) {
     mediaTypes?: string[];
     commandAuthorized: boolean;
     wasMentioned?: boolean;
+    replyToId?: string;
+    replyToBody?: string;
+    replyToSender?: string;
   };
 
   async function handleSignalInboundMessage(entry: SignalInboundEntry) {
@@ -214,6 +217,10 @@ export function createSignalEventHandler(deps: SignalEventHandlerDeps) {
       MediaTypes: entry.mediaTypes,
       WasMentioned: entry.isGroup ? entry.wasMentioned === true : undefined,
       CommandAuthorized: entry.commandAuthorized,
+      ReplyToId: entry.replyToId,
+      ReplyToBody: entry.replyToBody,
+      ReplyToSender: entry.replyToSender,
+      ReplyToIsQuote: entry.replyToBody ? true : undefined,
       OriginatingChannel: "signal" as const,
       OriginatingTo: signalTo,
     });
@@ -796,6 +803,10 @@ export function createSignalEventHandler(deps: SignalEventHandlerDeps) {
       mediaTypes: mediaTypes.length > 0 ? mediaTypes : undefined,
       commandAuthorized,
       wasMentioned: effectiveWasMentioned,
+      replyToId:
+        dataMessage?.quote?.id != null ? String(dataMessage.quote.id) : undefined,
+      replyToBody: quoteText || undefined,
+      replyToSender: dataMessage?.quote?.author?.trim() || undefined,
     });
   };
 }
