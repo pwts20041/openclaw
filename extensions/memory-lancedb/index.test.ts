@@ -12,6 +12,34 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
+
+// ---------------------------------------------------------------------------
+// Hoisted mocks – vi.mock is hoisted above imports, so the factory runs
+// before any module that transitively imports these targets.
+// ---------------------------------------------------------------------------
+
+// Shared mutable ref that individual tests can set before importing index.js.
+// When set, the hoisted mock returns this instead of the real loadLanceDbModule.
+let __lanceDbModuleImpl: (() => Promise<unknown>) | null = null;
+
+vi.mock("./lancedb-runtime.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./lancedb-runtime.js")>();
+  return {
+    ...original, // preserves createLanceDbRuntimeLoader for the runtime loader tests
+    loadLanceDbModule: vi.fn(async (...args: unknown[]) => {
+      if (__lanceDbModuleImpl) {
+        return __lanceDbModuleImpl();
+      }
+      // Fall through to real implementation for tests that don't set an override
+      return original.loadLanceDbModule(...(args as Parameters<typeof original.loadLanceDbModule>));
+    }),
+  };
+});
+
+vi.mock("openclaw/plugin-sdk/infra-runtime", () => ({
+  ensureGlobalUndiciEnvProxyDispatcher: vi.fn(),
+}));
+
 import { createLanceDbRuntimeLoader, type LanceDbRuntimeLogger } from "./lancedb-runtime.js";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "test-key";
@@ -61,6 +89,10 @@ function installTmpDirHarness(params: { prefix: string }) {
     if (tmpDir) {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
+    // Reset the shared mock override so tests don't leak into each other.
+    __lanceDbModuleImpl = null;
+    // Clear all mock call histories to prevent state leakage.
+    vi.clearAllMocks();
   });
 
   return {
@@ -204,7 +236,11 @@ describe("memory plugin e2e", () => {
     const embeddingsCreate = vi.fn(async () => ({
       data: [{ embedding: [0.1, 0.2, 0.3] }],
     }));
-    const ensureGlobalUndiciEnvProxyDispatcher = vi.fn();
+    // Use the hoisted mock by importing it after it's been set up
+    const { ensureGlobalUndiciEnvProxyDispatcher } =
+      await import("openclaw/plugin-sdk/infra-runtime");
+    // TS sees the import as the real type, but it's actually our hoisted vi.fn() mock
+    const mockFn = ensureGlobalUndiciEnvProxyDispatcher as unknown as ReturnType<typeof vi.fn>;
     const toArray = vi.fn(async () => []);
     const limit = vi.fn(() => ({ toArray }));
     const vectorSearch = vi.fn(() => ({ limit }));
@@ -220,17 +256,13 @@ describe("memory plugin e2e", () => {
       })),
     }));
 
+    __lanceDbModuleImpl = loadLanceDbModule;
+
     vi.resetModules();
-    vi.doMock("openclaw/plugin-sdk/infra-runtime", () => ({
-      ensureGlobalUndiciEnvProxyDispatcher,
-    }));
     vi.doMock("openai", () => ({
       default: class MockOpenAI {
         embeddings = { create: embeddingsCreate };
       },
-    }));
-    vi.doMock("./lancedb-runtime.js", () => ({
-      loadLanceDbModule,
     }));
 
     try {
@@ -281,8 +313,8 @@ describe("memory plugin e2e", () => {
       await recallTool.execute("test-call-dims", { query: "hello dimensions" });
 
       expect(loadLanceDbModule).toHaveBeenCalledTimes(1);
-      expect(ensureGlobalUndiciEnvProxyDispatcher).toHaveBeenCalledOnce();
-      expect(ensureGlobalUndiciEnvProxyDispatcher.mock.invocationCallOrder[0]).toBeLessThan(
+      expect(mockFn).toHaveBeenCalledOnce();
+      expect(mockFn.mock.invocationCallOrder[0]).toBeLessThan(
         embeddingsCreate.mock.invocationCallOrder[0],
       );
       expect(embeddingsCreate).toHaveBeenCalledWith({
@@ -291,9 +323,8 @@ describe("memory plugin e2e", () => {
         dimensions: 1024,
       });
     } finally {
-      vi.doUnmock("openclaw/plugin-sdk/infra-runtime");
       vi.doUnmock("openai");
-      vi.doUnmock("./lancedb-runtime.js");
+      __lanceDbModuleImpl = null;
       vi.resetModules();
     }
   });
@@ -450,7 +481,7 @@ describe("memory plugin e2e", () => {
         embeddings = { create: embeddingsCreate };
       },
     }));
-    vi.doMock("@lancedb/lancedb", () => ({
+    __lanceDbModuleImpl = async () => ({
       connect: vi.fn(async () => ({
         tableNames: vi.fn(async () => ["memories"]),
         openTable: vi.fn(async () => ({
@@ -461,7 +492,7 @@ describe("memory plugin e2e", () => {
           delete: tableDelete,
         })),
       })),
-    }));
+    });
 
     try {
       const { default: memoryPlugin } = await import("./index.js");
@@ -497,7 +528,7 @@ describe("memory plugin e2e", () => {
       expect(tableDelete).not.toHaveBeenCalled();
     } finally {
       vi.doUnmock("openai");
-      vi.doUnmock("@lancedb/lancedb");
+      __lanceDbModuleImpl = null;
       vi.resetModules();
     }
   });
@@ -530,7 +561,7 @@ describe("memory plugin e2e", () => {
         embeddings = { create: embeddingsCreate };
       },
     }));
-    vi.doMock("@lancedb/lancedb", () => ({
+    __lanceDbModuleImpl = async () => ({
       connect: vi.fn(async () => ({
         tableNames: vi.fn(async () => ["memories"]),
         openTable: vi.fn(async () => ({
@@ -541,7 +572,7 @@ describe("memory plugin e2e", () => {
           delete: tableDelete,
         })),
       })),
-    }));
+    });
 
     let auditLogPath: string | null = null;
 
@@ -618,7 +649,7 @@ describe("memory plugin e2e", () => {
       expect(auditLine.ts).toBeGreaterThan(0);
     } finally {
       vi.doUnmock("openai");
-      vi.doUnmock("@lancedb/lancedb");
+      __lanceDbModuleImpl = null;
       vi.resetModules();
     }
   });
@@ -643,7 +674,7 @@ describe("memory plugin e2e", () => {
         embeddings = { create: embeddingsCreate };
       },
     }));
-    vi.doMock("@lancedb/lancedb", () => ({
+    __lanceDbModuleImpl = async () => ({
       connect: vi.fn(async () => ({
         tableNames: vi.fn(async () => ["memories"]),
         openTable: vi.fn(async () => ({
@@ -654,7 +685,7 @@ describe("memory plugin e2e", () => {
           delete: tableDelete,
         })),
       })),
-    }));
+    });
 
     try {
       const { default: memoryPlugin } = await import("./index.js");
@@ -693,7 +724,7 @@ describe("memory plugin e2e", () => {
       expect(embeddingsCreate).not.toHaveBeenCalled();
     } finally {
       vi.doUnmock("openai");
-      vi.doUnmock("@lancedb/lancedb");
+      __lanceDbModuleImpl = null;
       vi.resetModules();
     }
   });
@@ -735,7 +766,7 @@ describe("memory plugin e2e", () => {
         embeddings = { create: embeddingsCreate };
       },
     }));
-    vi.doMock("@lancedb/lancedb", () => ({
+    __lanceDbModuleImpl = async () => ({
       connect: vi.fn(async () => ({
         tableNames: vi.fn(async () => ["memories"]),
         openTable: vi.fn(async () => ({
@@ -746,7 +777,7 @@ describe("memory plugin e2e", () => {
           delete: tableDelete,
         })),
       })),
-    }));
+    });
 
     try {
       const { default: memoryPlugin } = await import("./index.js");
@@ -796,7 +827,7 @@ describe("memory plugin e2e", () => {
       expect(result.details.restored_id).toBe(existingEntry.id);
     } finally {
       vi.doUnmock("openai");
-      vi.doUnmock("@lancedb/lancedb");
+      __lanceDbModuleImpl = null;
       vi.resetModules();
     }
   });
@@ -833,7 +864,7 @@ describe("memory plugin e2e", () => {
         embeddings = { create: embeddingsCreate };
       },
     }));
-    vi.doMock("@lancedb/lancedb", () => ({
+    __lanceDbModuleImpl = async () => ({
       connect: vi.fn(async () => ({
         tableNames: vi.fn(async () => ["memories"]),
         openTable: vi.fn(async () => ({
@@ -844,7 +875,7 @@ describe("memory plugin e2e", () => {
           delete: tableDelete,
         })),
       })),
-    }));
+    });
 
     try {
       const { default: memoryPlugin } = await import("./index.js");
@@ -879,7 +910,7 @@ describe("memory plugin e2e", () => {
       expect(result.details.restored_id).toBeNull();
     } finally {
       vi.doUnmock("openai");
-      vi.doUnmock("@lancedb/lancedb");
+      __lanceDbModuleImpl = null;
       vi.resetModules();
     }
   });
@@ -912,7 +943,7 @@ describe("memory plugin e2e", () => {
         embeddings = { create: embeddingsCreate };
       },
     }));
-    vi.doMock("@lancedb/lancedb", () => ({
+    __lanceDbModuleImpl = async () => ({
       connect: vi.fn(async () => ({
         tableNames: vi.fn(async () => ["memories"]),
         openTable: vi.fn(async () => ({
@@ -923,7 +954,7 @@ describe("memory plugin e2e", () => {
           delete: tableDelete,
         })),
       })),
-    }));
+    });
 
     try {
       const { default: memoryPlugin } = await import("./index.js");
@@ -960,7 +991,7 @@ describe("memory plugin e2e", () => {
       expect(addCall.importance).toBe(0.9); // inherited from existingEntry
     } finally {
       vi.doUnmock("openai");
-      vi.doUnmock("@lancedb/lancedb");
+      __lanceDbModuleImpl = null;
       vi.resetModules();
     }
   });
@@ -1009,7 +1040,7 @@ describe("memory plugin e2e", () => {
         embeddings = { create: embeddingsCreate };
       },
     }));
-    vi.doMock("@lancedb/lancedb", () => ({
+    __lanceDbModuleImpl = async () => ({
       connect: vi.fn(async () => ({
         tableNames: vi.fn(async () => ["memories"]),
         openTable: vi.fn(async () => ({
@@ -1020,7 +1051,7 @@ describe("memory plugin e2e", () => {
           delete: tableDelete,
         })),
       })),
-    }));
+    });
 
     try {
       const { default: memoryPlugin } = await import("./index.js");
@@ -1061,7 +1092,7 @@ describe("memory plugin e2e", () => {
       expect(callLog).toEqual(["delete", "add", "delete", "add"]);
     } finally {
       vi.doUnmock("openai");
-      vi.doUnmock("@lancedb/lancedb");
+      __lanceDbModuleImpl = null;
       vi.resetModules();
     }
   });
