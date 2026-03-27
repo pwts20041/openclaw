@@ -582,13 +582,17 @@ async function dispatchDiscordCommandInteraction(params: {
     channelId: rawChannelId,
     parentId: threadParentId,
   });
-  if (interaction.guild && claimOwnership.status === "not-owned") {
+  if (
+    interaction.guild &&
+    (claimOwnership.status === "not-owned" || claimOwnership.status === "claimed-by-other")
+  ) {
     console.error(
       "[DISCORD CLAIM SKIP:slash-dispatch]",
       JSON.stringify({
         channelId: rawChannelId,
         parentId: threadParentId,
         instanceKey: claimOwnership.instanceKey,
+        ownerInstanceKey: claimOwnership.ownerInstanceKey ?? null,
         botId: claimOwnership.botId ?? interaction.applicationId ?? interaction.client?.application?.id ?? "",
       }),
     );

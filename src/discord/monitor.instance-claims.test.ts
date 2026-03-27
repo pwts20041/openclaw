@@ -91,5 +91,19 @@ describe("discord instance claims", () => {
       instanceKey: "openclaw-main",
       matchedChannelId: "1483321827781644319",
     });
+
+    await expect(
+      claims.resolveDiscordClaimOwnership({
+        accountId: "default",
+        configPath: "/Users/test/.openclaw-rescue/openclaw.json",
+        botId,
+        channelId: "1483321827781644319",
+      }),
+    ).resolves.toMatchObject({
+      status: "claimed-by-other",
+      instanceKey: "openclaw-rescue",
+      ownerInstanceKey: "openclaw-main",
+      matchedChannelId: "1483321827781644319",
+    });
   });
 });

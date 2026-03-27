@@ -9,10 +9,11 @@ const DISCORD_CLAIMS_TTL_MS = 90_000;
 export const DISCORD_CLAIMS_PATH = join(homedir(), ".discord-claims.json");
 
 export type DiscordClaimOwnership = {
-  status: "owned" | "not-owned" | "no-entry";
+  status: "owned" | "not-owned" | "claimed-by-other" | "no-entry";
   instanceKey: string;
   botId?: string;
   matchedChannelId?: string;
+  ownerInstanceKey?: string;
 };
 
 type DiscordClaimChannelEntry = {
@@ -218,33 +219,59 @@ export async function resolveDiscordClaimOwnership(params: {
     return { status: "no-entry", instanceKey, botId: params.botId };
   }
   const data = pruneClaimsFile(await loadDiscordClaimsFile(), Date.now());
-  const instanceEntry = data.instances[instanceKey];
-  if (!instanceEntry) {
-    return { status: "no-entry", instanceKey, botId: params.botId };
-  }
   const requestedBotId = String(params.botId ?? "").trim();
-  const botKeys = requestedBotId
-    ? [requestedBotId, ...Object.keys(instanceEntry.bots).filter((key) => key !== requestedBotId)]
-    : Object.keys(instanceEntry.bots);
-  let sawBotEntry = false;
-  for (const botKey of botKeys) {
-    const botEntry = instanceEntry.bots[botKey];
-    if (!botEntry) continue;
-    sawBotEntry = true;
-    const channels = pruneClaimChannels(botEntry.channels, Date.now());
-    for (const lookupId of lookupIds) {
-      if (channels[lookupId]) {
-        return {
-          status: "owned",
-          instanceKey,
-          botId: botKey,
-          matchedChannelId: lookupId,
-        };
+  const collectBotKeys = (bots: Record<string, DiscordClaimBotEntry>) =>
+    requestedBotId
+      ? [requestedBotId, ...Object.keys(bots).filter((key) => key !== requestedBotId)]
+      : Object.keys(bots);
+  const instanceEntry = data.instances[instanceKey];
+  if (instanceEntry) {
+    let sawBotEntry = false;
+    for (const botKey of collectBotKeys(instanceEntry.bots)) {
+      const botEntry = instanceEntry.bots[botKey];
+      if (!botEntry) continue;
+      sawBotEntry = true;
+      const channels = pruneClaimChannels(botEntry.channels, Date.now());
+      for (const lookupId of lookupIds) {
+        if (channels[lookupId]) {
+          return {
+            status: "owned",
+            instanceKey,
+            botId: botKey,
+            matchedChannelId: lookupId,
+          };
+        }
+      }
+    }
+    if (sawBotEntry) {
+      return {
+        status: "not-owned",
+        instanceKey,
+        botId: requestedBotId || undefined,
+      };
+    }
+  }
+  for (const [otherInstanceKey, otherInstanceEntry] of Object.entries(data.instances)) {
+    if (otherInstanceKey === instanceKey) continue;
+    for (const botKey of collectBotKeys(otherInstanceEntry.bots)) {
+      const botEntry = otherInstanceEntry.bots[botKey];
+      if (!botEntry) continue;
+      const channels = pruneClaimChannels(botEntry.channels, Date.now());
+      for (const lookupId of lookupIds) {
+        if (channels[lookupId]) {
+          return {
+            status: "claimed-by-other",
+            instanceKey,
+            ownerInstanceKey: otherInstanceKey,
+            botId: botKey,
+            matchedChannelId: lookupId,
+          };
+        }
       }
     }
   }
   return {
-    status: sawBotEntry ? "not-owned" : "no-entry",
+    status: "no-entry",
     instanceKey,
     botId: requestedBotId || undefined,
   };

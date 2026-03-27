@@ -317,9 +317,12 @@ export async function preflightDiscordMessage(
         parentId: threadParentId ?? undefined,
       })
     : { status: "owned", instanceKey: "" };
-  if (isGuildMessage && claimOwnership.status === "not-owned") {
+  if (
+    isGuildMessage &&
+    (claimOwnership.status === "not-owned" || claimOwnership.status === "claimed-by-other")
+  ) {
     logVerbose(
-      `discord: skip channel ${message.channelId} (instance=${claimOwnership.instanceKey} bot=${claimOwnership.botId ?? params.botUserId ?? ""})`,
+      `discord: skip channel ${message.channelId} (instance=${claimOwnership.instanceKey} owner=${claimOwnership.ownerInstanceKey ?? ""} bot=${claimOwnership.botId ?? params.botUserId ?? ""})`,
     );
     return null;
   }
