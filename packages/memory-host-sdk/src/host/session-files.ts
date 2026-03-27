@@ -67,6 +67,44 @@ function normalizeSessionText(value: string): string {
 }
 
 /**
+ * Strips leading `System:` prefixed lines injected by `drainFormattedSystemEvents`
+ * (plus any trailing blank separator lines) before returning the remainder.
+ *
+ * In the auto-reply path, `prependEvents` prepends drained system events to the user
+ * body *before* the inbound metadata block:
+ *
+ *   System: <event>\n
+ *   System: <event>\n
+ *   \n
+ *   Conversation info (untrusted metadata):\n
+ *   …
+ *
+ * This means `stripLeadingInboundMetadata` — which only strips when the *first*
+ * non-empty line is a metadata sentinel — silently skips the metadata block because
+ * the `System:` lines come first.  Removing those lines before calling the strip
+ * function restores the expected layout.
+ *
+ * Returns the original string reference unchanged when no `System:` lines are present
+ * at the start (zero-allocation fast path).
+ */
+function stripLeadingSystemEventLines(text: string): string {
+  if (!text.startsWith("System: ")) {
+    return text;
+  }
+  const lines = text.split("\n");
+  let index = 0;
+  while (index < lines.length && lines[index].startsWith("System: ")) {
+    index++;
+  }
+  // Skip blank separator lines that follow the System: block
+  // (prependEvents joins with "\n\n" so there may be one or more blanks).
+  while (index < lines.length && lines[index].trim() === "") {
+    index++;
+  }
+  return index === 0 ? text : lines.slice(index).join("\n");
+}
+
+/**
  * Strips OpenClaw-injected metadata from a raw content string before
  * normalization. Must be called on the original multi-line text so that
  * the line-based sentinel detection in `stripLeadingInboundMetadata` works correctly.
@@ -74,6 +112,14 @@ function normalizeSessionText(value: string): string {
 function stripRawContentMeta(raw: string, role: "user" | "assistant"): string {
   // Only strip inbound metadata for user messages — assistant responses may
   // legitimately quote or discuss metadata headers (e.g. troubleshooting output).
+
+  // Strip leading `System:` lines that `drainFormattedSystemEvents` prepends in the
+  // auto-reply path.  They appear BEFORE the inbound metadata block when system events
+  // are drained, which causes `stripLeadingInboundMetadata` to miss the sentinel
+  // because it checks only the first non-empty line.  Stripping them here restores the
+  // expected layout so sentinel detection works correctly.
+  const withoutSysEvents = role === "user" ? stripLeadingSystemEventLines(raw) : raw;
+
   // Fast-path: skip stripping entirely when the text clearly contains no injected
   // metadata. We check several sentinel patterns to cover all formats:
   //   '<'                        — XML-style fenced blocks
@@ -85,12 +131,14 @@ function stripRawContentMeta(raw: string, role: "user" | "assistant"): string {
   //     abbreviation precedes the year, so we use the regex instead.
   const mightHaveMeta =
     role === "user" &&
-    (raw.includes("<") ||
-      raw.includes("untrusted metadata") ||
-      raw.includes("untrusted, for context") ||
-      raw.includes("Untrusted context") ||
-      LEADING_TIMESTAMP_ENVELOPE_RE.test(raw));
-  const afterMeta = mightHaveMeta ? stripLeadingInboundMetadata(raw) : raw;
+    (withoutSysEvents.includes("<") ||
+      withoutSysEvents.includes("untrusted metadata") ||
+      withoutSysEvents.includes("untrusted, for context") ||
+      withoutSysEvents.includes("Untrusted context") ||
+      LEADING_TIMESTAMP_ENVELOPE_RE.test(withoutSysEvents));
+  const afterMeta = mightHaveMeta
+    ? stripLeadingInboundMetadata(withoutSysEvents)
+    : withoutSysEvents;
   // `stripLeadingInboundMetadata` strips inbound metadata sentinel blocks but does
   // NOT remove the timestamp envelope — that is handled by `stripInboundMetadata`
   // (the full-strip path used by UI surfaces).  Strip it here so that any

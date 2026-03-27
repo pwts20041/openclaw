@@ -343,4 +343,80 @@ describe("buildSessionEntry", () => {
     const userLine = entry!.content.split("\n")[0];
     expect(userLine).toMatch(/^User: Please clarify that\./);
   });
+
+  it("strips inbound metadata when system-event lines are prepended before it (auto-reply path)", async () => {
+    // In the auto-reply path, drainFormattedSystemEvents/prependEvents prepends
+    // `System: <event>` lines BEFORE the user body.  When the user body itself
+    // starts with an inbound metadata block, the combined stored content looks like:
+    //
+    //   System: [14:32:00] User joined the channel
+    //   System: [14:32:01] Topic changed to "deployment"
+    //
+    //   Conversation info (untrusted metadata):
+    //   ```json
+    //   { "message_id": "msg-1", "sender": "TestUser" }
+    //   ```
+    //
+    //   What is the status of the deployment?
+    //
+    // `stripLeadingInboundMetadata` previously missed the sentinel because it
+    // checks only the first non-empty line, which was "System: …" — not a
+    // metadata sentinel.  The fix strips the System: block first.
+    const convBlock = makeConvBlock();
+    const eventsBlock = "System: [14:32:00] User joined\nSystem: [14:32:01] Topic changed";
+    const userContent = `${eventsBlock}\n\n${convBlock}\n\nWhat is the status of the deployment?`;
+    const jsonlLines = [makeUserMessageLine(userContent)];
+    const filePath = path.join(tmpDir, "sysevents-before-meta.jsonl");
+    await fs.writeFile(filePath, jsonlLines.join("\n"));
+
+    const entry = await buildSessionEntry(filePath);
+    expect(entry).not.toBeNull();
+
+    // System event lines and metadata block must both be stripped
+    expect(entry!.content).not.toContain("System:");
+    expect(entry!.content).not.toContain("Conversation info");
+    expect(entry!.content).not.toContain("untrusted metadata");
+    expect(entry!.content).not.toContain("message_id");
+    // The actual user message body must be preserved
+    expect(entry!.content).toContain("What is the status of the deployment?");
+    const userLine = entry!.content.split("\n")[0];
+    expect(userLine).toMatch(/^User: What is the status/);
+  });
+
+  it("strips system-event lines, inbound metadata, and timestamp envelope when all three appear", async () => {
+    // Realistic combined case: injectTimestamp prepends "[DOW…]" to the raw user text,
+    // then buildInboundUserContextPrefix prepends the metadata block in front of that,
+    // and finally prependEvents puts the System: lines before everything.  The stored
+    // content therefore looks like:
+    //
+    //   System: [14:47:00] Cron job fired
+    //
+    //   Conversation info (untrusted metadata):
+    //   ```json
+    //   { … }
+    //   ```
+    //
+    //   [Wed 2026-03-27 14:47 EDT] Run the deployment.
+    //
+    // All three injected layers (system events, metadata block, timestamp) must be
+    // stripped so the indexed text is just the user's actual message body.
+    const convBlock = makeConvBlock();
+    const eventsBlock = "System: [14:47:00] Cron job fired";
+    // Timestamp is INSIDE the user text (after metadata), not in front of the sentinel.
+    const userContent = `${eventsBlock}\n\n${convBlock}\n\n[Wed 2026-03-27 14:47 EDT] Run the deployment.`;
+    const jsonlLines = [makeUserMessageLine(userContent)];
+    const filePath = path.join(tmpDir, "sysevents-meta-ts.jsonl");
+    await fs.writeFile(filePath, jsonlLines.join("\n"));
+
+    const entry = await buildSessionEntry(filePath);
+    expect(entry).not.toBeNull();
+
+    expect(entry!.content).not.toContain("System:");
+    expect(entry!.content).not.toContain("[Wed 2026-03-27 14:47 EDT]");
+    expect(entry!.content).not.toContain("Conversation info");
+    expect(entry!.content).not.toContain("untrusted metadata");
+    expect(entry!.content).toContain("Run the deployment.");
+    const userLine = entry!.content.split("\n")[0];
+    expect(userLine).toMatch(/^User: Run the deployment\./);
+  });
 });
