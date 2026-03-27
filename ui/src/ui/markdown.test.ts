@@ -30,10 +30,19 @@ describe("toSanitizedMarkdownHtml", () => {
     expect(html).toContain("console.log(1)");
   });
 
-  it("flattens remote markdown images into alt text", () => {
+  it("renders remote https markdown images as <img> elements", () => {
     const html = toSanitizedMarkdownHtml("![Alt text](https://example.com/image.png)");
+    expect(html).toContain("<img");
+    expect(html).toContain('class="markdown-inline-image"');
+    expect(html).toContain("https://example.com/image.png");
+    expect(html).toContain('alt="Alt text"');
+    expect(html).toContain('loading="lazy"');
+  });
+
+  it("flattens plain http markdown images to alt text (CSP: img-src allows https only)", () => {
+    const html = toSanitizedMarkdownHtml("![Photo](http://example.com/photo.jpg)");
     expect(html).not.toContain("<img");
-    expect(html).toContain("Alt text");
+    expect(html).toContain("Photo");
   });
 
   it("preserves base64 data URI images (#15437)", () => {
@@ -50,10 +59,10 @@ describe("toSanitizedMarkdownHtml", () => {
     expect(html).toContain("X");
   });
 
-  it("uses a plain fallback label for unlabeled markdown images", () => {
+  it("uses 'image' as the alt text for unlabeled remote markdown images", () => {
     const html = toSanitizedMarkdownHtml("![](https://example.com/image.png)");
-    expect(html).not.toContain("<img");
-    expect(html).toContain("image");
+    expect(html).toContain("<img");
+    expect(html).toContain('alt="image"');
   });
 
   it("renders GFM markdown tables (#20410)", () => {
