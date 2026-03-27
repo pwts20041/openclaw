@@ -1,28 +1,13 @@
-import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { collectBundledPluginSources } from "./lib/bundled-plugin-source-utils.mjs";
 import { formatGeneratedModule } from "./lib/format-generated-module.mjs";
-import { writeTextFileIfChanged } from "./runtime-postbuild-shared.mjs";
+import { writeGeneratedOutput } from "./lib/generated-output-utils.mjs";
 
 const GENERATED_BY = "scripts/generate-bundled-plugin-metadata.mjs";
 const DEFAULT_OUTPUT_PATH = "src/plugins/bundled-plugin-metadata.generated.ts";
+const DEFAULT_ENTRIES_OUTPUT_PATH = "src/generated/bundled-plugin-entries.generated.ts";
 const MANIFEST_KEY = "openclaw";
 const FORMATTER_CWD = path.resolve(import.meta.dirname, "..");
-const CANONICAL_PACKAGE_ID_ALIASES = {
-  "elevenlabs-speech": "elevenlabs",
-  "microsoft-speech": "microsoft",
-  "ollama-provider": "ollama",
-  "sglang-provider": "sglang",
-  "vllm-provider": "vllm",
-};
-
-function readIfExists(filePath) {
-  try {
-    return fs.readFileSync(filePath, "utf8");
-  } catch {
-    return null;
-  }
-}
 
 function rewriteEntryToBuiltPath(entry) {
   if (typeof entry !== "string" || entry.trim().length === 0) {
@@ -32,8 +17,12 @@ function rewriteEntryToBuiltPath(entry) {
   return normalized.replace(/\.[^.]+$/u, ".js");
 }
 
-function deriveIdHint({ filePath, packageName, hasMultipleExtensions }) {
+function deriveIdHint({ filePath, manifestId, packageName, hasMultipleExtensions }) {
   const base = path.basename(filePath, path.extname(filePath));
+  const normalizedManifestId = manifestId?.trim();
+  if (normalizedManifestId) {
+    return hasMultipleExtensions ? `${normalizedManifestId}/${base}` : normalizedManifestId;
+  }
   const rawPackageName = packageName?.trim();
   if (!rawPackageName) {
     return base;
@@ -42,11 +31,10 @@ function deriveIdHint({ filePath, packageName, hasMultipleExtensions }) {
   const unscoped = rawPackageName.includes("/")
     ? (rawPackageName.split("/").pop() ?? rawPackageName)
     : rawPackageName;
-  const canonicalPackageId = CANONICAL_PACKAGE_ID_ALIASES[unscoped] ?? unscoped;
   const normalizedPackageId =
-    canonicalPackageId.endsWith("-provider") && canonicalPackageId.length > "-provider".length
-      ? canonicalPackageId.slice(0, -"-provider".length)
-      : canonicalPackageId;
+    unscoped.endsWith("-provider") && unscoped.length > "-provider".length
+      ? unscoped.slice(0, -"-provider".length)
+      : unscoped;
 
   if (!hasMultipleExtensions) {
     return normalizedPackageId;
@@ -60,6 +48,26 @@ function normalizeStringList(values) {
   }
   const normalized = values.map((value) => String(value).trim()).filter(Boolean);
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeManifestContracts(raw) {
+  const contracts = normalizeObject(raw);
+  if (!contracts) {
+    return undefined;
+  }
+  const speechProviders = normalizeStringList(contracts.speechProviders);
+  const mediaUnderstandingProviders = normalizeStringList(contracts.mediaUnderstandingProviders);
+  const imageGenerationProviders = normalizeStringList(contracts.imageGenerationProviders);
+  const webSearchProviders = normalizeStringList(contracts.webSearchProviders);
+  const tools = normalizeStringList(contracts.tools);
+  const normalized = {
+    ...(speechProviders?.length ? { speechProviders } : {}),
+    ...(mediaUnderstandingProviders?.length ? { mediaUnderstandingProviders } : {}),
+    ...(imageGenerationProviders?.length ? { imageGenerationProviders } : {}),
+    ...(webSearchProviders?.length ? { webSearchProviders } : {}),
+    ...(tools?.length ? { tools } : {}),
+  };
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function normalizeObject(value) {
@@ -112,6 +120,9 @@ function normalizePluginManifest(raw) {
     ...(normalizeStringList(raw.providers)
       ? { providers: normalizeStringList(raw.providers) }
       : {}),
+    ...(normalizeStringList(raw.cliBackends)
+      ? { cliBackends: normalizeStringList(raw.cliBackends) }
+      : {}),
     ...(normalizeObject(raw.providerAuthEnvVars)
       ? { providerAuthEnvVars: raw.providerAuthEnvVars }
       : {}),
@@ -123,6 +134,9 @@ function normalizePluginManifest(raw) {
     ...(typeof raw.description === "string" ? { description: raw.description.trim() } : {}),
     ...(typeof raw.version === "string" ? { version: raw.version.trim() } : {}),
     ...(normalizeObject(raw.uiHints) ? { uiHints: raw.uiHints } : {}),
+    ...(normalizeManifestContracts(raw.contracts)
+      ? { contracts: normalizeManifestContracts(raw.contracts) }
+      : {}),
   };
 }
 
@@ -134,32 +148,29 @@ function formatTypeScriptModule(source, { outputPath }) {
   });
 }
 
+function toIdentifier(dirName) {
+  const cleaned = String(dirName)
+    .replace(/[^a-zA-Z0-9]+(.)/g, (_match, next) => next.toUpperCase())
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .replace(/^[^a-zA-Z]+/g, "");
+  const base = cleaned || "plugin";
+  return `${base[0].toLowerCase()}${base.slice(1)}Plugin`;
+}
+
+function normalizeGeneratedImportPath(dirName, builtPath) {
+  return `../../extensions/${dirName}/${String(builtPath).replace(/^\.\//u, "")}`;
+}
+
 export function collectBundledPluginMetadata(params = {}) {
   const repoRoot = path.resolve(params.repoRoot ?? process.cwd());
-  const extensionsRoot = path.join(repoRoot, "extensions");
-  if (!fs.existsSync(extensionsRoot)) {
-    return [];
-  }
-
   const entries = [];
-  for (const dirent of fs.readdirSync(extensionsRoot, { withFileTypes: true })) {
-    if (!dirent.isDirectory()) {
-      continue;
-    }
-
-    const pluginDir = path.join(extensionsRoot, dirent.name);
-    const manifestPath = path.join(pluginDir, "openclaw.plugin.json");
-    const packageJsonPath = path.join(pluginDir, "package.json");
-    if (!fs.existsSync(manifestPath) || !fs.existsSync(packageJsonPath)) {
-      continue;
-    }
-
-    const manifest = normalizePluginManifest(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
+  for (const source of collectBundledPluginSources({ repoRoot, requirePackageJson: true })) {
+    const manifest = normalizePluginManifest(source.manifest);
     if (!manifest) {
       continue;
     }
 
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+    const packageJson = source.packageJson;
     const packageManifest = normalizePackageManifest(packageJson);
     const extensions = Array.isArray(packageManifest?.extensions)
       ? packageManifest.extensions.filter((entry) => typeof entry === "string" && entry.trim())
@@ -183,9 +194,10 @@ export function collectBundledPluginMetadata(params = {}) {
         : undefined;
 
     entries.push({
-      dirName: dirent.name,
+      dirName: source.dirName,
       idHint: deriveIdHint({
         filePath: sourceEntry,
+        manifestId: manifest.id,
         packageName: typeof packageJson.name === "string" ? packageJson.name : undefined,
         hasMultipleExtensions: extensions.length > 1,
       }),
@@ -218,46 +230,88 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = ${JSON.stringify(entries, null,
 `;
 }
 
+export function renderBundledPluginEntriesModule(entries) {
+  const imports = entries
+    .map((entry) => {
+      const importPath = normalizeGeneratedImportPath(entry.dirName, entry.source.built);
+      return `  import("${importPath}")`;
+    })
+    .join(",\n");
+  const bindings = entries
+    .map((entry) => {
+      const identifier = toIdentifier(entry.dirName);
+      return `${identifier}Module`;
+    })
+    .join(",\n    ");
+  const identifiers = entries
+    .map((entry) => {
+      const identifier = toIdentifier(entry.dirName);
+      return `${identifier}Module.default`;
+    })
+    .join(",\n    ");
+  return `// Auto-generated by ${GENERATED_BY}. Do not edit directly.
+
+export async function loadGeneratedBundledPluginEntries() {
+  const [
+    ${bindings}
+  ] = await Promise.all([
+${imports}
+  ]);
+  return [
+    ${identifiers}
+  ] as const;
+}
+`;
+}
+
 export function writeBundledPluginMetadataModule(params = {}) {
   const repoRoot = path.resolve(params.repoRoot ?? process.cwd());
+  const entries = collectBundledPluginMetadata({ repoRoot });
   const outputPath = path.resolve(repoRoot, params.outputPath ?? DEFAULT_OUTPUT_PATH);
-  const next = formatTypeScriptModule(
-    renderBundledPluginMetadataModule(collectBundledPluginMetadata({ repoRoot })),
-    { outputPath },
+  const entriesOutputPath = path.resolve(
+    repoRoot,
+    params.entriesOutputPath ?? DEFAULT_ENTRIES_OUTPUT_PATH,
   );
-  const current = readIfExists(outputPath);
-  const changed = current !== next;
-
-  if (params.check) {
-    return {
-      changed,
-      wrote: false,
-      outputPath,
-    };
-  }
-
-  return {
-    changed,
-    wrote: writeTextFileIfChanged(outputPath, next),
+  const metadataNext = formatTypeScriptModule(renderBundledPluginMetadataModule(entries), {
     outputPath,
+  });
+  const registryNext = formatTypeScriptModule(renderBundledPluginEntriesModule(entries), {
+    outputPath: entriesOutputPath,
+  });
+  const metadataResult = writeGeneratedOutput({
+    repoRoot,
+    outputPath: params.outputPath ?? DEFAULT_OUTPUT_PATH,
+    next: metadataNext,
+    check: params.check,
+  });
+  const entriesResult = writeGeneratedOutput({
+    repoRoot,
+    outputPath: params.entriesOutputPath ?? DEFAULT_ENTRIES_OUTPUT_PATH,
+    next: registryNext,
+    check: params.check,
+  });
+  return {
+    changed: metadataResult.changed || entriesResult.changed,
+    wrote: metadataResult.wrote || entriesResult.wrote,
+    outputPaths: [metadataResult.outputPath, entriesResult.outputPath],
   };
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  const result = writeBundledPluginMetadataModule({
-    check: process.argv.includes("--check"),
-  });
-
-  if (result.changed) {
-    if (process.argv.includes("--check")) {
-      console.error(
-        `[bundled-plugin-metadata] stale generated output at ${path.relative(process.cwd(), result.outputPath)}`,
-      );
-      process.exitCode = 1;
-    } else {
-      console.log(
-        `[bundled-plugin-metadata] wrote ${path.relative(process.cwd(), result.outputPath)}`,
-      );
+if (import.meta.url === new URL(process.argv[1] ?? "", "file:").href) {
+  const check = process.argv.includes("--check");
+  const result = writeBundledPluginMetadataModule({ check });
+  if (!result.changed) {
+    process.exitCode = 0;
+  } else if (check) {
+    for (const outputPath of result.outputPaths) {
+      const relativeOutputPath = path.relative(process.cwd(), outputPath);
+      console.error(`[bundled-plugin-metadata] stale generated output at ${relativeOutputPath}`);
+    }
+    process.exitCode = 1;
+  } else {
+    for (const outputPath of result.outputPaths) {
+      const relativeOutputPath = path.relative(process.cwd(), outputPath);
+      console.log(`[bundled-plugin-metadata] wrote ${relativeOutputPath}`);
     }
   }
 }

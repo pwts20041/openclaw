@@ -11,6 +11,11 @@ import { resolveGatewayProgramArguments } from "../daemon/program-args.js";
 import { buildServiceEnvironment } from "../daemon/service-env.js";
 import { resolveConfigDir } from "../utils.js";
 import {
+  isDangerousHostEnvOverrideVarName,
+  isDangerousHostEnvVarName,
+  normalizeEnvVarKey,
+} from "../infra/host-env-security.js";
+import {
   emitDaemonInstallRuntimeWarning,
   resolveDaemonInstallRuntimeInputs,
   resolveDaemonNodeBinDir,
@@ -50,6 +55,7 @@ function collectAuthProfileServiceEnvVars(params: {
   env: Record<string, string | undefined>;
   authStore?: AuthProfileStore;
   skipKeys?: Set<string>;
+  warn?: DaemonInstallWarnFn;
 }): Record<string, string> {
   const authStore = params.authStore ?? loadAuthProfileStoreForSecretsRuntime();
   const entries: Record<string, string> = {};
@@ -64,15 +70,27 @@ function collectAuthProfileServiceEnvVars(params: {
     if (!ref || ref.source !== "env" || params.skipKeys?.has(ref.id)) {
       continue;
     }
-    const value = params.env[ref.id]?.trim();
+    const key = normalizeEnvVarKey(ref.id, { portable: true });
+    if (!key) {
+      continue;
+    }
+    if (isDangerousHostEnvVarName(key) || isDangerousHostEnvOverrideVarName(key)) {
+      params.warn?.(
+        `Auth profile env ref "${key}" blocked by host-env security policy`,
+        "Auth profile",
+      );
+      continue;
+    }
+    const value = params.env[key]?.trim();
     if (!value) {
       continue;
     }
-    entries[ref.id] = value;
+    entries[key] = value;
   }
 
   return entries;
 }
+
 
 export async function buildGatewayInstallPlan(params: {
   env: Record<string, string | undefined>;
@@ -120,6 +138,7 @@ export async function buildGatewayInstallPlan(params: {
       env: params.env,
       authStore: params.authStore,
       skipKeys: readDurableStateEnvKeys(params.env),
+      warn: params.warn,
     }),
     ...serviceEnvironment,
   };
