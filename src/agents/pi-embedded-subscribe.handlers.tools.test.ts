@@ -1208,6 +1208,32 @@ describe("circuit breaker arg signature for browser act nested request fields", 
 
     expect(onError).not.toHaveBeenCalled();
   });
+
+  it("does not trip circuit when type calls share targetId but have different text", async () => {
+    // Same targetId but different text — the full request payload must be used, not just
+    // the first matching field.
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runBrowserAct(ctx, { kind: "type", targetId: "input-search", text: "hello" }, true, "a1");
+    await runBrowserAct(ctx, { kind: "type", targetId: "input-search", text: "world" }, true, "a2");
+    await runBrowserAct(ctx, { kind: "type", targetId: "input-search", text: "foo" }, true, "a3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("trips circuit when type calls repeatedly use the same targetId and text", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runBrowserAct(ctx, { kind: "type", targetId: "input-search", text: "hello" }, true, "a1");
+    await runBrowserAct(ctx, { kind: "type", targetId: "input-search", text: "hello" }, true, "a2");
+    await runBrowserAct(ctx, { kind: "type", targetId: "input-search", text: "hello" }, true, "a3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("circuit breaker arg signature for cron wake text field", () => {

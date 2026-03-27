@@ -126,15 +126,12 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
     // fallback so the most specific info surfaces at the top rather than buried in args.
     if (isPlainObject(record.request)) {
       const req = record.request;
-      const kindVal = typeof req.kind === "string" ? req.kind.trim() : null;
-      if (kindVal) {
-        for (const reqKey of ["targetId", "ref", "selector", "text", "url", "fn"]) {
-          const val = req[reqKey];
-          if (typeof val === "string" && val.trim()) {
-            return `action=${actionVal},request.kind=${kindVal},request.${reqKey}=${val.trim()}`;
-          }
-        }
-        return `action=${actionVal},request.kind=${kindVal}`;
+      // Serialize the full request object so that calls sharing one field (e.g. targetId)
+      // but differing in others (e.g. text) are not collapsed into the same signature.
+      try {
+        return `action=${actionVal},request=${stableJsonStringify(req)}`;
+      } catch {
+        // ignore — fall through to generic JSON fingerprint
       }
     }
     // All other action-driven tools: stable JSON fingerprint of non-action args.
