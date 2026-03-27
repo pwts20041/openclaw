@@ -21,6 +21,18 @@ OpenClaw checks ClawHub first and falls back to npm automatically.
 
 ## Listed plugins
 
+### ClawTalk
+
+Voice calls, SMS, and AI-driven phone missions powered by Telnyx. Make and
+receive calls, send messages, and run multi-step voice agent missions.
+
+- **npm:** `clawtalk`
+- **repo:** [github.com/team-telnyx/clawtalk-plugin](https://github.com/team-telnyx/clawtalk-plugin)
+
+```bash
+openclaw plugins install clawtalk
+```
+
 ### Codex App Server Bridge
 
 Independent OpenClaw bridge for Codex App Server conversations. Bind a chat to
