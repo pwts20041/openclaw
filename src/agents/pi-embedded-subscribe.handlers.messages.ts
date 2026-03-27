@@ -2,6 +2,7 @@ import type { AgentEvent, AgentMessage } from "@mariozechner/pi-agent-core";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { parseReplyDirectives } from "../auto-reply/reply/reply-directives.js";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
+import { isAnnounceSkip } from "./tools/sessions-send-helpers.js";
 import { emitAgentEvent } from "../infra/agent-events.js";
 import { createInlineCodeState } from "../markdown/code-spans.js";
 import {
@@ -60,7 +61,7 @@ export function resolveSilentReplyFallbackText(params: {
   messagingToolSentTexts: string[];
 }): string {
   const trimmed = params.text.trim();
-  if (trimmed !== SILENT_REPLY_TOKEN) {
+  if (trimmed !== SILENT_REPLY_TOKEN && !isAnnounceSkip(trimmed)) {
     return params.text;
   }
   const fallback = params.messagingToolSentTexts.at(-1)?.trim();

@@ -12,6 +12,7 @@ import {
   hasReplyPayloadContent,
   type InteractiveReply,
 } from "../../interactive/payload.js";
+import { isAnnounceSkip } from "../../agents/tools/sessions-send-helpers.js";
 
 export type NormalizedOutboundPayload = {
   text: string;
@@ -83,7 +84,7 @@ export function normalizeReplyPayloadsForDelivery(
       replyToCurrent: payload.replyToCurrent || parsed.replyToCurrent,
       audioAsVoice: Boolean(payload.audioAsVoice || parsed.audioAsVoice),
     };
-    if (parsed.isSilent && mergedMedia.length === 0) {
+    if ((parsed.isSilent || isAnnounceSkip(next.text)) && mergedMedia.length === 0) {
       continue;
     }
     if (!isRenderablePayload(next)) {

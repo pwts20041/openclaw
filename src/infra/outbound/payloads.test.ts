@@ -36,6 +36,7 @@ describe("normalizeReplyPayloadsForDelivery", () => {
     expect(
       normalizeReplyPayloadsForDelivery([
         { text: "NO_REPLY" },
+        { text: "ANNOUNCE_SKIP" },
         { text: "Reasoning:\n_step_", isReasoning: true },
         { text: "final answer" },
       ]),
