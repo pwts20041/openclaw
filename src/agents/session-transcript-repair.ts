@@ -348,7 +348,7 @@ export type ToolUseRepairReport = {
 
 export function repairToolUseResultPairing(
   messages: AgentMessage[],
-  options?: ToolUseResultPairingOptions,
+  _options?: ToolUseResultPairingOptions,
 ): ToolUseRepairReport {
   // Anthropic (and Cloud Code Assist) reject transcripts where assistant tool calls are not
   // immediately followed by matching tool results. Session files can end up with results
@@ -399,6 +399,36 @@ export function repairToolUseResultPairing(
     }
 
     const assistant = msg as Extract<AgentMessage, { role: "assistant" }>;
+
+    // For aborted or errored assistant messages, strip any tool_use/toolCall blocks
+    // rather than skipping the message entirely. These messages are the most likely
+    // to contain orphaned tool_use blocks (tool call started but result never generated).
+    // Previously we skipped them to avoid creating synthetic tool_results for incomplete
+    // tool calls (see #4597), but skipping preserves the orphaned blocks, which then
+    // cause permanent session corruption — Anthropic rejects every subsequent request
+    // with "tool_use ids were found without tool_result blocks" (see #48354).
+    // The safe fix: strip the tool call blocks entirely instead of trying to pair them.
+    const stopReason = (assistant as { stopReason?: string }).stopReason;
+    if (stopReason === "error" || stopReason === "aborted") {
+      const errorToolCalls = extractToolCallsFromAssistant(assistant);
+      if (errorToolCalls.length > 0) {
+        const content = Array.isArray(assistant.content) ? assistant.content : [];
+        const stripped = content.filter(
+          (b: { type?: string }) => b && b.type !== "toolCall" && b.type !== "toolUse",
+        );
+        changed = true;
+        out.push({
+          ...assistant,
+          content:
+            stripped.length > 0
+              ? stripped
+              : [{ type: "text" as const, text: "[tool calls from errored turn stripped]" }],
+        } as typeof assistant);
+      } else {
+        out.push(msg);
+      }
+      continue;
+    }
 
     const toolCalls = extractToolCallsFromAssistant(assistant);
     if (toolCalls.length === 0) {
@@ -457,27 +487,9 @@ export function repairToolUseResultPairing(
       }
     }
 
-    // Aborted/errored assistant turns should never synthesize missing tool results, but
-    // the replay sanitizer can still legitimately retain real tool results for surviving
-    // tool calls in the same turn after malformed siblings are dropped.
-    const stopReason = (assistant as { stopReason?: string }).stopReason;
-    if (stopReason === "error" || stopReason === "aborted") {
-      out.push(msg);
-      if (options?.preserveErroredAssistantResults) {
-        for (const toolCall of toolCalls) {
-          const result = spanResultsById.get(toolCall.id);
-          if (!result) {
-            continue;
-          }
-          pushToolResult(result);
-        }
-      }
-      for (const rem of remainder) {
-        out.push(rem);
-      }
-      i = j - 1;
-      continue;
-    }
+    // Note: aborted/errored assistant turns are already handled above (tool_use blocks
+    // are stripped and the message is emitted with `continue`). This point is only
+    // reached for normal assistant messages, so no stopReason guard is needed here.
 
     out.push(msg);
 
