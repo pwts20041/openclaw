@@ -15,6 +15,7 @@ import {
 import { detectCommandObfuscation } from "../infra/exec-obfuscation-detect.js";
 import { buildNodeShellCommand } from "../infra/node-shell.js";
 import { parsePreparedSystemRunPayload } from "../infra/system-run-approval-context.js";
+import { formatExecCommand } from "../infra/system-run-command.js";
 import { logInfo } from "../logger.js";
 import {
   buildExecApprovalRequesterContext,
@@ -96,25 +97,43 @@ export async function executeNodeHostCommand(
     );
   }
   const argv = buildNodeShellCommand(params.command, nodeInfo?.platform);
-  const prepareRaw = await callGatewayTool<{ payload?: unknown }>(
-    "node.invoke",
-    { timeoutMs: 15_000 },
-    {
-      nodeId,
-      command: "system.run.prepare",
-      params: {
-        command: argv,
-        rawCommand: params.command,
-        cwd: params.workdir,
-        agentId: params.agentId,
-        sessionKey: params.sessionKey,
+  let prepared: ReturnType<typeof parsePreparedSystemRunPayload>;
+  try {
+    const prepareRaw = await callGatewayTool<{ payload?: unknown }>(
+      "node.invoke",
+      { timeoutMs: 15_000 },
+      {
+        nodeId,
+        command: "system.run.prepare",
+        params: {
+          command: argv,
+          rawCommand: params.command,
+          cwd: params.workdir,
+          agentId: params.agentId,
+          sessionKey: params.sessionKey,
+        },
+        idempotencyKey: crypto.randomUUID(),
       },
-      idempotencyKey: crypto.randomUUID(),
-    },
-  );
-  const prepared = parsePreparedSystemRunPayload(prepareRaw?.payload);
+    );
+    prepared = parsePreparedSystemRunPayload(prepareRaw?.payload);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes("unknown command") && !msg.includes("command not allowed")) {
+      throw err;
+    }
+    prepared = null;
+  }
   if (!prepared) {
-    throw new Error("invalid system.run.prepare response");
+    prepared = {
+      plan: {
+        argv,
+        cwd: params.workdir ?? null,
+        commandText: params.command || formatExecCommand(argv),
+        commandPreview: null,
+        agentId: params.agentId ?? null,
+        sessionKey: params.sessionKey ?? null,
+      },
+    };
   }
   const runArgv = prepared.plan.argv;
   const runRawCommand = prepared.plan.commandText;

@@ -10,6 +10,7 @@ import {
   writeCameraPayloadToFile,
 } from "../../cli/nodes-camera.js";
 import { parseEnvPairs, parseTimeoutMs } from "../../cli/nodes-run.js";
+import { formatExecCommand } from "../../infra/system-run-command.js";
 import {
   parseScreenRecordPayload,
   screenRecordTempPath,
@@ -661,25 +662,38 @@ export function createNodesTool(options?: {
               typeof params.needsScreenRecording === "boolean"
                 ? params.needsScreenRecording
                 : undefined;
-            const prepareRaw = await callGatewayTool<{ payload?: unknown }>(
-              "node.invoke",
-              gatewayOpts,
-              {
-                nodeId,
-                command: "system.run.prepare",
-                params: {
-                  command,
-                  cwd,
-                  agentId,
-                  sessionKey,
+            let prepared: ReturnType<typeof parsePreparedSystemRunPayload>;
+            try {
+              const prepareRaw = await callGatewayTool<{ payload?: unknown }>(
+                "node.invoke",
+                gatewayOpts,
+                {
+                  nodeId,
+                  command: "system.run.prepare",
+                  params: { command, cwd, agentId, sessionKey },
+                  timeoutMs: invokeTimeoutMs,
+                  idempotencyKey: crypto.randomUUID(),
                 },
-                timeoutMs: invokeTimeoutMs,
-                idempotencyKey: crypto.randomUUID(),
-              },
-            );
-            const prepared = parsePreparedSystemRunPayload(prepareRaw?.payload);
+              );
+              prepared = parsePreparedSystemRunPayload(prepareRaw?.payload);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              if (!msg.includes("unknown command") && !msg.includes("command not allowed")) {
+                throw err;
+              }
+              prepared = null;
+            }
             if (!prepared) {
-              throw new Error("invalid system.run.prepare response");
+              prepared = {
+                plan: {
+                  argv: command,
+                  cwd: cwd ?? null,
+                  commandText: formatExecCommand(command),
+                  commandPreview: null,
+                  agentId: agentId ?? null,
+                  sessionKey: sessionKey ?? null,
+                },
+              };
             }
             const runParams = {
               command: prepared.plan.argv,

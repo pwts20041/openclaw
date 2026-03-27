@@ -17,6 +17,7 @@ import {
 import { buildNodeShellCommand } from "../../infra/node-shell.js";
 import { applyPathPrepend } from "../../infra/path-prepend.js";
 import { parsePreparedSystemRunPayload } from "../../infra/system-run-approval-context.js";
+import { formatExecCommand } from "../../infra/system-run-command.js";
 import { defaultRuntime } from "../../runtime.js";
 import { parseEnvPairs, parseTimeoutMs } from "../nodes-run.js";
 import { getNodesTheme, runNodesCommand } from "./cli-utils.js";
@@ -135,24 +136,35 @@ async function prepareNodesRunContext(params: {
     applyPathPrepend(nodeEnv, params.execDefaults?.pathPrepend, { requireExisting: true });
   }
 
-  const prepareResponse = (await callGatewayCli("node.invoke", params.opts, {
-    nodeId: params.nodeId,
-    command: "system.run.prepare",
-    params: {
-      command: argv,
-      rawCommand,
-      cwd: params.opts.cwd,
-      agentId: params.agentId,
-    },
-    idempotencyKey: `prepare-${randomIdempotencyKey()}`,
-  })) as { payload?: unknown } | null;
+  let preparedPayload: unknown;
+  try {
+    const prepareResponse = (await callGatewayCli("node.invoke", params.opts, {
+      nodeId: params.nodeId,
+      command: "system.run.prepare",
+      params: { command: argv, rawCommand, cwd: params.opts.cwd, agentId: params.agentId },
+      idempotencyKey: `prepare-${randomIdempotencyKey()}`,
+    })) as { payload?: unknown } | null;
+    preparedPayload = prepareResponse?.payload;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes("unknown command") && !msg.includes("command not allowed")) {
+      throw err;
+    }
+    preparedPayload = null;
+  }
 
-  return {
-    prepared: requirePreparedRunPayload(prepareResponse?.payload),
-    nodeEnv,
-    timeoutMs,
-    invokeTimeout,
+  const prepared = parsePreparedSystemRunPayload(preparedPayload) ?? {
+    plan: {
+      argv,
+      cwd: params.opts.cwd ?? null,
+      commandText: rawCommand ?? formatExecCommand(argv),
+      commandPreview: null,
+      agentId: params.agentId ?? null,
+      sessionKey: null,
+    },
   };
+
+  return { prepared, nodeEnv, timeoutMs, invokeTimeout };
 }
 
 async function resolveNodeApprovals(params: {
