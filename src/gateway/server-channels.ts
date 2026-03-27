@@ -14,6 +14,7 @@ import {
   normalizeOptionalAccountId,
 } from "../routing/session-key.js";
 import type { RuntimeEnv } from "../runtime.js";
+import { SecretProviderResolutionError, SecretRefResolutionError } from "../secrets/resolve.js";
 
 const CHANNEL_RESTART_POLICY: BackoffPolicy = {
   initialMs: 5_000,
@@ -67,6 +68,16 @@ function isAccountEnabled(account: unknown): boolean {
 function resolveDefaultRuntime(channelId: ChannelId): ChannelAccountSnapshot {
   const plugin = getChannelPlugin(channelId);
   return plugin?.status?.defaultRuntime ?? { accountId: DEFAULT_ACCOUNT_ID };
+}
+
+function isSecretResolutionAvailabilityError(error: unknown): boolean {
+  if (error instanceof SecretRefResolutionError) {
+    return error.source === "env";
+  }
+  if (error instanceof SecretProviderResolutionError) {
+    return /timed out after|produced no output|exited with code/i.test(error.message);
+  }
+  return false;
 }
 
 function cloneDefaultRuntime(channelId: ChannelId, accountId: string): ChannelAccountSnapshot {
@@ -499,6 +510,9 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
       try {
         await startChannel(plugin.id);
       } catch (err) {
+        if (!isSecretResolutionAvailabilityError(err)) {
+          throw err;
+        }
         channelLogs[plugin.id]?.error?.(
           `[${plugin.id}] channel startup failed: ${formatErrorMessage(err)}`,
         );

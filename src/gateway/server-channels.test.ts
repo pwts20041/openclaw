@@ -10,6 +10,7 @@ import { getActivePluginRegistry, setActivePluginRegistry } from "../plugins/run
 import type { PluginRuntime } from "../plugins/runtime/types.js";
 import { DEFAULT_ACCOUNT_ID } from "../routing/session-key.js";
 import type { RuntimeEnv } from "../runtime.js";
+import { SecretProviderResolutionError, SecretRefResolutionError } from "../secrets/resolve.js";
 import { createChannelManager } from "./server-channels.js";
 
 const hoisted = vi.hoisted(() => {
@@ -282,7 +283,12 @@ describe("server-channels auto restart", () => {
 
   it("continues starting later channels after one startup failure", async () => {
     const failingStart = vi.fn(async () => {
-      throw new Error("missing runtime");
+      throw new SecretRefResolutionError({
+        source: "env",
+        provider: "default",
+        refId: "DISCORD_TOKEN",
+        message: 'Environment variable "DISCORD_TOKEN" is missing or empty.',
+      });
     });
     const succeedingStart = vi.fn(async () => {});
     installTestRegistry(
@@ -295,6 +301,46 @@ describe("server-channels auto restart", () => {
 
     expect(failingStart).toHaveBeenCalledTimes(1);
     expect(succeedingStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues starting later channels after provider availability failures", async () => {
+    const failingStart = vi.fn(async () => {
+      throw new SecretProviderResolutionError({
+        source: "exec",
+        provider: "vault",
+        message: 'Exec provider "vault" timed out after 5000ms.',
+      });
+    });
+    const succeedingStart = vi.fn(async () => {});
+    installTestRegistry(
+      createTestPlugin({ id: "discord", order: 1, startAccount: failingStart }),
+      createTestPlugin({ id: "slack", order: 2, startAccount: succeedingStart }),
+    );
+    const manager = createManager({ channelIds: ["discord", "slack"] });
+
+    await expect(manager.startChannels()).resolves.toBeUndefined();
+
+    expect(failingStart).toHaveBeenCalledTimes(1);
+    expect(succeedingStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps invalid SecretRef startup failures fatal", async () => {
+    const failingStart = vi.fn(async () => {
+      throw new Error(
+        'Exec SecretRef ids may include only letters, numbers, ".", "_", "/", and "-" with no "." or ".." segments (ref: exec:vault:../../token).',
+      );
+    });
+    const succeedingStart = vi.fn(async () => {});
+    installTestRegistry(
+      createTestPlugin({ id: "discord", order: 1, startAccount: failingStart }),
+      createTestPlugin({ id: "slack", order: 2, startAccount: succeedingStart }),
+    );
+    const manager = createManager({ channelIds: ["discord", "slack"] });
+
+    await expect(manager.startChannels()).rejects.toThrow(/no "\." or "\.\." segments/);
+
+    expect(failingStart).toHaveBeenCalledTimes(1);
+    expect(succeedingStart).not.toHaveBeenCalled();
   });
 
   it("reuses plugin account resolution for health monitor overrides", () => {

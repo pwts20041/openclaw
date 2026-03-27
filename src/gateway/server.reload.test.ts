@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveMainSessionKeyFromConfig } from "../config/sessions.js";
 import { drainSystemEvents } from "../infra/system-events.js";
+import { getActiveSecretsRuntimeSnapshot } from "../secrets/runtime.js";
 import {
   connectOk,
   installGatewayTestHooks,
@@ -217,6 +218,34 @@ describe("gateway hot reload", () => {
             baseUrl: "https://api.openai.com/v1",
             apiKey: { source: "env", provider: "default", id: "OPENAI_API_KEY" },
             models: [],
+          },
+        },
+      },
+    });
+  }
+
+  async function writeChannelEnvRefConfig() {
+    await writeConfigFile({
+      channels: {
+        discord: {
+          token: { source: "env", provider: "default", id: "DISCORD_BOT_TOKEN" },
+        },
+      },
+    });
+  }
+
+  async function writeChannelTraversalExecRefConfig() {
+    await writeConfigFile({
+      channels: {
+        discord: {
+          token: { source: "exec", provider: "vault", id: "a/../b" },
+        },
+      },
+      secrets: {
+        providers: {
+          vault: {
+            source: "exec",
+            command: process.execPath,
           },
         },
       },
@@ -547,6 +576,22 @@ describe("gateway hot reload", () => {
     );
   });
 
+  it("degrades startup when active channel secret refs are unresolved", async () => {
+    await writeChannelEnvRefConfig();
+    delete process.env.DISCORD_BOT_TOKEN;
+
+    await withGatewayServer(async () => {
+      const snapshot = getActiveSecretsRuntimeSnapshot();
+      expect(snapshot?.sourceConfig.channels?.discord).toMatchObject({
+        token: { source: "env", provider: "default", id: "DISCORD_BOT_TOKEN" },
+      });
+      expect(snapshot?.config.channels?.discord).toMatchObject({
+        enabled: false,
+        token: { source: "env", provider: "default", id: "DISCORD_BOT_TOKEN" },
+      });
+    });
+  });
+
   it("fails startup when an active exec ref id contains traversal segments", async () => {
     await writeGatewayTraversalExecRefConfig();
     const previousGatewayAuth = testState.gatewayAuth;
@@ -565,6 +610,14 @@ describe("gateway hot reload", () => {
         process.env.OPENCLAW_GATEWAY_TOKEN = previousGatewayTokenEnv;
       }
     }
+  });
+
+  it("fails startup when channel isolation hits an invalid exec ref id", async () => {
+    await writeChannelTraversalExecRefConfig();
+
+    await expect(withGatewayServer(async () => {})).rejects.toThrow(
+      /must not include "\." or "\.\." path segments/i,
+    );
   });
 
   it("allows startup when unresolved refs exist only on disabled surfaces", async () => {
