@@ -58,22 +58,26 @@ const installRunEmbeddedMocks = () => {
   vi.doMock("./pi-embedded-runner/run/attempt.js", () => ({
     runEmbeddedAttempt: (params: unknown) => runEmbeddedAttemptMock(params),
   }));
-  vi.doMock("../plugins/provider-runtime.js", () => ({
-    prepareProviderRuntimeAuth: async (params: {
-      provider: string;
-      context: { apiKey: string };
-    }) => {
-      if (params.provider !== "github-copilot") {
-        return undefined;
-      }
-      const token = await resolveCopilotApiTokenMock(params.context.apiKey);
-      return {
-        apiKey: token.token,
-        baseUrl: token.baseUrl,
-        expiresAt: token.expiresAt,
-      };
-    },
-  }));
+  vi.doMock("../plugins/provider-runtime.js", async (importOriginal) => {
+    const mod = await importOriginal<typeof import("../plugins/provider-runtime.js")>();
+    return {
+      ...mod,
+      prepareProviderRuntimeAuth: async (params: {
+        provider: string;
+        context: { apiKey: string };
+      }) => {
+        if (params.provider !== "github-copilot") {
+          return undefined;
+        }
+        const token = await resolveCopilotApiTokenMock(params.context.apiKey);
+        return {
+          apiKey: token.token,
+          baseUrl: token.baseUrl,
+          expiresAt: token.expiresAt,
+        };
+      },
+    };
+  });
   vi.doMock("../infra/backoff.js", () => ({
     computeBackoff: (
       policy: { initialMs: number; maxMs: number; factor: number; jitter: number },
@@ -875,6 +879,18 @@ describe("runEmbeddedPiAgent auth profile rotation", () => {
     );
     expect(sleepWithAbortMock).toHaveBeenCalledTimes(1);
     expect(sleepWithAbortMock).toHaveBeenCalledWith(321, undefined);
+  });
+
+  it("rotates for timeout prompt failures without cooling down the profile", async () => {
+    const { usageStats } = await runAutoPinnedPromptErrorRotationCase({
+      errorMessage: "request ended without sending any chunks",
+      sessionKey: "agent:test:timeout-prompt-rotation",
+      runId: "run:timeout-prompt-rotation",
+    });
+    expect(typeof usageStats["openai:p2"]?.lastUsed).toBe("number");
+    expect(usageStats["openai:p1"]?.cooldownUntil).toBeUndefined();
+    expect(computeBackoffMock).not.toHaveBeenCalled();
+    expect(sleepWithAbortMock).not.toHaveBeenCalled();
   });
 
   it("rotates on timeout without cooling down the timed-out profile", async () => {
