@@ -206,6 +206,9 @@ type RunPreparedReplyParams = {
   storePath?: string;
   workspaceDir: string;
   abortedLastRun: boolean;
+  /** True when images triggered a model switch to imageModel.
+   *  Used to preserve auth profile overrides during temporary model switches. */
+  hasAppliedImageModelOverride?: boolean;
 };
 
 export async function runPreparedReply(
@@ -256,6 +259,7 @@ export async function runPreparedReply(
     resolvedElevatedLevel,
     execOverrides,
     abortedLastRun,
+    hasAppliedImageModelOverride,
   } = params;
   let currentSystemSent = systemSent;
 
@@ -507,7 +511,7 @@ export async function runPreparedReply(
     resolvedQueue.mode === "followup" ||
     resolvedQueue.mode === "collect" ||
     resolvedQueue.mode === "steer-backlog";
-  const authProfileId = await resolveSessionAuthProfileOverride({
+  const authProfileResolved = await resolveSessionAuthProfileOverride({
     cfg,
     provider,
     agentDir,
@@ -516,8 +520,11 @@ export async function runPreparedReply(
     sessionKey,
     storePath,
     isNewSession,
+    hasAppliedImageModelOverride,
+    defaultProvider,
   });
-  const authProfileIdSource = sessionEntry?.authProfileOverrideSource;
+  const authProfileId = authProfileResolved.authProfileId;
+  const authProfileIdSource = authProfileResolved.authProfileIdSource;
   const followupRun = {
     prompt: queuedBody,
     messageId: sessionCtx.MessageSidFull ?? sessionCtx.MessageSid,
@@ -581,6 +588,14 @@ export async function runPreparedReply(
       inputProvenance: ctx.InputProvenance ?? sessionCtx.InputProvenance,
       extraSystemPrompt: extraSystemPromptParts.join("\n\n") || undefined,
       ...(isReasoningTagProvider(provider) ? { enforceFinalTag: true } : {}),
+      // Pass image model fallbacks when image model override is active.
+      // Use explicit undefined check so that:
+      // - undefined: omit imageModelFallbacks, use default fallback chain
+      // - [] (empty): explicitly set no fallbacks for image model
+      // - [...] (non-empty): use provided fallbacks
+      ...(opts?.modelOverrideFallbacks !== undefined
+        ? { imageModelFallbacks: opts.modelOverrideFallbacks }
+        : {}),
     },
   };
 
