@@ -1277,9 +1277,16 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
 
-    const archived = archiveFileOnDisk(filePath, "bak");
     const keptLines = allLines.slice(0, cutLineIndex);
-    fs.writeFileSync(filePath, keptLines.length > 0 ? `${keptLines.join("\n")}\n` : "", "utf-8");
+    const newContent = keptLines.length > 0 ? `${keptLines.join("\n")}\n` : "";
+    // Write-then-rename: write to a temp file first so the original is untouched if writeFileSync throws.
+    const ts = new Date().toISOString().replaceAll(":", "-");
+    const tmpPath = `${filePath}.tmp.${ts}`;
+    const bakPath = `${filePath}.bak.${ts}`;
+    fs.writeFileSync(tmpPath, newContent, "utf-8");
+    fs.renameSync(filePath, bakPath);
+    fs.renameSync(tmpPath, filePath);
+    const archived = bakPath;
 
     await updateSessionStore(storePath, (store) => {
       const entryKey = truncateTarget.primaryKey;
@@ -1307,7 +1314,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     );
     emitSessionsChanged(context, {
       sessionKey: target.canonicalKey,
-      reason: "compact",
+      reason: "truncate",
     });
   },
 };

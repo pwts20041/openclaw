@@ -97,7 +97,7 @@ export type ChatProps = {
   onNewSession: () => void;
   onClearHistory?: () => void;
   /** Called when the user deletes a message group; receives the 1-based seq of the first message in that group. */
-  onTruncateHistory?: (seq: number) => void;
+  onTruncateHistory?: (seq: number) => boolean;
   agentsList: {
     agents: Array<{ id: string; name?: string; identity?: { name?: string; avatarUrl?: string } }>;
     defaultId?: string;
@@ -1039,9 +1039,12 @@ export function renderChat(props: ChatProps) {
                   const meta = firstMsg?.__openclaw as Record<string, unknown> | undefined;
                   const seq = typeof meta?.seq === "number" ? meta.seq : null;
                   if (seq !== null && props.onTruncateHistory) {
-                    deleted.delete(item.key);
-                    requestUpdate();
-                    props.onTruncateHistory(seq);
+                    // Only apply optimistic UI update if the RPC was actually initiated;
+                    // if disconnected, onTruncateHistory returns false and we leave state unchanged.
+                    if (props.onTruncateHistory(seq)) {
+                      deleted.delete(item.key);
+                      requestUpdate();
+                    }
                   } else {
                     deleted.delete(item.key);
                     requestUpdate();
