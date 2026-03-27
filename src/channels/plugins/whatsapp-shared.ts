@@ -1,5 +1,6 @@
 import { resolveOutboundSendDep } from "../../infra/outbound/send-deps.js";
 import { createAttachedChannelResultAdapter } from "../../plugin-sdk/channel-send-result.js";
+import type { OpenClawConfig } from "../../plugin-sdk/config-runtime.js";
 import type { PluginRuntimeChannel } from "../../plugins/runtime/types-channel.js";
 import { escapeRegExp } from "../../utils.js";
 import type { ChannelOutboundAdapter } from "./types.js";
@@ -30,6 +31,18 @@ type CreateWhatsAppOutboundBaseParams = {
   sendPollWhatsApp: WhatsAppSendPoll;
   shouldLogVerbose: () => boolean;
   resolveTarget: ChannelOutboundAdapter["resolveTarget"];
+  wrapSendMessageWhatsApp?: <T>(
+    run: () => Promise<T>,
+    params: {
+      cfg: OpenClawConfig | undefined;
+      accountId?: string | null;
+      label: "sendText" | "sendMedia";
+    },
+  ) => Promise<T>;
+  wrapSendPollWhatsApp?: <T>(
+    run: () => Promise<T>,
+    params: { cfg: OpenClawConfig | undefined; accountId?: string | null; label: "sendPoll" },
+  ) => Promise<T>;
   normalizeText?: (text: string | undefined) => string;
   skipEmptyText?: boolean;
 };
@@ -40,6 +53,8 @@ export function createWhatsAppOutboundBase({
   sendPollWhatsApp,
   shouldLogVerbose,
   resolveTarget,
+  wrapSendMessageWhatsApp,
+  wrapSendPollWhatsApp,
   normalizeText = (text) => text ?? "",
   skipEmptyText = false,
 }: CreateWhatsAppOutboundBaseParams): Pick<
@@ -70,12 +85,20 @@ export function createWhatsAppOutboundBase({
         }
         const send =
           resolveOutboundSendDep<WhatsAppSendMessage>(deps, "whatsapp") ?? sendMessageWhatsApp;
-        return await send(to, normalizedText, {
-          verbose: false,
-          cfg,
-          accountId: accountId ?? undefined,
-          gifPlayback,
-        });
+        const run = () =>
+          send(to, normalizedText, {
+            verbose: false,
+            cfg,
+            accountId: accountId ?? undefined,
+            gifPlayback,
+          });
+        return await (wrapSendMessageWhatsApp
+          ? wrapSendMessageWhatsApp(run, {
+              cfg,
+              accountId,
+              label: "sendText",
+            })
+          : run());
       },
       sendMedia: async ({
         cfg,
@@ -89,21 +112,43 @@ export function createWhatsAppOutboundBase({
       }) => {
         const send =
           resolveOutboundSendDep<WhatsAppSendMessage>(deps, "whatsapp") ?? sendMessageWhatsApp;
-        return await send(to, normalizeText(text), {
-          verbose: false,
-          cfg,
-          mediaUrl,
-          mediaLocalRoots,
-          accountId: accountId ?? undefined,
-          gifPlayback,
-        });
+        const run = () =>
+          send(to, normalizeText(text), {
+            verbose: false,
+            cfg,
+            mediaUrl,
+            mediaLocalRoots,
+            accountId: accountId ?? undefined,
+            gifPlayback,
+          });
+        return await (wrapSendMessageWhatsApp
+          ? wrapSendMessageWhatsApp(run, {
+              cfg,
+              accountId,
+              label: "sendMedia",
+            })
+          : run());
       },
       sendPoll: async ({ cfg, to, poll, accountId }) =>
-        await sendPollWhatsApp(to, poll, {
-          verbose: shouldLogVerbose(),
-          accountId: accountId ?? undefined,
-          cfg,
-        }),
+        await (wrapSendPollWhatsApp
+          ? wrapSendPollWhatsApp(
+              () =>
+                sendPollWhatsApp(to, poll, {
+                  verbose: shouldLogVerbose(),
+                  accountId: accountId ?? undefined,
+                  cfg,
+                }),
+              {
+                cfg,
+                accountId,
+                label: "sendPoll",
+              },
+            )
+          : sendPollWhatsApp(to, poll, {
+              verbose: shouldLogVerbose(),
+              accountId: accountId ?? undefined,
+              cfg,
+            })),
     }),
   };
 }

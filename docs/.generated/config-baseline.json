@@ -36091,6 +36091,56 @@
       "hasChildren": false
     },
     {
+      "path": "channels.whatsapp.accounts.*.retry",
+      "kind": "channel",
+      "type": "object",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": true
+    },
+    {
+      "path": "channels.whatsapp.accounts.*.retry.attempts",
+      "kind": "channel",
+      "type": "integer",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.whatsapp.accounts.*.retry.jitter",
+      "kind": "channel",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.whatsapp.accounts.*.retry.maxDelayMs",
+      "kind": "channel",
+      "type": "integer",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.whatsapp.accounts.*.retry.minDelayMs",
+      "kind": "channel",
+      "type": "integer",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
       "path": "channels.whatsapp.accounts.*.selfChatMode",
       "kind": "channel",
       "type": "boolean",
@@ -36772,6 +36822,56 @@
       "path": "channels.whatsapp.responsePrefix",
       "kind": "channel",
       "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.whatsapp.retry",
+      "kind": "channel",
+      "type": "object",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": true
+    },
+    {
+      "path": "channels.whatsapp.retry.attempts",
+      "kind": "channel",
+      "type": "integer",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.whatsapp.retry.jitter",
+      "kind": "channel",
+      "type": "number",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.whatsapp.retry.maxDelayMs",
+      "kind": "channel",
+      "type": "integer",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
+      "path": "channels.whatsapp.retry.minDelayMs",
+      "kind": "channel",
+      "type": "integer",
       "required": false,
       "deprecated": false,
       "sensitive": false,
@@ -59969,7 +60069,7 @@
         "tools"
       ],
       "label": "Enable apply_patch",
-      "help": "Experimental. Enables apply_patch for OpenAI models when allowed by tool policy.",
+      "help": "Enable or disable apply_patch for OpenAI and OpenAI Codex models when allowed by tool policy (default: true).",
       "hasChildren": false
     },
     {
