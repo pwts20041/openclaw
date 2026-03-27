@@ -8,6 +8,7 @@ import {
   resolveBootstrapTotalMaxChars,
 } from "./pi-embedded-helpers.js";
 import {
+  type BootstrapTier,
   filterBootstrapFilesForSession,
   loadWorkspaceBootstrapFiles,
   type WorkspaceBootstrapFile,
@@ -72,6 +73,7 @@ export async function resolveBootstrapFilesForRun(params: {
   runKind?: BootstrapContextRunKind;
 }): Promise<WorkspaceBootstrapFile[]> {
   const sessionKey = params.sessionKey ?? params.sessionId;
+  const tierOverride = params.config?.agents?.defaults?.bootstrapTier as BootstrapTier | undefined;
   const rawFiles = params.sessionKey
     ? await getOrLoadBootstrapFiles({
         workspaceDir: params.workspaceDir,
@@ -79,7 +81,7 @@ export async function resolveBootstrapFilesForRun(params: {
       })
     : await loadWorkspaceBootstrapFiles(params.workspaceDir);
   const bootstrapFiles = applyContextModeFilter({
-    files: filterBootstrapFilesForSession(rawFiles, sessionKey),
+    files: filterBootstrapFilesForSession(rawFiles, sessionKey, tierOverride),
     contextMode: params.contextMode,
     runKind: params.runKind,
   });
