@@ -60,6 +60,33 @@ function createTestContext(): {
   return { ctx, warn, onBlockReplyFlush };
 }
 
+/**
+ * Generic helper: fires a start+end pair for any tool so individual describe
+ * blocks don't need to reimplement the same 10-line pattern.
+ */
+async function runTool(
+  ctx: ToolHandlerContext,
+  toolName: string,
+  args: Record<string, unknown>,
+  isError: boolean,
+  id: string,
+  errorMsg = "Error: operation failed",
+) {
+  await handleToolExecutionStart(ctx, {
+    type: "tool_execution_start",
+    toolName,
+    toolCallId: id,
+    args,
+  });
+  await handleToolExecutionEnd(ctx, {
+    type: "tool_execution_end",
+    toolName,
+    toolCallId: id,
+    isError,
+    result: isError ? { type: "text", text: errorMsg } : { ok: true },
+  });
+}
+
 describe("handleToolExecutionStart read path checks", () => {
   it("does not warn when read tool uses file_path alias", async () => {
     const { ctx, warn, onBlockReplyFlush } = createTestContext();
@@ -553,31 +580,33 @@ describe("messaging tool media URL tracking", () => {
 });
 
 describe("circuit breaker arg signature for messaging tools", () => {
-  async function runMessage(ctx: ToolHandlerContext, to: string, isError: boolean, id: string) {
-    await handleToolExecutionStart(ctx, {
-      type: "tool_execution_start",
-      toolName: "message",
-      toolCallId: id,
-      args: { action: "send", to, content: "hello" },
-    });
-    await handleToolExecutionEnd(ctx, {
-      type: "tool_execution_end",
-      toolName: "message",
-      toolCallId: id,
-      isError,
-      result: isError ? { type: "text", text: "Error: delivery failed" } : { ok: true },
-    });
-  }
-
   it("does not trip circuit when successive failures target different recipients", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
     // Three failures, each to a different recipient — should NOT trip the breaker
-    await runMessage(ctx, "channel:111", true, "m1");
-    await runMessage(ctx, "channel:222", true, "m2");
-    await runMessage(ctx, "channel:333", true, "m3");
+    await runTool(
+      ctx,
+      "message",
+      { action: "send", to: "channel:111", content: "hello" },
+      true,
+      "m1",
+    );
+    await runTool(
+      ctx,
+      "message",
+      { action: "send", to: "channel:222", content: "hello" },
+      true,
+      "m2",
+    );
+    await runTool(
+      ctx,
+      "message",
+      { action: "send", to: "channel:333", content: "hello" },
+      true,
+      "m3",
+    );
 
     expect(onError).not.toHaveBeenCalled();
   });
@@ -587,39 +616,41 @@ describe("circuit breaker arg signature for messaging tools", () => {
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runMessage(ctx, "channel:999", true, "m1");
-    await runMessage(ctx, "channel:999", true, "m2");
-    await runMessage(ctx, "channel:999", true, "m3");
+    await runTool(
+      ctx,
+      "message",
+      { action: "send", to: "channel:999", content: "hello" },
+      true,
+      "m1",
+    );
+    await runTool(
+      ctx,
+      "message",
+      { action: "send", to: "channel:999", content: "hello" },
+      true,
+      "m2",
+    );
+    await runTool(
+      ctx,
+      "message",
+      { action: "send", to: "channel:999", content: "hello" },
+      true,
+      "m3",
+    );
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("circuit breaker arg signature for file_path alias", () => {
-  async function runRead(ctx: ToolHandlerContext, file_path: string, isError: boolean, id: string) {
-    await handleToolExecutionStart(ctx, {
-      type: "tool_execution_start",
-      toolName: "read",
-      toolCallId: id,
-      args: { file_path },
-    });
-    await handleToolExecutionEnd(ctx, {
-      type: "tool_execution_end",
-      toolName: "read",
-      toolCallId: id,
-      isError,
-      result: isError ? { type: "text", text: "Error: not found" } : { ok: true },
-    });
-  }
-
   it("does not trip circuit when read failures target different file_path values", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runRead(ctx, "/tmp/a.txt", true, "r1");
-    await runRead(ctx, "/tmp/b.txt", true, "r2");
-    await runRead(ctx, "/tmp/c.txt", true, "r3");
+    await runTool(ctx, "read", { file_path: "/tmp/a.txt" }, true, "r1");
+    await runTool(ctx, "read", { file_path: "/tmp/b.txt" }, true, "r2");
+    await runTool(ctx, "read", { file_path: "/tmp/c.txt" }, true, "r3");
 
     expect(onError).not.toHaveBeenCalled();
   });
@@ -629,39 +660,23 @@ describe("circuit breaker arg signature for file_path alias", () => {
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runRead(ctx, "/tmp/same.txt", true, "r1");
-    await runRead(ctx, "/tmp/same.txt", true, "r2");
-    await runRead(ctx, "/tmp/same.txt", true, "r3");
+    await runTool(ctx, "read", { file_path: "/tmp/same.txt" }, true, "r1");
+    await runTool(ctx, "read", { file_path: "/tmp/same.txt" }, true, "r2");
+    await runTool(ctx, "read", { file_path: "/tmp/same.txt" }, true, "r3");
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("circuit breaker arg signature for sessionId and jobId selectors", () => {
-  async function runCron(ctx: ToolHandlerContext, jobId: string, isError: boolean, id: string) {
-    await handleToolExecutionStart(ctx, {
-      type: "tool_execution_start",
-      toolName: "cron",
-      toolCallId: id,
-      args: { action: "remove", jobId },
-    });
-    await handleToolExecutionEnd(ctx, {
-      type: "tool_execution_end",
-      toolName: "cron",
-      toolCallId: id,
-      isError,
-      result: isError ? { type: "text", text: "Error: job not found" } : { ok: true },
-    });
-  }
-
   it("does not trip circuit when cron failures target different jobIds", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runCron(ctx, "job-1", true, "c1");
-    await runCron(ctx, "job-2", true, "c2");
-    await runCron(ctx, "job-3", true, "c3");
+    await runTool(ctx, "cron", { action: "remove", jobId: "job-1" }, true, "c1");
+    await runTool(ctx, "cron", { action: "remove", jobId: "job-2" }, true, "c2");
+    await runTool(ctx, "cron", { action: "remove", jobId: "job-3" }, true, "c3");
 
     expect(onError).not.toHaveBeenCalled();
   });
@@ -671,39 +686,23 @@ describe("circuit breaker arg signature for sessionId and jobId selectors", () =
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runCron(ctx, "job-x", true, "c1");
-    await runCron(ctx, "job-x", true, "c2");
-    await runCron(ctx, "job-x", true, "c3");
+    await runTool(ctx, "cron", { action: "remove", jobId: "job-x" }, true, "c1");
+    await runTool(ctx, "cron", { action: "remove", jobId: "job-x" }, true, "c2");
+    await runTool(ctx, "cron", { action: "remove", jobId: "job-x" }, true, "c3");
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("circuit breaker arg signature for browser targetId selector", () => {
-  async function runFocus(ctx: ToolHandlerContext, targetId: string, isError: boolean, id: string) {
-    await handleToolExecutionStart(ctx, {
-      type: "tool_execution_start",
-      toolName: "browser",
-      toolCallId: id,
-      args: { action: "focus", targetId },
-    });
-    await handleToolExecutionEnd(ctx, {
-      type: "tool_execution_end",
-      toolName: "browser",
-      toolCallId: id,
-      isError,
-      result: isError ? { type: "text", text: "Error: tab not found" } : { ok: true },
-    });
-  }
-
   it("does not trip circuit when focus failures target different tab ids", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runFocus(ctx, "tab-1", true, "f1");
-    await runFocus(ctx, "tab-2", true, "f2");
-    await runFocus(ctx, "tab-3", true, "f3");
+    await runTool(ctx, "browser", { action: "focus", targetId: "tab-1" }, true, "f1");
+    await runTool(ctx, "browser", { action: "focus", targetId: "tab-2" }, true, "f2");
+    await runTool(ctx, "browser", { action: "focus", targetId: "tab-3" }, true, "f3");
 
     expect(onError).not.toHaveBeenCalled();
   });
@@ -713,39 +712,23 @@ describe("circuit breaker arg signature for browser targetId selector", () => {
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runFocus(ctx, "tab-x", true, "f1");
-    await runFocus(ctx, "tab-x", true, "f2");
-    await runFocus(ctx, "tab-x", true, "f3");
+    await runTool(ctx, "browser", { action: "focus", targetId: "tab-x" }, true, "f1");
+    await runTool(ctx, "browser", { action: "focus", targetId: "tab-x" }, true, "f2");
+    await runTool(ctx, "browser", { action: "focus", targetId: "tab-x" }, true, "f3");
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("circuit breaker arg signature for nodes tool selectors", () => {
-  async function runNodes(ctx: ToolHandlerContext, node: string, isError: boolean, id: string) {
-    await handleToolExecutionStart(ctx, {
-      type: "tool_execution_start",
-      toolName: "nodes",
-      toolCallId: id,
-      args: { action: "status", node },
-    });
-    await handleToolExecutionEnd(ctx, {
-      type: "tool_execution_end",
-      toolName: "nodes",
-      toolCallId: id,
-      isError,
-      result: isError ? { type: "text", text: "Error: node unreachable" } : { ok: true },
-    });
-  }
-
   it("does not trip circuit when failures target different nodes", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runNodes(ctx, "node-a", true, "n1");
-    await runNodes(ctx, "node-b", true, "n2");
-    await runNodes(ctx, "node-c", true, "n3");
+    await runTool(ctx, "nodes", { action: "status", node: "node-a" }, true, "n1");
+    await runTool(ctx, "nodes", { action: "status", node: "node-b" }, true, "n2");
+    await runTool(ctx, "nodes", { action: "status", node: "node-c" }, true, "n3");
 
     expect(onError).not.toHaveBeenCalled();
   });
@@ -755,62 +738,47 @@ describe("circuit breaker arg signature for nodes tool selectors", () => {
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runNodes(ctx, "node-x", true, "n1");
-    await runNodes(ctx, "node-x", true, "n2");
-    await runNodes(ctx, "node-x", true, "n3");
+    await runTool(ctx, "nodes", { action: "status", node: "node-x" }, true, "n1");
+    await runTool(ctx, "nodes", { action: "status", node: "node-x" }, true, "n2");
+    await runTool(ctx, "nodes", { action: "status", node: "node-x" }, true, "n3");
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("circuit breaker arg signature for file alias", () => {
-  async function runEdit(ctx: ToolHandlerContext, file: string, isError: boolean, id: string) {
-    await handleToolExecutionStart(ctx, {
-      type: "tool_execution_start",
-      toolName: "edit",
-      toolCallId: id,
-      args: { file, old_string: "foo", new_string: "bar" },
-    });
-    await handleToolExecutionEnd(ctx, {
-      type: "tool_execution_end",
-      toolName: "edit",
-      toolCallId: id,
-      isError,
-      result: isError ? { type: "text", text: "Error: not found" } : { ok: true },
-    });
-  }
-
   it("does not trip circuit when edit failures target different file values", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runEdit(ctx, "/tmp/a.txt", true, "e1");
-    await runEdit(ctx, "/tmp/b.txt", true, "e2");
-    await runEdit(ctx, "/tmp/c.txt", true, "e3");
+    await runTool(
+      ctx,
+      "edit",
+      { file: "/tmp/a.txt", old_string: "foo", new_string: "bar" },
+      true,
+      "e1",
+    );
+    await runTool(
+      ctx,
+      "edit",
+      { file: "/tmp/b.txt", old_string: "foo", new_string: "bar" },
+      true,
+      "e2",
+    );
+    await runTool(
+      ctx,
+      "edit",
+      { file: "/tmp/c.txt", old_string: "foo", new_string: "bar" },
+      true,
+      "e3",
+    );
 
     expect(onError).not.toHaveBeenCalled();
   });
 });
 
 describe("circuit breaker arg signature for action-based tools with url/path args", () => {
-  async function runBrowser(ctx: ToolHandlerContext, url: string, isError: boolean, id: string) {
-    await handleToolExecutionStart(ctx, {
-      type: "tool_execution_start",
-      toolName: "browser",
-      toolCallId: id,
-      // target="current" is a window selector; url must win over it in the signature.
-      args: { action: "open", target: "current", url },
-    });
-    await handleToolExecutionEnd(ctx, {
-      type: "tool_execution_end",
-      toolName: "browser",
-      toolCallId: id,
-      isError,
-      result: isError ? { type: "text", text: "Error: navigation failed" } : { ok: true },
-    });
-  }
-
   it("does not trip circuit when browser URLs share a long common prefix but differ at the end", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
@@ -822,9 +790,28 @@ describe("circuit breaker arg signature for action-based tools with url/path arg
     const urlC = base + "C";
     expect(urlA.slice(0, 200)).toBe(urlB.slice(0, 200)); // confirm shared prefix
 
-    await runBrowser(ctx, urlA, true, "b-long-1");
-    await runBrowser(ctx, urlB, true, "b-long-2");
-    await runBrowser(ctx, urlC, true, "b-long-3");
+    // target="current" is a constant window selector; url is the differentiator
+    await runTool(
+      ctx,
+      "browser",
+      { action: "open", target: "current", url: urlA },
+      true,
+      "b-long-1",
+    );
+    await runTool(
+      ctx,
+      "browser",
+      { action: "open", target: "current", url: urlB },
+      true,
+      "b-long-2",
+    );
+    await runTool(
+      ctx,
+      "browser",
+      { action: "open", target: "current", url: urlC },
+      true,
+      "b-long-3",
+    );
 
     expect(onError).not.toHaveBeenCalled();
   });
@@ -834,9 +821,27 @@ describe("circuit breaker arg signature for action-based tools with url/path arg
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runBrowser(ctx, "https://example.com/a", true, "b1");
-    await runBrowser(ctx, "https://example.com/b", true, "b2");
-    await runBrowser(ctx, "https://example.com/c", true, "b3");
+    await runTool(
+      ctx,
+      "browser",
+      { action: "open", target: "current", url: "https://example.com/a" },
+      true,
+      "b1",
+    );
+    await runTool(
+      ctx,
+      "browser",
+      { action: "open", target: "current", url: "https://example.com/b" },
+      true,
+      "b2",
+    );
+    await runTool(
+      ctx,
+      "browser",
+      { action: "open", target: "current", url: "https://example.com/c" },
+      true,
+      "b3",
+    );
 
     expect(onError).not.toHaveBeenCalled();
   });
@@ -846,44 +851,41 @@ describe("circuit breaker arg signature for action-based tools with url/path arg
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runBrowser(ctx, "https://example.com/same", true, "b1");
-    await runBrowser(ctx, "https://example.com/same", true, "b2");
-    await runBrowser(ctx, "https://example.com/same", true, "b3");
+    await runTool(
+      ctx,
+      "browser",
+      { action: "open", target: "current", url: "https://example.com/same" },
+      true,
+      "b1",
+    );
+    await runTool(
+      ctx,
+      "browser",
+      { action: "open", target: "current", url: "https://example.com/same" },
+      true,
+      "b2",
+    );
+    await runTool(
+      ctx,
+      "browser",
+      { action: "open", target: "current", url: "https://example.com/same" },
+      true,
+      "b3",
+    );
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("circuit breaker arg signature for sessions_send label routing", () => {
-  async function runSessionsSend(
-    ctx: ToolHandlerContext,
-    label: string,
-    isError: boolean,
-    id: string,
-  ) {
-    await handleToolExecutionStart(ctx, {
-      type: "tool_execution_start",
-      toolName: "sessions_send",
-      toolCallId: id,
-      args: { label, message: "hello" },
-    });
-    await handleToolExecutionEnd(ctx, {
-      type: "tool_execution_end",
-      toolName: "sessions_send",
-      toolCallId: id,
-      isError,
-      result: isError ? { type: "text", text: "Error: session not visible" } : { ok: true },
-    });
-  }
-
   it("does not trip circuit when failures target different session labels", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runSessionsSend(ctx, "agent-a", true, "s1");
-    await runSessionsSend(ctx, "agent-b", true, "s2");
-    await runSessionsSend(ctx, "agent-c", true, "s3");
+    await runTool(ctx, "sessions_send", { label: "agent-a", message: "hello" }, true, "s1");
+    await runTool(ctx, "sessions_send", { label: "agent-b", message: "hello" }, true, "s2");
+    await runTool(ctx, "sessions_send", { label: "agent-c", message: "hello" }, true, "s3");
 
     expect(onError).not.toHaveBeenCalled();
   });
@@ -893,9 +895,9 @@ describe("circuit breaker arg signature for sessions_send label routing", () => 
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runSessionsSend(ctx, "agent-x", true, "s1");
-    await runSessionsSend(ctx, "agent-x", true, "s2");
-    await runSessionsSend(ctx, "agent-x", true, "s3");
+    await runTool(ctx, "sessions_send", { label: "agent-x", message: "hello" }, true, "s1");
+    await runTool(ctx, "sessions_send", { label: "agent-x", message: "hello" }, true, "s2");
+    await runTool(ctx, "sessions_send", { label: "agent-x", message: "hello" }, true, "s3");
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
@@ -1004,40 +1006,26 @@ describe("circuit breaker probe-reset prevention", () => {
     expect(onError).toHaveBeenCalledTimes(1);
 
     // A different tool succeeds — agent found a real alternative
-    await handleToolExecutionStart(ctx, {
-      type: "tool_execution_start",
-      toolName: "write",
-      toolCallId: "t4",
-      args: { path: "/tmp/out.txt", content: "hello" },
-    });
-    await handleToolExecutionEnd(ctx, {
-      type: "tool_execution_end",
-      toolName: "write",
-      toolCallId: "t4",
-      isError: false,
-      result: { type: "text", text: "ok" },
-    });
+    await runTool(ctx, "write", { path: "/tmp/out.txt", content: "hello" }, false, "t4");
     expect(ctx.state.consecutiveToolErrors).toBeNull();
+  });
+
+  it("treats exec cmd alias identically to command field", async () => {
+    // buildCircuitBreakerArgSig reads record.command ?? record.cmd for exec;
+    // both aliases must produce the same signature so identical repeated failures trip the breaker.
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runTool(ctx, "exec", { command: "ls /restricted" }, true, "t1");
+    await runTool(ctx, "exec", { cmd: "ls /restricted" }, true, "t2");
+    await runTool(ctx, "exec", { command: "ls /restricted" }, true, "t3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("circuit breaker arg signature for fallback url key (e.g. web_fetch)", () => {
-  async function runWebFetch(ctx: ToolHandlerContext, url: string, isError: boolean, id: string) {
-    await handleToolExecutionStart(ctx, {
-      type: "tool_execution_start",
-      toolName: "web_fetch",
-      toolCallId: id,
-      args: { url },
-    });
-    await handleToolExecutionEnd(ctx, {
-      type: "tool_execution_end",
-      toolName: "web_fetch",
-      toolCallId: id,
-      isError,
-      result: isError ? { type: "text", text: "Error: fetch failed" } : { ok: true },
-    });
-  }
-
   it("does not trip circuit when web_fetch URLs share a long common prefix but differ at the end", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
@@ -1050,9 +1038,9 @@ describe("circuit breaker arg signature for fallback url key (e.g. web_fetch)", 
     const urlC = base + "C";
     expect(urlA.slice(0, 100)).toBe(urlB.slice(0, 100)); // confirm shared prefix at 100
 
-    await runWebFetch(ctx, urlA, true, "wf1");
-    await runWebFetch(ctx, urlB, true, "wf2");
-    await runWebFetch(ctx, urlC, true, "wf3");
+    await runTool(ctx, "web_fetch", { url: urlA }, true, "wf1");
+    await runTool(ctx, "web_fetch", { url: urlB }, true, "wf2");
+    await runTool(ctx, "web_fetch", { url: urlC }, true, "wf3");
 
     expect(onError).not.toHaveBeenCalled();
   });
@@ -1062,44 +1050,35 @@ describe("circuit breaker arg signature for fallback url key (e.g. web_fetch)", 
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runWebFetch(ctx, "https://example.com/api/data", true, "wf1");
-    await runWebFetch(ctx, "https://example.com/api/data", true, "wf2");
-    await runWebFetch(ctx, "https://example.com/api/data", true, "wf3");
+    await runTool(ctx, "web_fetch", { url: "https://example.com/api/data" }, true, "wf1");
+    await runTool(ctx, "web_fetch", { url: "https://example.com/api/data" }, true, "wf2");
+    await runTool(ctx, "web_fetch", { url: "https://example.com/api/data" }, true, "wf3");
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("circuit breaker arg signature for action-based content fields (canvas eval / image-generate)", () => {
-  async function runCanvas(
-    ctx: ToolHandlerContext,
-    javaScript: string,
-    isError: boolean,
-    id: string,
-  ) {
-    await handleToolExecutionStart(ctx, {
-      type: "tool_execution_start",
-      toolName: "canvas",
-      toolCallId: id,
-      args: { action: "eval", javaScript },
-    });
-    await handleToolExecutionEnd(ctx, {
-      type: "tool_execution_end",
-      toolName: "canvas",
-      toolCallId: id,
-      isError,
-      result: isError ? { type: "text", text: "Error: eval failed" } : { ok: true },
-    });
-  }
-
   it("does not trip circuit when canvas eval failures use different scripts", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runCanvas(ctx, "document.title", true, "c1");
-    await runCanvas(ctx, "window.location.href", true, "c2");
-    await runCanvas(ctx, "document.body.innerText", true, "c3");
+    await runTool(ctx, "canvas", { action: "eval", javaScript: "document.title" }, true, "c1");
+    await runTool(
+      ctx,
+      "canvas",
+      { action: "eval", javaScript: "window.location.href" },
+      true,
+      "c2",
+    );
+    await runTool(
+      ctx,
+      "canvas",
+      { action: "eval", javaScript: "document.body.innerText" },
+      true,
+      "c3",
+    );
 
     expect(onError).not.toHaveBeenCalled();
   });
@@ -1109,9 +1088,10 @@ describe("circuit breaker arg signature for action-based content fields (canvas 
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runCanvas(ctx, "document.querySelector('#btn').click()", true, "c1");
-    await runCanvas(ctx, "document.querySelector('#btn').click()", true, "c2");
-    await runCanvas(ctx, "document.querySelector('#btn').click()", true, "c3");
+    const js = "document.querySelector('#btn').click()";
+    await runTool(ctx, "canvas", { action: "eval", javaScript: js }, true, "c1");
+    await runTool(ctx, "canvas", { action: "eval", javaScript: js }, true, "c2");
+    await runTool(ctx, "canvas", { action: "eval", javaScript: js }, true, "c3");
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
@@ -1269,30 +1249,14 @@ describe("circuit breaker arg signature for browser act nested request fields", 
 });
 
 describe("circuit breaker arg signature for cron wake text field", () => {
-  async function runCronWake(ctx: ToolHandlerContext, text: string, isError: boolean, id: string) {
-    await handleToolExecutionStart(ctx, {
-      type: "tool_execution_start",
-      toolName: "cron",
-      toolCallId: id,
-      args: { action: "wake", text },
-    });
-    await handleToolExecutionEnd(ctx, {
-      type: "tool_execution_end",
-      toolName: "cron",
-      toolCallId: id,
-      isError,
-      result: isError ? { type: "text", text: "Error: network error" } : { ok: true },
-    });
-  }
-
   it("does not trip circuit when wake failures use different text values", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runCronWake(ctx, "good morning", true, "w1");
-    await runCronWake(ctx, "check email", true, "w2");
-    await runCronWake(ctx, "run daily report", true, "w3");
+    await runTool(ctx, "cron", { action: "wake", text: "good morning" }, true, "w1");
+    await runTool(ctx, "cron", { action: "wake", text: "check email" }, true, "w2");
+    await runTool(ctx, "cron", { action: "wake", text: "run daily report" }, true, "w3");
 
     expect(onError).not.toHaveBeenCalled();
   });
@@ -1302,44 +1266,23 @@ describe("circuit breaker arg signature for cron wake text field", () => {
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runCronWake(ctx, "good morning", true, "w1");
-    await runCronWake(ctx, "good morning", true, "w2");
-    await runCronWake(ctx, "good morning", true, "w3");
+    await runTool(ctx, "cron", { action: "wake", text: "good morning" }, true, "w1");
+    await runTool(ctx, "cron", { action: "wake", text: "good morning" }, true, "w2");
+    await runTool(ctx, "cron", { action: "wake", text: "good morning" }, true, "w3");
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("circuit breaker generic JSON fallback for non-string action args", () => {
-  async function runBroadcast(
-    ctx: ToolHandlerContext,
-    targets: string[],
-    isError: boolean,
-    id: string,
-  ) {
-    await handleToolExecutionStart(ctx, {
-      type: "tool_execution_start",
-      toolName: "message",
-      toolCallId: id,
-      args: { action: "broadcast", targets },
-    });
-    await handleToolExecutionEnd(ctx, {
-      type: "tool_execution_end",
-      toolName: "message",
-      toolCallId: id,
-      isError,
-      result: isError ? { type: "text", text: "Error: send failed" } : { ok: true },
-    });
-  }
-
   it("does not trip circuit when broadcast failures use different target arrays", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runBroadcast(ctx, ["alice", "bob"], true, "b1");
-    await runBroadcast(ctx, ["carol", "dave"], true, "b2");
-    await runBroadcast(ctx, ["eve", "frank"], true, "b3");
+    await runTool(ctx, "message", { action: "broadcast", targets: ["alice", "bob"] }, true, "b1");
+    await runTool(ctx, "message", { action: "broadcast", targets: ["carol", "dave"] }, true, "b2");
+    await runTool(ctx, "message", { action: "broadcast", targets: ["eve", "frank"] }, true, "b3");
 
     expect(onError).not.toHaveBeenCalled();
   });
@@ -1349,64 +1292,24 @@ describe("circuit breaker generic JSON fallback for non-string action args", () 
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runBroadcast(ctx, ["alice", "bob"], true, "b1");
-    await runBroadcast(ctx, ["alice", "bob"], true, "b2");
-    await runBroadcast(ctx, ["alice", "bob"], true, "b3");
+    await runTool(ctx, "message", { action: "broadcast", targets: ["alice", "bob"] }, true, "b1");
+    await runTool(ctx, "message", { action: "broadcast", targets: ["alice", "bob"] }, true, "b2");
+    await runTool(ctx, "message", { action: "broadcast", targets: ["alice", "bob"] }, true, "b3");
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("circuit breaker arg signature key-order stability", () => {
-  async function runWithArgs(
-    ctx: ToolHandlerContext,
-    toolName: string,
-    args: Record<string, unknown>,
-    isError: boolean,
-    id: string,
-  ) {
-    await handleToolExecutionStart(ctx, {
-      type: "tool_execution_start",
-      toolName,
-      toolCallId: id,
-      args,
-    });
-    await handleToolExecutionEnd(ctx, {
-      type: "tool_execution_end",
-      toolName,
-      toolCallId: id,
-      isError,
-      result: isError ? { type: "text", text: "Error: failed" } : { ok: true },
-    });
-  }
-
   it("treats the same action args in different key order as identical", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
     // Same logical call, keys in different insertion order
-    await runWithArgs(
-      ctx,
-      "gateway",
-      { action: "config.set", key: "foo", value: "bar" },
-      true,
-      "g1",
-    );
-    await runWithArgs(
-      ctx,
-      "gateway",
-      { value: "bar", action: "config.set", key: "foo" },
-      true,
-      "g2",
-    );
-    await runWithArgs(
-      ctx,
-      "gateway",
-      { key: "foo", value: "bar", action: "config.set" },
-      true,
-      "g3",
-    );
+    await runTool(ctx, "gateway", { action: "config.set", key: "foo", value: "bar" }, true, "g1");
+    await runTool(ctx, "gateway", { value: "bar", action: "config.set", key: "foo" }, true, "g2");
+    await runTool(ctx, "gateway", { key: "foo", value: "bar", action: "config.set" }, true, "g3");
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
@@ -1416,9 +1319,9 @@ describe("circuit breaker arg signature key-order stability", () => {
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
 
-    await runWithArgs(ctx, "write", { path: "/tmp/a.txt", content: "hello" }, true, "w1");
-    await runWithArgs(ctx, "write", { content: "hello", path: "/tmp/a.txt" }, true, "w2");
-    await runWithArgs(ctx, "write", { path: "/tmp/a.txt", content: "hello" }, true, "w3");
+    await runTool(ctx, "write", { path: "/tmp/a.txt", content: "hello" }, true, "w1");
+    await runTool(ctx, "write", { content: "hello", path: "/tmp/a.txt" }, true, "w2");
+    await runTool(ctx, "write", { path: "/tmp/a.txt", content: "hello" }, true, "w3");
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
@@ -1433,9 +1336,9 @@ describe("circuit breaker arg signature key-order stability", () => {
     const job2 = { name: "morning", action: "add", cron: "0 9 * * *" };
     const job3 = { action: "add", cron: "0 9 * * *", name: "morning" };
 
-    await runWithArgs(ctx, "cron", { action: "add", job: job1 }, true, "c1");
-    await runWithArgs(ctx, "cron", { action: "add", job: job2 }, true, "c2");
-    await runWithArgs(ctx, "cron", { action: "add", job: job3 }, true, "c3");
+    await runTool(ctx, "cron", { action: "add", job: job1 }, true, "c1");
+    await runTool(ctx, "cron", { action: "add", job: job2 }, true, "c2");
+    await runTool(ctx, "cron", { action: "add", job: job3 }, true, "c3");
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
