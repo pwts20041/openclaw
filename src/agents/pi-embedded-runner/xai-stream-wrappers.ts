@@ -35,3 +35,21 @@ export function createXaiFastModeWrapper(
     return underlying({ ...model, id: fastModelId }, context, options);
   };
 }
+
+export function createXaiReasoningEffortStripWrapper(baseStreamFn: StreamFn | undefined): StreamFn {
+  const underlying = baseStreamFn ?? streamSimple;
+  return (model, context, options) => {
+    if (model.provider !== "xai") {
+      return underlying(model, context, options);
+    }
+    const nextOptions = {
+      ...(options as Record<string, unknown> | undefined),
+      reasoning: undefined,
+      reasoningEffort: undefined,
+      reasoningSummary: undefined,
+    };
+    return underlying(model, context, {
+      ...(nextOptions as typeof options),
+    });
+  };
+}

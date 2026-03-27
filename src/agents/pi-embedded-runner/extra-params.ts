@@ -38,7 +38,10 @@ import {
   resolveOpenAIFastMode,
   resolveOpenAIServiceTier,
 } from "./openai-stream-wrappers.js";
-import { createXaiFastModeWrapper } from "./xai-stream-wrappers.js";
+import {
+  createXaiFastModeWrapper,
+  createXaiReasoningEffortStripWrapper,
+} from "./xai-stream-wrappers.js";
 
 const defaultProviderRuntimeDeps = {
   prepareProviderExtraParams: prepareProviderExtraParamsRuntime,
@@ -398,6 +401,10 @@ export function applyExtraParamsToAgent(
   // Guard Google payloads against invalid negative thinking budgets emitted by
   // upstream model-ID heuristics for Gemini 3.1 variants.
   agent.streamFn = createGoogleThinkingPayloadWrapper(agent.streamFn, thinkingLevel);
+
+  if (provider === "xai") {
+    agent.streamFn = createXaiReasoningEffortStripWrapper(agent.streamFn);
+  }
 
   const anthropicFastMode = resolveAnthropicFastMode(effectiveExtraParams);
   if (anthropicFastMode !== undefined) {
