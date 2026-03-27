@@ -21,6 +21,19 @@ OpenClaw checks ClawHub first and falls back to npm automatically.
 
 ## Listed plugins
 
+### cc-soul
+
+Give your AI a soul: persistent memory (10K+), 5 auto-switching personality
+faces, emotional awareness, self-evolution, knowledge network. 22 toggleable
+features, auto-detects AI backend.
+
+- **npm:** `@cc-soul/openclaw`
+- **repo:** [github.com/wenroudeyu-collab/cc-soul](https://github.com/wenroudeyu-collab/cc-soul)
+
+```bash
+openclaw plugins install @cc-soul/openclaw
+```
+
 ### Codex App Server Bridge
 
 Independent OpenClaw bridge for Codex App Server conversations. Bind a chat to
