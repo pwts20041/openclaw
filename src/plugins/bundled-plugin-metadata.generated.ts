@@ -17424,6 +17424,16 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
                   type: "object",
                 },
               },
+              azureEndpoint: {
+                type: "string",
+                format: "uri",
+              },
+              azureDeployment: {
+                type: "string",
+              },
+              azureApiVersion: {
+                type: "string",
+              },
             },
           },
           publicUrl: {
