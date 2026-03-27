@@ -922,7 +922,6 @@ export async function updateLastRoute(params: {
     const store = loadSessionStore(storePath);
     const resolved = resolveSessionStoreEntry({ store, sessionKey });
     const existing = resolved.existing;
-    const now = Date.now();
     const explicitContext = normalizeDeliveryContext(params.deliveryContext);
     const inlineContext = normalizeDeliveryContext({
       channel,
@@ -967,8 +966,10 @@ export async function updateLastRoute(params: {
           groupResolution: params.groupResolution,
         })
       : null;
+    // Omit updatedAt: route updates from inbound messages must not bump it;
+    // idle/daily session resets rely on updatedAt reflecting the last actual
+    // agent turn. For new sessions, resolveMergedUpdatedAt defaults to `now`.
     const basePatch: Partial<SessionEntry> = {
-      updatedAt: Math.max(existing?.updatedAt ?? 0, now),
       deliveryContext: normalized.deliveryContext,
       lastChannel: normalized.lastChannel,
       lastTo: normalized.lastTo,
