@@ -22,6 +22,7 @@ import {
   resolveAgentOutboundTarget,
 } from "../../infra/outbound/agent-delivery.js";
 import { resolveMessageChannelSelection } from "../../infra/outbound/channel-selection.js";
+import { withPluginRuntimeGatewayRequestScope } from "../../plugins/runtime/gateway-request-scope.js";
 import { classifySessionKeyShape, normalizeAgentId } from "../../routing/session-key.js";
 import { defaultRuntime } from "../../runtime.js";
 import { normalizeInputProvenance, type InputProvenance } from "../../sessions/input-provenance.js";
@@ -177,8 +178,17 @@ function dispatchAgentRunFromGateway(params: {
   idempotencyKey: string;
   respond: GatewayRequestHandlerOptions["respond"];
   context: GatewayRequestHandlerOptions["context"];
+  client: GatewayRequestHandlerOptions["client"];
+  isWebchatConnect: GatewayRequestHandlerOptions["isWebchatConnect"];
 }) {
-  void agentCommandFromIngress(params.ingressOpts, defaultRuntime, params.context.deps)
+  void withPluginRuntimeGatewayRequestScope(
+    {
+      context: params.context,
+      client: params.client,
+      isWebchatConnect: params.isWebchatConnect,
+    },
+    () => agentCommandFromIngress(params.ingressOpts, defaultRuntime, params.context.deps),
+  )
     .then((result) => {
       const payload = {
         runId: params.runId,
@@ -753,6 +763,8 @@ export const agentHandlers: GatewayRequestHandlers = {
       idempotencyKey: idem,
       respond,
       context,
+      client,
+      isWebchatConnect,
     });
   },
   "agent.identity.get": ({ params, respond }) => {
