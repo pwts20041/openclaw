@@ -1277,6 +1277,7 @@
                       "gateway/authentication",
                       "auth-credential-semantics",
                       "gateway/secrets",
+                      "gateway/exec-secret-providers",
                       "gateway/secrets-plan-contract",
                       "gateway/trusted-proxy-auth",
                       "gateway/health",
