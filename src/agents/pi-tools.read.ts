@@ -596,11 +596,140 @@ export function createSandboxedReadTool(params: SandboxToolParams) {
   });
 }
 
+/**
+ * Wraps a write tool to reject `append: true` in sandboxed sessions.
+ * The sandbox write path doesn't support append; returning an explicit error
+ * prevents the silent-overwrite footgun that byungsker flagged in PR #40574.
+ */
+function wrapWriteToolAppendGuard(tool: AnyAgentTool): AnyAgentTool {
+  return {
+    ...tool,
+    execute: async (toolCallId, args, signal, onUpdate) => {
+      const record =
+        args && typeof args === "object" ? (args as Record<string, unknown>) : undefined;
+      if (record?.append === true) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Error: append mode is not supported in sandboxed sessions. Use the default overwrite mode, or break content into separate writes.",
+            },
+          ],
+        };
+      }
+      return tool.execute(toolCallId, args, signal, onUpdate);
+    },
+  };
+}
+
+/**
+ * Wraps a host write tool to support `append: true`.
+ * When append is true, content is appended via `fs.appendFile` instead of
+ * overwriting. This reduces the window for silent data loss when multiple
+ * sessions write to the same file.
+ *
+ * Note: `fs.appendFile` reduces contention but is not fully atomic — two
+ * concurrent appenders may interleave on some filesystems. Callers should
+ * not rely on strict ordering guarantees.
+ */
+function wrapWriteToolWithAppendMode(
+  tool: AnyAgentTool,
+  root: string,
+  options?: { workspaceOnly?: boolean },
+): AnyAgentTool {
+  const schema = tool.inputSchema && typeof tool.inputSchema === "object"
+    ? {
+        ...tool.inputSchema,
+        properties: {
+          ...(tool.inputSchema as Record<string, unknown>).properties as Record<string, unknown>,
+          append: {
+            type: "boolean",
+            description:
+              "When true, content is appended to the file instead of overwriting it. " +
+              "Useful for log files, memory files, and other append-only content.",
+          },
+        },
+      }
+    : tool.inputSchema;
+
+  return {
+    ...tool,
+    inputSchema: schema,
+    execute: async (toolCallId, args, signal, onUpdate) => {
+      const record =
+        args && typeof args === "object" ? (args as Record<string, unknown>) : undefined;
+
+      if (record?.append !== true) {
+        return tool.execute(toolCallId, args, signal, onUpdate);
+      }
+
+      // Extract path and content
+      const filePath =
+        typeof record.path === "string"
+          ? record.path
+          : typeof record.file_path === "string"
+            ? record.file_path
+            : typeof record.filePath === "string"
+              ? record.filePath
+              : undefined;
+      const content = typeof record.content === "string" ? record.content : undefined;
+
+      if (!filePath || content === undefined) {
+        return tool.execute(toolCallId, args, signal, onUpdate);
+      }
+
+      const workspaceOnly = options?.workspaceOnly ?? false;
+
+      if (workspaceOnly) {
+        const relativePath = toRelativeWorkspacePath(root, filePath);
+        await appendFileWithinRoot({
+          rootDir: root,
+          relativePath,
+          data: content,
+          mkdir: true,
+          prependNewlineIfNeeded: true,
+        });
+      } else {
+        const resolved = path.resolve(filePath);
+        await fs.mkdir(path.dirname(resolved), { recursive: true });
+        // Use a single file descriptor for the stat check + append to avoid
+        // TOCTOU races and symlink-following between separate operations.
+        const handle = await fs.open(resolved, "a+");
+        try {
+          let prefix = "";
+          const stat = await handle.stat();
+          if (stat.size > 0 && !content.startsWith("\n")) {
+            const lastByte = Buffer.alloc(1);
+            const { bytesRead } = await handle.read(lastByte, 0, 1, stat.size - 1);
+            if (bytesRead === 1 && lastByte[0] !== 0x0a) {
+              prefix = "\n";
+            }
+          }
+          await handle.appendFile(`${prefix}${content}`, "utf8");
+        } finally {
+          await handle.close();
+        }
+      }
+
+      // Use relative path in response to avoid leaking host filesystem layout
+      const safePath = workspaceOnly
+        ? toRelativeWorkspacePath(root, filePath)
+        : path.basename(filePath);
+      return {
+        content: [{ type: "text" as const, text: `Appended content to ${safePath}.` }],
+      };
+    },
+  };
+}
+
 export function createSandboxedWriteTool(params: SandboxToolParams) {
   const base = createWriteTool(params.root, {
     operations: createSandboxWriteOperations(params),
   }) as unknown as AnyAgentTool;
-  return wrapToolParamNormalization(base, CLAUDE_PARAM_GROUPS.write);
+  const normalized = wrapToolParamNormalization(base, CLAUDE_PARAM_GROUPS.write);
+  // Sandboxed sessions don't support append mode — return an explicit error
+  // so the model knows the parameter isn't silently ignored.
+  return wrapWriteToolAppendGuard(normalized);
 }
 
 export function createSandboxedEditTool(params: SandboxToolParams) {
@@ -619,7 +748,8 @@ export function createHostWorkspaceWriteTool(root: string, options?: { workspace
   const base = createWriteTool(root, {
     operations: createHostWriteOperations(root, options),
   }) as unknown as AnyAgentTool;
-  return wrapToolParamNormalization(base, CLAUDE_PARAM_GROUPS.write);
+  const normalized = wrapToolParamNormalization(base, CLAUDE_PARAM_GROUPS.write);
+  return wrapWriteToolWithAppendMode(normalized, root, options);
 }
 
 export function createHostWorkspaceEditTool(root: string, options?: { workspaceOnly?: boolean }) {
