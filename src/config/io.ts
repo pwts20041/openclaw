@@ -50,6 +50,7 @@ import { resolveConfigPath, resolveDefaultConfigCandidates, resolveStateDir } fr
 import { isBlockedObjectKey } from "./prototype-keys.js";
 import { applyConfigOverrides } from "./runtime-overrides.js";
 import type { OpenClawConfig, ConfigFileSnapshot, LegacyConfigIssue } from "./types.js";
+import { normalizeSecretInputString } from "./types.secrets.js";
 import {
   validateConfigObjectRawWithPlugins,
   validateConfigObjectWithPlugins,
@@ -1209,6 +1210,38 @@ function resolveConfigIncludesForRead(
   });
 }
 
+/**
+ * When a provider sets `authHeader: true`, the API key should be sent as an
+ * `Authorization: Bearer` header instead of the default `x-api-key`.
+ *
+ * This function expands the boolean flag into the provider's `headers` map
+ * during config loading so that all downstream consumers (embedded runner,
+ * plugins, extensions) see the correct header without implementing their own
+ * auth-mode switching logic.
+ *
+ * Only runs on the **runtime** config returned by `loadConfig()` — not on the
+ * snapshot/write path — so the derived header is never persisted back to disk.
+ */
+function applyAuthHeaderToProviderHeaders(cfg: OpenClawConfig): void {
+  const providers = cfg?.models?.providers;
+  if (!providers) {
+    return;
+  }
+  for (const providerConfig of Object.values(providers)) {
+    if (!providerConfig?.authHeader) {
+      continue;
+    }
+    const apiKey = normalizeSecretInputString(providerConfig.apiKey);
+    if (!apiKey) {
+      continue;
+    }
+    providerConfig.headers = {
+      ...(providerConfig.headers as Record<string, string> | undefined),
+      Authorization: `Bearer ${apiKey}`,
+    };
+  }
+}
+
 function resolveConfigForRead(
   resolvedIncludes: unknown,
   env: NodeJS.ProcessEnv,
@@ -1380,6 +1413,7 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       );
       normalizeConfigPaths(cfg);
       normalizeExecSafeBinProfilesInConfig(cfg);
+      applyAuthHeaderToProviderHeaders(cfg);
       observeLoadConfigSnapshot({
         path: configPath,
         exists: true,
