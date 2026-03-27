@@ -14,6 +14,20 @@ import { hashText } from "./internal.js";
 const LEADING_DIRECTIVE_TAGS_RE =
   /^(\s*\[\[\s*(?:audio_as_voice|reply_to_current|reply_to\s*:\s*[^\]\n]+)\s*\]\]\s*)+/i;
 
+/**
+ * Matches the leading timestamp envelope injected by `injectTimestamp`.
+ * Format: `[DOW YYYY-MM-DD HH:MM TZ] ` — e.g. `[Wed 2026-03-27 14:47 EDT] `.
+ *
+ * The DOW prefix means the year does NOT appear immediately after `[`, so a
+ * simple `includes("[20")` check misses this format entirely.  We anchor on
+ * the date component `\d{4}-\d{2}-\d{2}` to avoid matching arbitrary
+ * square-bracket constructs.
+ *
+ * Must stay in sync with `LEADING_TIMESTAMP_PREFIX_RE` in
+ * `src/auto-reply/reply/strip-inbound-meta.ts`.
+ */
+const LEADING_TIMESTAMP_ENVELOPE_RE = /^\[[A-Za-z]{3} \d{4}-\d{2}-\d{2} \d{2}:\d{2}[^\]]*\] */;
+
 const log = createSubsystemLogger("memory");
 
 export type SessionFileEntry = {
@@ -66,22 +80,30 @@ function stripRawContentMeta(raw: string, role: "user" | "assistant"): string {
   //   "untrusted metadata"       — "Conversation info (untrusted metadata):" etc.
   //   "untrusted, for context"   — "Thread starter (untrusted, for context):" etc.
   //   "Untrusted context"        — standalone UNTRUSTED_CONTEXT_HEADER prefix
-  //   "[20"                      — timestamp prefix e.g. "[Fri 2026-03-27 …]"
+  //   LEADING_TIMESTAMP_ENVELOPE_RE — injected timestamp e.g. "[Wed 2026-03-27 …]"
+  //     NOTE: `includes("[20")` does NOT match "[Wed 2026-…]" because the DOW
+  //     abbreviation precedes the year, so we use the regex instead.
   const mightHaveMeta =
     role === "user" &&
     (raw.includes("<") ||
       raw.includes("untrusted metadata") ||
       raw.includes("untrusted, for context") ||
       raw.includes("Untrusted context") ||
-      raw.includes("[20"));
+      LEADING_TIMESTAMP_ENVELOPE_RE.test(raw));
   const afterMeta = mightHaveMeta ? stripLeadingInboundMetadata(raw) : raw;
-  if (!afterMeta.includes("[[")) {
-    return afterMeta;
+  // `stripLeadingInboundMetadata` strips inbound metadata sentinel blocks but does
+  // NOT remove the timestamp envelope — that is handled by `stripInboundMetadata`
+  // (the full-strip path used by UI surfaces).  Strip it here so that any
+  // directive tags that follow the timestamp are correctly detected as leading
+  // tags by `LEADING_DIRECTIVE_TAGS_RE`.
+  const afterTs = afterMeta.replace(LEADING_TIMESTAMP_ENVELOPE_RE, "");
+  if (!afterTs.includes("[[")) {
+    return afterTs;
   }
   // Only strip directive tags at leading control-tag positions (start of text).
   // Inline mid-text mentions (e.g. discussing [[reply_to_current]] in docs)
   // are left intact so they remain searchable in the memory index.
-  return afterMeta.replace(LEADING_DIRECTIVE_TAGS_RE, "");
+  return afterTs.replace(LEADING_DIRECTIVE_TAGS_RE, "");
 }
 
 export function extractSessionText(content: unknown): string | null {
