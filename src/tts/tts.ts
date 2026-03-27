@@ -20,6 +20,7 @@ import type {
   TtsMode,
   TtsProvider,
   TtsModelOverrideConfig,
+  CliTtsProviderConfig,
 } from "../config/types.tts.js";
 import { logVerbose } from "../globals.js";
 import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
@@ -173,14 +174,47 @@ function asProviderConfigMap(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function mergeCliAgentConfig(
+  baseConfig: CliTtsProviderConfig,
+  agentId?: string,
+): CliTtsProviderConfig {
+  if (!agentId || !baseConfig.agents?.[agentId]) {
+    return baseConfig;
+  }
+  const agentConfig = baseConfig.agents[agentId];
+  // Merge agent-specific overrides on top of base config
+  // Agent config fields override base config fields (except 'agents' and 'command' if not specified)
+  return {
+    ...baseConfig,
+    ...agentConfig,
+    // Keep the agents map from base (not overwritten by agent config)
+    agents: baseConfig.agents,
+    // Use base command if agent doesn't specify one
+    command: agentConfig.command ?? baseConfig.command,
+  };
+}
+
 function resolveSpeechProviderConfigs(
   raw: TtsConfig,
   cfg: OpenClawConfig,
   timeoutMs: number,
+  agentId?: string,
 ): Record<string, SpeechProviderConfig> {
   const providerConfigs: Record<string, SpeechProviderConfig> = {};
   const rawProviders = asProviderConfigMap(raw.providers);
   for (const provider of listSpeechProviders(cfg)) {
+    let rawConfig = asProviderConfig(
+      rawProviders[provider.id] ?? (raw as Record<string, unknown>)[provider.id],
+    );
+
+    // Merge CLI agent-specific config if this is the CLI provider
+    if (provider.id === "cli" && agentId) {
+      const cliConfig = rawConfig as CliTtsProviderConfig;
+      if (cliConfig.agents?.[agentId]) {
+        rawConfig = mergeCliAgentConfig(cliConfig, agentId);
+      }
+    }
+
     providerConfigs[provider.id] =
       provider.resolveConfig?.({
         cfg,
@@ -189,8 +223,7 @@ function resolveSpeechProviderConfigs(
           providers: rawProviders,
         },
         timeoutMs,
-      }) ??
-      asProviderConfig(rawProviders[provider.id] ?? (raw as Record<string, unknown>)[provider.id]);
+      }) ?? rawConfig;
   }
   return providerConfigs;
 }
@@ -205,7 +238,7 @@ export function getResolvedSpeechProviderConfig(
   return config.providerConfigs[canonical] ?? {};
 }
 
-export function resolveTtsConfig(cfg: OpenClawConfig): ResolvedTtsConfig {
+export function resolveTtsConfig(cfg: OpenClawConfig, agentId?: string): ResolvedTtsConfig {
   const raw: TtsConfig = cfg.messages?.tts ?? {};
   const providerSource = raw.provider ? "config" : "default";
   const timeoutMs = raw.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -219,7 +252,7 @@ export function resolveTtsConfig(cfg: OpenClawConfig): ResolvedTtsConfig {
     providerSource,
     summaryModel: raw.summaryModel?.trim() || undefined,
     modelOverrides: resolveModelOverridePolicy(raw.modelOverrides),
-    providerConfigs: resolveSpeechProviderConfigs(raw, cfg, timeoutMs),
+    providerConfigs: resolveSpeechProviderConfigs(raw, cfg, timeoutMs, agentId),
     prefsPath: raw.prefsPath,
     maxTextLength: raw.maxTextLength ?? DEFAULT_MAX_TEXT_LENGTH,
     timeoutMs,
@@ -494,6 +527,7 @@ function resolveTtsRequestSetup(params: {
   prefsPath?: string;
   providerOverride?: TtsProvider;
   disableFallback?: boolean;
+  agentId?: string;
 }):
   | {
       config: ResolvedTtsConfig;
@@ -502,7 +536,7 @@ function resolveTtsRequestSetup(params: {
   | {
       error: string;
     } {
-  const config = resolveTtsConfig(params.cfg);
+  const config = resolveTtsConfig(params.cfg, params.agentId);
   const prefsPath = params.prefsPath ?? resolveTtsPrefsPath(config);
   if (params.text.length > config.maxTextLength) {
     return {
@@ -526,6 +560,7 @@ export async function textToSpeech(params: {
   channel?: string;
   overrides?: TtsDirectiveOverrides;
   disableFallback?: boolean;
+  agentId?: string;
 }): Promise<TtsResult> {
   const synthesis = await synthesizeSpeech(params);
   if (!synthesis.success || !synthesis.audioBuffer || !synthesis.fileExtension) {
@@ -556,6 +591,7 @@ export async function synthesizeSpeech(params: {
   channel?: string;
   overrides?: TtsDirectiveOverrides;
   disableFallback?: boolean;
+  agentId?: string;
 }): Promise<TtsSynthesisResult> {
   const setup = resolveTtsRequestSetup({
     text: params.text,
@@ -563,6 +599,7 @@ export async function synthesizeSpeech(params: {
     prefsPath: params.prefsPath,
     providerOverride: params.overrides?.provider,
     disableFallback: params.disableFallback,
+    agentId: params.agentId,
   });
   if ("error" in setup) {
     return { success: false, error: setup.error };
@@ -615,11 +652,13 @@ export async function textToSpeechTelephony(params: {
   text: string;
   cfg: OpenClawConfig;
   prefsPath?: string;
+  agentId?: string;
 }): Promise<TtsTelephonyResult> {
   const setup = resolveTtsRequestSetup({
     text: params.text,
     cfg: params.cfg,
     prefsPath: params.prefsPath,
+    agentId: params.agentId,
   });
   if ("error" in setup) {
     return { success: false, error: setup.error };
@@ -702,12 +741,13 @@ export async function maybeApplyTtsToPayload(params: {
   kind?: "tool" | "block" | "final";
   inboundAudio?: boolean;
   ttsAuto?: string;
+  agentId?: string;
 }): Promise<ReplyPayload> {
   // Compaction notices are informational UI signals — never synthesise them as speech.
   if (params.payload.isCompactionNotice) {
     return params.payload;
   }
-  const config = resolveTtsConfig(params.cfg);
+  const config = resolveTtsConfig(params.cfg, params.agentId);
   const prefsPath = resolveTtsPrefsPath(config);
   const autoMode = resolveTtsAutoMode({
     config,
@@ -813,6 +853,7 @@ export async function maybeApplyTtsToPayload(params: {
     prefsPath,
     channel: params.channel,
     overrides: directives.overrides,
+    agentId: params.agentId,
   });
 
   if (result.success && result.audioPath) {

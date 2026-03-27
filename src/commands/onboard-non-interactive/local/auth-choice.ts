@@ -121,7 +121,7 @@ export async function applyNonInteractiveAuthChoice(params: {
       ...(params.metadata ? { metadata: params.metadata } : {}),
     };
   };
-  const maybeSetResolvedApiKey = async (
+  const _maybeSetResolvedApiKey = async (
     resolved: ResolvedNonInteractiveApiKey,
     setter: (value: SecretInput) => Promise<void> | void,
   ): Promise<boolean> => {
