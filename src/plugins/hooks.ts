@@ -56,6 +56,9 @@ import type {
   PluginHookToolResultPersistResult,
   PluginHookBeforeMessageWriteEvent,
   PluginHookBeforeMessageWriteResult,
+  PluginHookBeforeSkillInstallContext,
+  PluginHookBeforeSkillInstallEvent,
+  PluginHookBeforeSkillInstallResult,
 } from "./types.js";
 
 // Re-export types for consumers
@@ -106,6 +109,9 @@ export type {
   PluginHookGatewayContext,
   PluginHookGatewayStartEvent,
   PluginHookGatewayStopEvent,
+  PluginHookBeforeSkillInstallContext,
+  PluginHookBeforeSkillInstallEvent,
+  PluginHookBeforeSkillInstallResult,
 };
 
 export type HookRunnerLogger = {
@@ -978,6 +984,41 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
   }
 
   // =========================================================================
+  // Skill Install Hooks
+  // =========================================================================
+
+  /**
+   * Run before_skill_install hook.
+   * Allows plugins to augment scan findings or block skill installation.
+   * Runs sequentially so higher-priority hooks can block before lower ones run.
+   */
+  async function runBeforeSkillInstall(
+    event: PluginHookBeforeSkillInstallEvent,
+    ctx: PluginHookBeforeSkillInstallContext,
+  ): Promise<PluginHookBeforeSkillInstallResult | undefined> {
+    return runModifyingHook<"before_skill_install", PluginHookBeforeSkillInstallResult>(
+      "before_skill_install",
+      event,
+      ctx,
+      {
+        mergeResults: (acc, next) => {
+          if (acc?.block === true) {
+            return acc;
+          }
+          const mergedFindings = [...(acc?.findings ?? []), ...(next.findings ?? [])];
+          return {
+            findings: mergedFindings.length > 0 ? mergedFindings : undefined,
+            block: stickyTrue(acc?.block, next.block),
+            blockReason: lastDefined(acc?.blockReason, next.blockReason),
+          };
+        },
+        shouldStop: (result) => result.block === true,
+        terminalLabel: "block=true",
+      },
+    );
+  }
+
+  // =========================================================================
   // Utility
   // =========================================================================
 
@@ -1030,6 +1071,8 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
     // Gateway hooks
     runGatewayStart,
     runGatewayStop,
+    // Skill install hooks
+    runBeforeSkillInstall,
     // Utility
     hasHooks,
     getHookCount,

@@ -1660,7 +1660,8 @@ export type PluginHookName =
   | "subagent_ended"
   | "gateway_start"
   | "gateway_stop"
-  | "before_dispatch";
+  | "before_dispatch"
+  | "before_skill_install";
 
 export const PLUGIN_HOOK_NAMES = [
   "before_model_resolve",
@@ -1689,6 +1690,7 @@ export const PLUGIN_HOOK_NAMES = [
   "gateway_start",
   "gateway_stop",
   "before_dispatch",
+  "before_skill_install",
 ] as const satisfies readonly PluginHookName[];
 
 type MissingPluginHookNames = Exclude<PluginHookName, (typeof PLUGIN_HOOK_NAMES)[number]>;
@@ -2194,6 +2196,44 @@ export type PluginHookGatewayStopEvent = {
   reason?: string;
 };
 
+// before_skill_install hook
+export type PluginHookBeforeSkillInstallContext = {
+  /** Origin of the skill being installed (e.g. "openclaw-bundled", "workspace"). */
+  source?: string;
+};
+
+export type PluginHookBeforeSkillInstallEvent = {
+  /** Human-readable skill or plugin name. */
+  skillName: string;
+  /** Absolute path to the skill/plugin source directory being scanned. */
+  sourceDir: string;
+  /** Origin of the skill (e.g. "openclaw-bundled", "workspace"). */
+  source?: string;
+  /** Findings from the built-in scanner, provided for augmentation. */
+  builtinFindings: Array<{
+    ruleId: string;
+    severity: "info" | "warn" | "critical";
+    file: string;
+    line: number;
+    message: string;
+  }>;
+};
+
+export type PluginHookBeforeSkillInstallResult = {
+  /** Additional findings to merge with built-in scanner results. */
+  findings?: Array<{
+    ruleId: string;
+    severity: "info" | "warn" | "critical";
+    file: string;
+    line: number;
+    message: string;
+  }>;
+  /** If true, block the installation entirely. */
+  block?: boolean;
+  /** Human-readable reason for blocking. */
+  blockReason?: string;
+};
+
 // Hook handler types mapped by hook name
 export type PluginHookHandlerMap = {
   before_model_resolve: (
@@ -2300,6 +2340,13 @@ export type PluginHookHandlerMap = {
     event: PluginHookGatewayStopEvent,
     ctx: PluginHookGatewayContext,
   ) => Promise<void> | void;
+  before_skill_install: (
+    event: PluginHookBeforeSkillInstallEvent,
+    ctx: PluginHookBeforeSkillInstallContext,
+  ) =>
+    | Promise<PluginHookBeforeSkillInstallResult | void>
+    | PluginHookBeforeSkillInstallResult
+    | void;
 };
 
 export type PluginHookRegistration<K extends PluginHookName = PluginHookName> = {
