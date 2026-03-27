@@ -9,6 +9,8 @@ export {
   sanitizeGoogleThinkingPayload,
 } from "../agents/pi-embedded-runner/google-stream-wrappers.js";
 export {
+  createDeepInfraSystemCacheWrapper,
+  createDeepInfraWrapper,
   createKilocodeWrapper,
   createOpenRouterSystemCacheWrapper,
   createOpenRouterWrapper,

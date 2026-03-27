@@ -152,6 +152,12 @@ export {
   VERCEL_AI_GATEWAY_BASE_URL,
 } from "../agents/vercel-ai-gateway.js";
 export {
+  DEEPINFRA_BASE_URL,
+  DEEPINFRA_DEFAULT_MODEL_REF,
+  DEEPINFRA_MODEL_CATALOG,
+  discoverDeepInfraModels,
+} from "../agents/deepinfra-models.js";
+export {
   buildModelStudioDefaultModelDefinition,
   buildModelStudioModelDefinition,
   MODELSTUDIO_CN_BASE_URL,
