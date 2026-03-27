@@ -132,6 +132,9 @@ function resolveBotDisplayName(params: {
   if (agent?.name?.trim()) {
     return agent.name.trim();
   }
+  if (config.gateway?.displayName?.trim()) {
+    return config.gateway.displayName.trim();
+  }
   return "OpenClaw";
 }
 
