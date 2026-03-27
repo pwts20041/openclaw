@@ -19,6 +19,13 @@ export {
   getMessageFeishu,
 } from "./src/send.js";
 export {
+  getMessageReadStatus,
+  getMessageReadCount,
+  hasUserReadMessage,
+  type FeishuMessageReadStatus,
+  type FeishuReadUser,
+} from "./src/message-read-status.js";
+export {
   uploadImageFeishu,
   uploadFileFeishu,
   sendImageFeishu,
