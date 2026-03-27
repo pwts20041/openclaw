@@ -43,6 +43,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     toolMetaById: new Map(),
     toolSummaryById: new Set(),
     lastToolError: undefined,
+    consecutiveToolErrors: null,
     blockReplyBreak: params.blockReplyBreak ?? "text_end",
     reasoningMode,
     includeReasoning: reasoningMode === "on",
@@ -602,6 +603,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     toolMetaById.clear();
     toolSummaryById.clear();
     state.lastToolError = undefined;
+    state.consecutiveToolErrors = null;
     messagingToolSentTexts.length = 0;
     messagingToolSentTextsNormalized.length = 0;
     messagingToolSentTargets.length = 0;

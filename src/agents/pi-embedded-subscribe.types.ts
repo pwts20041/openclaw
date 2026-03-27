@@ -21,6 +21,8 @@ export type SubscribeEmbeddedPiSessionParams = {
   onReasoningStream?: (payload: { text?: string; mediaUrls?: string[] }) => void | Promise<void>;
   /** Called when a thinking/reasoning block ends (</think> tag processed). */
   onReasoningEnd?: () => void | Promise<void>;
+  /** Called after N consecutive identical tool errors (circuit breaker). */
+  onConsecutiveToolError?: (toolName: string, count: number, errorMsg: string) => void;
   onBlockReply?: (payload: BlockReplyPayload) => void | Promise<void>;
   /** Flush pending block replies (e.g., before tool execution to preserve message boundaries). */
   onBlockReplyFlush?: () => void | Promise<void>;

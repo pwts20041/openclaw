@@ -25,6 +25,23 @@ export type ToolErrorSummary = {
   actionFingerprint?: string;
 };
 
+export type ConsecutiveToolErrorState = {
+  toolName: string;
+  errorSignature: string;
+  /** Arg signature derived at error time; stored separately to avoid re-splitting errorSignature,
+   *  which would break on commands containing "|" (e.g. "cat a | grep b"). */
+  argSig: string;
+  count: number;
+  /** True after the threshold was first hit; prevents probe commands from resetting the circuit. */
+  tripped: boolean;
+  /**
+   * Set to true when a probe success is detected while the circuit is tripped.
+   * The steer callback re-fires only on the next failure after a probe, not on every
+   * subsequent failure, to avoid flooding the context with duplicate steering messages.
+   */
+  probeDetected: boolean;
+};
+
 export type ToolCallSummary = {
   meta?: string;
   mutatingAction: boolean;
@@ -37,6 +54,7 @@ export type EmbeddedPiSubscribeState = {
   toolMetaById: Map<string, ToolCallSummary>;
   toolSummaryById: Set<string>;
   lastToolError?: ToolErrorSummary;
+  consecutiveToolErrors: ConsecutiveToolErrorState | null;
 
   blockReplyBreak: "text_end" | "message_end";
   reasoningMode: ReasoningLevel;
@@ -144,6 +162,7 @@ export type ToolHandlerParams = Pick<
   | "sessionKey"
   | "sessionId"
   | "agentId"
+  | "onConsecutiveToolError"
 >;
 
 export type ToolHandlerState = Pick<
@@ -152,6 +171,7 @@ export type ToolHandlerState = Pick<
   | "toolMetas"
   | "toolSummaryById"
   | "lastToolError"
+  | "consecutiveToolErrors"
   | "pendingMessagingTargets"
   | "pendingMessagingTexts"
   | "pendingMessagingMediaUrls"

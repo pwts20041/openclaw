@@ -147,50 +147,73 @@ export async function runBeforeToolCallHook(args: {
     recordToolCall(sessionState, toolName, params, args.toolCallId, args.ctx.loopDetection);
   }
 
+  // Run before_tool_call hooks first so they can normalize params (e.g. rewrite legacy args)
+  // before any validation. The empty-command guard below runs on the post-hook params.
+  let effectiveParams = params;
   const hookRunner = getGlobalHookRunner();
-  if (!hookRunner?.hasHooks("before_tool_call")) {
-    return { blocked: false, params: args.params };
-  }
-
-  try {
-    const normalizedParams = isPlainObject(params) ? params : {};
-    const toolContext = {
-      toolName,
-      ...(args.ctx?.agentId ? { agentId: args.ctx.agentId } : {}),
-      ...(args.ctx?.sessionKey ? { sessionKey: args.ctx.sessionKey } : {}),
-      ...(args.ctx?.sessionId ? { sessionId: args.ctx.sessionId } : {}),
-      ...(args.ctx?.runId ? { runId: args.ctx.runId } : {}),
-      ...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
-    };
-    const hookResult = await hookRunner.runBeforeToolCall(
-      {
+  if (hookRunner?.hasHooks("before_tool_call")) {
+    try {
+      const normalizedParams = isPlainObject(params) ? params : {};
+      const toolContext = {
         toolName,
-        params: normalizedParams,
+        ...(args.ctx?.agentId ? { agentId: args.ctx.agentId } : {}),
+        ...(args.ctx?.sessionKey ? { sessionKey: args.ctx.sessionKey } : {}),
+        ...(args.ctx?.sessionId ? { sessionId: args.ctx.sessionId } : {}),
         ...(args.ctx?.runId ? { runId: args.ctx.runId } : {}),
         ...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
-      },
-      toolContext,
-    );
-
-    if (hookResult?.block) {
-      return {
-        blocked: true,
-        reason: hookResult.blockReason || "Tool call blocked by plugin hook",
       };
-    }
+      const hookResult = await hookRunner.runBeforeToolCall(
+        {
+          toolName,
+          params: normalizedParams,
+          ...(args.ctx?.runId ? { runId: args.ctx.runId } : {}),
+          ...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
+        },
+        toolContext,
+      );
 
-    if (hookResult?.params && isPlainObject(hookResult.params)) {
-      if (isPlainObject(params)) {
-        return { blocked: false, params: { ...params, ...hookResult.params } };
+      if (hookResult?.block) {
+        return {
+          blocked: true,
+          reason: hookResult.blockReason || "Tool call blocked by plugin hook",
+        };
       }
-      return { blocked: false, params: hookResult.params };
+
+      if (hookResult?.params && isPlainObject(hookResult.params)) {
+        effectiveParams = isPlainObject(params)
+          ? { ...params, ...hookResult.params }
+          : hookResult.params;
+      }
+    } catch (err) {
+      const toolCallId = args.toolCallId ? ` toolCallId=${args.toolCallId}` : "";
+      log.warn(`before_tool_call hook failed: tool=${toolName}${toolCallId} error=${String(err)}`);
     }
-  } catch (err) {
-    const toolCallId = args.toolCallId ? ` toolCallId=${args.toolCallId}` : "";
-    log.warn(`before_tool_call hook failed: tool=${toolName}${toolCallId} error=${String(err)}`);
   }
 
-  return { blocked: false, params };
+  // Block exec/bash calls with an empty or missing command (checked after hooks so that
+  // hook-based param normalization runs first and can supply a valid command).
+  const toolNameNorm = toolName.trim().toLowerCase();
+  if (toolNameNorm === "exec" || toolNameNorm === "bash") {
+    const record = isPlainObject(effectiveParams) ? effectiveParams : {};
+    const command = record.command;
+    if (!command || typeof command !== "string" || !command.trim()) {
+      const reason =
+        `\u26D4 exec blocked \u2014 "command" parameter is required but was empty or missing.\n` +
+        `This usually means the tool call was truncated during generation.\n` +
+        `DO NOT retry the same empty exec call.\n` +
+        `DO NOT use exec with inline scripts or heredocs \u2014 long inline content is exactly ` +
+        `what causes truncation and empty commands.\n` +
+        `Instead: use the write tool to save the script to a file (e.g. /tmp/script.py), ` +
+        `then call exec with a short command such as: python3 /tmp/script.py\n` +
+        `Do NOT call exec again without a non-empty "command" field.`;
+      log.warn(
+        `exec blocked: empty command toolCallId=${args.toolCallId ?? "?"} sessionKey=${args.ctx?.sessionKey ?? "?"}`,
+      );
+      return { blocked: true, reason };
+    }
+  }
+
+  return { blocked: false, params: effectiveParams };
 }
 
 export function wrapToolWithBeforeToolCallHook(
