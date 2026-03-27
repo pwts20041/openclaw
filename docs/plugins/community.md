@@ -84,6 +84,18 @@ and files.
 openclaw plugins install @sliverp/qqbot
 ```
 
+### WeChat
+
+Connect OpenClaw to WeChat personal accounts via WeChatPadPro (iPad protocol).
+Supports text, image, and file exchange with keyword-triggered conversations.
+
+- **npm:** `@icesword760/openclaw-wechat`
+- **repo:** [github.com/icesword0760/openclaw-wechat](https://github.com/icesword0760/openclaw-wechat)
+
+```bash
+openclaw plugins install @icesword760/openclaw-wechat
+```
+
 ### wecom
 
 OpenClaw Enterprise WeCom Channel Plugin.
@@ -95,6 +107,20 @@ supports direct messages & group chats, streaming replies, and proactive messagi
 
 ```bash
 openclaw plugins install @wecom/wecom-openclaw-plugin
+```
+
+### Workspace Sync & Backup
+
+Workspace cloud sync (mailbox, mirror, bisync modes) and encrypted backups
+via rclone. Supports Dropbox, Google Drive, OneDrive, S3, and 70+ providers.
+Includes inbox notifications with an interactive agent tool for filing incoming
+files. Zero LLM cost for sync operations.
+
+- **npm:** `openclaw-workspace-sync`
+- **repo:** [github.com/ashbrener/openclaw-workspace-sync](https://github.com/ashbrener/openclaw-workspace-sync)
+
+```bash
+openclaw plugins install openclaw-workspace-sync
 ```
 
 ## Submit your plugin
