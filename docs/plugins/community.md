@@ -84,6 +84,19 @@ and files.
 openclaw plugins install @sliverp/qqbot
 ```
 
+### Sage
+
+Safety for Agents — Agent Detection & Response (ADR) layer for OpenClaw.
+Guards commands, files, and web requests using configurable YAML threat rules
+and real-time URL reputation checking. By Gen Digital.
+
+- **npm:** `@gendigital/sage-openclaw`
+- **repo:** [github.com/gendigitalinc/sage](https://github.com/gendigitalinc/sage)
+
+```bash
+openclaw plugins install @gendigital/sage-openclaw
+```
+
 ### wecom
 
 OpenClaw Enterprise WeCom Channel Plugin.
