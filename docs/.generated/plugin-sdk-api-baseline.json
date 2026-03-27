@@ -2755,7 +2755,7 @@
           "exportName": "resolveCommandAuthorization",
           "kind": "function",
           "source": {
-            "line": 461,
+            "line": 483,
             "path": "src/auto-reply/command-auth.ts"
           }
         },
@@ -2953,7 +2953,7 @@
           "exportName": "CommandAuthorization",
           "kind": "type",
           "source": {
-            "line": 13,
+            "line": 14,
             "path": "src/auto-reply/command-auth.ts"
           }
         },
