@@ -10,6 +10,16 @@ beforeEach(() => {
 
 afterEach(() => {
   clearRuntimeConfigSnapshot();
+  recordInboundSessionMock.mockClear();
+});
+
+const recordInboundSessionMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("openclaw/plugin-sdk/conversation-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/conversation-runtime")>();
+  return {
+    ...actual,
+    recordInboundSession: (...args: unknown[]) => recordInboundSessionMock(...args),
+  };
 });
 
 describe("buildTelegramMessageContext dm thread sessions", () => {
@@ -31,6 +41,7 @@ describe("buildTelegramMessageContext dm thread sessions", () => {
     expect(ctx).not.toBeNull();
     expect(ctx?.ctxPayload?.MessageThreadId).toBe(42);
     expect(ctx?.ctxPayload?.SessionKey).toBe("agent:main:main:thread:1234:42");
+    expect(recordInboundSessionMock).toHaveBeenCalled();
   });
 
   it("keeps legacy dm session key when no thread id", async () => {
