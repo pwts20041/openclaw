@@ -230,6 +230,80 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
     },
   },
   {
+    dirName: "apfree-wifidog",
+    idHint: "apfree-wifidog",
+    source: {
+      source: "./index.ts",
+      built: "index.js",
+    },
+    packageName: "@openclaw/apfree-wifidog",
+    packageVersion: "2026.3.8",
+    packageDescription: "OpenClaw bridge for apfree-wifidog device WebSocket control",
+    packageManifest: {
+      extensions: ["./index.ts"],
+    },
+    manifest: {
+      id: "apfree-wifidog",
+      configSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          enabled: {
+            type: "boolean",
+          },
+          bind: {
+            type: "string",
+          },
+          port: {
+            type: "integer",
+            minimum: 1,
+            maximum: 65535,
+          },
+          path: {
+            type: "string",
+          },
+          allowDeviceIds: {
+            type: "array",
+            items: {
+              type: "string",
+            },
+          },
+          requestTimeoutMs: {
+            type: "integer",
+            minimum: 1000,
+            maximum: 120000,
+          },
+          maxPayloadBytes: {
+            type: "integer",
+            minimum: 1024,
+            maximum: 1048576,
+          },
+          awasEnabled: {
+            type: "boolean",
+          },
+          awasHost: {
+            type: "string",
+          },
+          awasPort: {
+            type: "integer",
+            minimum: 1,
+            maximum: 65535,
+          },
+          awasPath: {
+            type: "string",
+          },
+          awasSsl: {
+            type: "boolean",
+          },
+        },
+      },
+      skills: ["./skills"],
+      name: "ApFree WiFiDog",
+      description:
+        "Accept apfree-wifidog device WebSocket connections and expose a control tool with req_id correlation.",
+    },
+  },
+  {
     dirName: "bluebubbles",
     idHint: "bluebubbles",
     source: {
