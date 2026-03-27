@@ -35,6 +35,7 @@ type ResolveOracleAuthParams = {
   profile?: string;
   compartmentId?: string;
   profileId?: string;
+  allowStoredProfileFallback?: boolean;
 };
 
 const DEFAULT_PROFILE_NAME = "DEFAULT";
@@ -140,7 +141,11 @@ export function validateOracleConfigFile(configFile: string, profile?: string): 
 
 export function resolveOracleAuth(params: ResolveOracleAuthParams): OracleResolvedAuth {
   const env = resolveOracleEnv(params.env);
-  const stored = loadStoredOracleProfile(params.agentDir, params.profileId);
+  const stored =
+    params.allowStoredProfileFallback === false ||
+    (params.agentDir === undefined && params.profileId === undefined)
+      ? null
+      : loadStoredOracleProfile(params.agentDir, params.profileId);
   const configFile =
     trimToUndefined(params.configFile) ??
     trimToUndefined(env.OCI_CONFIG_FILE) ??

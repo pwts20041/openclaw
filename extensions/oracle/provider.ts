@@ -54,22 +54,6 @@ function trimToUndefined(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function normalizeOracleVendorToken(vendor: unknown): string | undefined {
-  const trimmed = trimToUndefined(vendor);
-  if (!trimmed) {
-    return undefined;
-  }
-  const normalized = trimmed
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return normalized || undefined;
-}
-
-function isOracleFriendlyModelRef(value: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value.trim());
-}
-
 function appendOracleModelVersion(name: string, version: string | undefined): string {
   const trimmedVersion = trimToUndefined(version);
   if (!trimmedVersion) {
@@ -81,31 +65,7 @@ function appendOracleModelVersion(name: string, version: string | undefined): st
 }
 
 export function buildOracleCatalogModelId(model: OracleModelSummary): string {
-  const rawId = trimToUndefined(model.id);
-  if (!rawId) {
-    return "";
-  }
-
-  const displayName = trimToUndefined(model.displayName);
-  if (!displayName || !isOracleFriendlyModelRef(displayName)) {
-    return rawId;
-  }
-
-  const normalizedDisplayName = displayName.toLowerCase();
-  const vendorToken = normalizeOracleVendorToken(model.vendor);
-  if (!vendorToken) {
-    return normalizedDisplayName;
-  }
-  if (
-    normalizedDisplayName.startsWith(`${vendorToken}.`) ||
-    normalizedDisplayName.startsWith(`${vendorToken}-`)
-  ) {
-    return normalizedDisplayName;
-  }
-  if (normalizedDisplayName.includes(".")) {
-    return normalizedDisplayName;
-  }
-  return `${vendorToken}.${normalizedDisplayName}`;
+  return trimToUndefined(model.id) ?? "";
 }
 
 function buildOracleModelName(model: OracleModelSummary): string {
@@ -176,6 +136,26 @@ function loadOracleProfileMetadata(
   return profile?.type === "api_key" ? (profile.metadata ?? {}) : {};
 }
 
+function buildStoredOracleAuthOverrides(params: { agentDir?: string; profileId?: string }): {
+  agentDir?: string;
+  profileId?: string;
+  profile?: string;
+  compartmentId?: string;
+} {
+  const profileId = trimToUndefined(params.profileId);
+  if (!profileId) {
+    return {};
+  }
+
+  const storedMetadata = loadOracleProfileMetadata(params.agentDir, profileId);
+  return {
+    agentDir: params.agentDir,
+    profileId,
+    profile: storedMetadata.profile,
+    compartmentId: storedMetadata.compartmentId,
+  };
+}
+
 async function listOracleModels(configFile: string, profile: string, compartmentId: string) {
   const authenticationDetailsProvider = new ConfigFileAuthenticationDetailsProvider(
     configFile,
@@ -209,21 +189,21 @@ export async function resolveOracleCatalogProvider(
   ctx: ProviderCatalogContext,
 ): Promise<{ provider: OracleCatalogProvider } | null> {
   const resolvedAuth = ctx.resolveProviderAuth(ORACLE_PROVIDER_ID);
-  const storedMetadata = loadOracleProfileMetadata(
-    ctx.agentDir,
-    resolvedAuth.profileId ?? ORACLE_PROFILE_ID,
-  );
+  const storedAuthOverrides =
+    resolvedAuth.source === "profile"
+      ? buildStoredOracleAuthOverrides({
+          agentDir: ctx.agentDir,
+          profileId: resolvedAuth.profileId,
+        })
+      : {};
   let auth;
   try {
     auth = resolveOracleAuth({
-      agentDir: ctx.agentDir,
       env: ctx.env,
       // Provider discovery should resolve the real OCI config path, not the
       // env/profile marker string used for runtime/provider selection.
       configFile: resolvedAuth.discoveryApiKey,
-      profile: storedMetadata.profile,
-      compartmentId: storedMetadata.compartmentId,
-      profileId: resolvedAuth.profileId ?? ORACLE_PROFILE_ID,
+      ...storedAuthOverrides,
     });
   } catch (error) {
     if (error instanceof Error && error.message === ORACLE_MISSING_CONFIG_FILE_ERROR) {
@@ -259,17 +239,14 @@ export function resolveOracleDynamicModel(
 }
 
 export async function prepareOracleRuntimeAuth(ctx: ProviderPrepareRuntimeAuthContext) {
-  const storedMetadata = loadOracleProfileMetadata(
-    ctx.agentDir,
-    ctx.profileId ?? ORACLE_PROFILE_ID,
-  );
-  const auth = resolveOracleAuth({
+  const storedAuthOverrides = buildStoredOracleAuthOverrides({
     agentDir: ctx.agentDir,
+    profileId: ctx.profileId,
+  });
+  const auth = resolveOracleAuth({
     env: ctx.env,
     configFile: ctx.apiKey,
-    profile: storedMetadata.profile,
-    compartmentId: storedMetadata.compartmentId,
-    profileId: ctx.profileId ?? ORACLE_PROFILE_ID,
+    ...storedAuthOverrides,
   });
 
   return {

@@ -600,7 +600,12 @@ function toOracleToolCalls(content: unknown): OracleFunctionCall[] | undefined {
     arguments?: unknown;
     input?: unknown;
   }>) {
-    if (block.type !== "toolCall" && block.type !== "tool_use" && block.type !== "toolUse") {
+    if (
+      block.type !== "functionCall" &&
+      block.type !== "toolCall" &&
+      block.type !== "tool_use" &&
+      block.type !== "toolUse"
+    ) {
       continue;
     }
 
@@ -629,18 +634,34 @@ function toOracleToolCalls(content: unknown): OracleFunctionCall[] | undefined {
 }
 
 function toOracleToolCallId(message: Message): string | undefined {
-  const withIds = message as Message & { toolCallId?: unknown; toolUseId?: unknown };
+  const withIds = message as Message & {
+    toolCallId?: unknown;
+    toolUseId?: unknown;
+    tool_call_id?: unknown;
+    tool_use_id?: unknown;
+  };
   if (typeof withIds.toolCallId === "string" && withIds.toolCallId.trim().length > 0) {
     return withIds.toolCallId;
   }
   if (typeof withIds.toolUseId === "string" && withIds.toolUseId.trim().length > 0) {
     return withIds.toolUseId;
   }
+  if (typeof withIds.tool_call_id === "string" && withIds.tool_call_id.trim().length > 0) {
+    return withIds.tool_call_id;
+  }
+  if (typeof withIds.tool_use_id === "string" && withIds.tool_use_id.trim().length > 0) {
+    return withIds.tool_use_id;
+  }
   return undefined;
 }
 
 function isOracleGeminiModelId(modelId: string | undefined): boolean {
   return typeof modelId === "string" && modelId.startsWith("google.gemini-");
+}
+
+function isOracleToolOutputMessage(message: Message | undefined): message is Message {
+  const role = (message as { role?: unknown } | undefined)?.role;
+  return role === "tool" || role === "toolResult";
 }
 
 function toOracleToolMessage(message: Message): OracleMessage | undefined {
@@ -669,7 +690,10 @@ function tryConvertGeminiAssistantToolSequence(params: {
 
   const followingToolResults: Message[] = [];
   let nextIndex = params.startIndex + 1;
-  while (nextIndex < params.messages.length && params.messages[nextIndex]?.role === "toolResult") {
+  while (
+    nextIndex < params.messages.length &&
+    isOracleToolOutputMessage(params.messages[nextIndex] as Message | undefined)
+  ) {
     followingToolResults.push(params.messages[nextIndex] as Message);
     nextIndex += 1;
   }
@@ -762,7 +786,7 @@ export function convertPiMessagesToOracleMessages(params: {
       continue;
     }
 
-    if (message.role !== "toolResult") {
+    if (!isOracleToolOutputMessage(message)) {
       continue;
     }
 

@@ -6,7 +6,14 @@ export function normalizeToolContentType(value: unknown): string {
 
 export function isToolCallContentType(value: unknown): boolean {
   const type = normalizeToolContentType(value);
-  return type === "toolcall" || type === "tool_call" || type === "tooluse" || type === "tool_use";
+  return (
+    type === "functioncall" ||
+    type === "function_call" ||
+    type === "toolcall" ||
+    type === "tool_call" ||
+    type === "tooluse" ||
+    type === "tool_use"
+  );
 }
 
 export function isToolResultContentType(value: unknown): boolean {

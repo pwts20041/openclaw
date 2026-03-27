@@ -137,6 +137,9 @@ export type OnboardOptions = {
   huggingfaceApiKey?: string;
   opencodeZenApiKey?: string;
   opencodeGoApiKey?: string;
+  oracleConfigFile?: string;
+  oracleProfile?: string;
+  oracleCompartmentId?: string;
   xaiApiKey?: string;
   volcengineApiKey?: string;
   byteplusApiKey?: string;

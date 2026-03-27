@@ -93,6 +93,72 @@ describe("provider auth choice manifest helpers", () => {
     ]);
   });
 
+  it("keeps distinct onboarding flags for a shared manifest auth choice", () => {
+    loadPluginManifestRegistry.mockReturnValue({
+      plugins: [
+        {
+          id: "oracle",
+          providerAuthChoices: [
+            {
+              provider: "oracle",
+              method: "oci-config",
+              choiceId: "oracle-oci-config",
+              choiceLabel: "OCI config file",
+              optionKey: "oracleConfigFile",
+              cliFlag: "--oracle-config-file",
+              cliOption: "--oracle-config-file <path>",
+              cliDescription: "Path to OCI config file",
+            },
+            {
+              provider: "oracle",
+              method: "oci-config",
+              choiceId: "oracle-oci-config",
+              choiceLabel: "OCI config file",
+              optionKey: "oracleProfile",
+              cliFlag: "--oracle-profile",
+              cliOption: "--oracle-profile <name>",
+              cliDescription: "OCI profile name",
+            },
+            {
+              provider: "oracle",
+              method: "oci-config",
+              choiceId: "oracle-oci-config",
+              choiceLabel: "OCI config file",
+              optionKey: "oracleCompartmentId",
+              cliFlag: "--oracle-compartment-id",
+              cliOption: "--oracle-compartment-id <ocid>",
+              cliDescription: "OCI compartment OCID",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(resolveManifestProviderOnboardAuthFlags()).toEqual([
+      {
+        optionKey: "oracleConfigFile",
+        authChoice: "oracle-oci-config",
+        cliFlag: "--oracle-config-file",
+        cliOption: "--oracle-config-file <path>",
+        description: "Path to OCI config file",
+      },
+      {
+        optionKey: "oracleProfile",
+        authChoice: "oracle-oci-config",
+        cliFlag: "--oracle-profile",
+        cliOption: "--oracle-profile <name>",
+        description: "OCI profile name",
+      },
+      {
+        optionKey: "oracleCompartmentId",
+        authChoice: "oracle-oci-config",
+        cliFlag: "--oracle-compartment-id",
+        cliOption: "--oracle-compartment-id <ocid>",
+        description: "OCI compartment OCID",
+      },
+    ]);
+  });
+
   it("resolves deprecated auth-choice aliases through manifest metadata", () => {
     loadPluginManifestRegistry.mockReturnValue({
       plugins: [
