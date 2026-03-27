@@ -35,6 +35,7 @@ import {
   errorShape,
   validateSessionsAbortParams,
   validateSessionsCompactParams,
+  validateSessionsTruncateParams,
   validateSessionsCreateParams,
   validateSessionsDeleteParams,
   validateSessionsListParams,
@@ -1199,6 +1200,114 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       sessionKey: target.canonicalKey,
       reason: "compact",
       compacted: true,
+    });
+  },
+  "sessions.truncate": async ({ params, respond, context }) => {
+    if (!assertValidParams(params, validateSessionsTruncateParams, "sessions.truncate", respond)) {
+      return;
+    }
+    const p = params;
+    const key = requireSessionKey(p.key, respond);
+    if (!key) {
+      return;
+    }
+
+    const { cfg, target, storePath } = resolveGatewaySessionTargetFromKey(key);
+    const truncateTarget = await updateSessionStore(storePath, (store) => {
+      const { entry, primaryKey } = migrateAndPruneGatewaySessionStoreKey({
+        cfg,
+        key,
+        store,
+      });
+      return { entry, primaryKey };
+    });
+    const entry = truncateTarget.entry;
+    const sessionId = entry?.sessionId;
+    if (!sessionId) {
+      respond(
+        true,
+        { ok: true, key: target.canonicalKey, truncated: false, reason: "no sessionId" },
+        undefined,
+      );
+      return;
+    }
+
+    const filePath = resolveSessionTranscriptCandidates(
+      sessionId,
+      storePath,
+      entry?.sessionFile,
+      target.agentId,
+    ).find((candidate) => fs.existsSync(candidate));
+    if (!filePath) {
+      respond(
+        true,
+        { ok: true, key: target.canonicalKey, truncated: false, reason: "no transcript" },
+        undefined,
+      );
+      return;
+    }
+
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const allLines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+
+    // Walk lines to find the JSONL line that corresponds to fromSeq.
+    let seq = 0;
+    let cutLineIndex = -1;
+    for (let i = 0; i < allLines.length; i++) {
+      try {
+        const parsed = JSON.parse(allLines[i]) as Record<string, unknown>;
+        if (parsed?.message || parsed?.type === "compaction") {
+          seq += 1;
+          if (seq === p.seq) {
+            cutLineIndex = i;
+            break;
+          }
+        }
+      } catch {
+        // skip malformed lines
+      }
+    }
+
+    if (cutLineIndex < 0) {
+      respond(
+        true,
+        { ok: true, key: target.canonicalKey, truncated: false, reason: "seq not found" },
+        undefined,
+      );
+      return;
+    }
+
+    const archived = archiveFileOnDisk(filePath, "bak");
+    const keptLines = allLines.slice(0, cutLineIndex);
+    fs.writeFileSync(filePath, keptLines.length > 0 ? `${keptLines.join("\n")}\n` : "", "utf-8");
+
+    await updateSessionStore(storePath, (store) => {
+      const entryKey = truncateTarget.primaryKey;
+      const entryToUpdate = store[entryKey];
+      if (!entryToUpdate) {
+        return;
+      }
+      delete entryToUpdate.inputTokens;
+      delete entryToUpdate.outputTokens;
+      delete entryToUpdate.totalTokens;
+      delete entryToUpdate.totalTokensFresh;
+      entryToUpdate.updatedAt = Date.now();
+    });
+
+    respond(
+      true,
+      {
+        ok: true,
+        key: target.canonicalKey,
+        truncated: true,
+        archived,
+        kept: keptLines.length,
+      },
+      undefined,
+    );
+    emitSessionsChanged(context, {
+      sessionKey: target.canonicalKey,
+      reason: "compact",
     });
   },
 };

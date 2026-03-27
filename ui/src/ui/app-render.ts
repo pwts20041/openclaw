@@ -1536,6 +1536,54 @@ export function renderApp(state: AppViewState) {
                   void loadChatHistory(state);
                   void state.loadAssistantIdentity();
                 },
+                onTruncateHistory: (seq: number): boolean => {
+                  if (!state.client || !state.connected) {
+                    return false;
+                  }
+                  // Capture session key and run ID at dispatch time.
+                  // Note: sessions.truncate aborts any active run as part of its work, so
+                  // chatRunId will be null after a successful truncate even if a run was active
+                  // at dispatch time. We only skip the refresh when a *different* non-null run
+                  // has appeared — i.e. the user started a brand-new run during the RPC flight.
+                  const truncatingKey = state.sessionKey;
+                  const truncatingRunId = state.chatRunId;
+                  void state.client
+                    .request<{ truncated: boolean }>("sessions.truncate", { key: truncatingKey, seq })
+                    .then(async (result) => {
+                      if (state.sessionKey !== truncatingKey) {
+                        return;
+                      }
+                      // A brand-new run started during the RPC flight — do not wipe its state.
+                      if (state.chatRunId !== null && state.chatRunId !== truncatingRunId) {
+                        return;
+                      }
+                      // Only clear run state when truncation actually happened. If the server
+                      // returns truncated: false (seq stale or not found), the backend run may
+                      // still be streaming — clearing chatRunId would remove abort controls.
+                      if (result.truncated) {
+                        state.chatMessages = [];
+                        state.chatStream = null;
+                        state.chatRunId = null;
+                      }
+                      // Always reload so the UI reflects the actual backend state —
+                      // this restores the message if seq was not found (truncated: false).
+                      await loadChatHistory(state);
+                    })
+                    .catch((err: unknown) => {
+                      if (state.sessionKey !== truncatingKey) {
+                        return;
+                      }
+                      // Same guard: skip if a new run started while the failed RPC was in flight.
+                      if (state.chatRunId !== null && state.chatRunId !== truncatingRunId) {
+                        return;
+                      }
+                      state.lastError = String(err);
+                      // Reload to restore the optimistically-hidden message on failure.
+                      state.chatMessages = [];
+                      void loadChatHistory(state);
+                    });
+                  return true;
+                },
                 onNavigateToAgent: () => {
                   state.agentsSelectedId = resolvedAgentId;
                   state.setTab("agents" as import("./navigation.ts").Tab);
