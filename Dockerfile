@@ -12,7 +12,9 @@
 # Two runtime variants:
 #   Default (bookworm):      docker build .
 #   Slim (bookworm-slim):    docker build --build-arg OPENCLAW_VARIANT=slim .
-ARG OPENCLAW_EXTENSIONS=""
+# Default: build all bundled extensions. Pass a space-separated list to
+# build only a subset (e.g. "whatsapp device-pair").
+ARG OPENCLAW_EXTENSIONS="__all__"
 ARG OPENCLAW_VARIANT=default
 ARG OPENCLAW_DOCKER_APT_UPGRADE=1
 ARG OPENCLAW_NODE_BOOKWORM_IMAGE="node:24-bookworm@sha256:3a09aa6354567619221ef6c45a5051b671f953f0a1924d1f819ffb236e520e6b"
@@ -28,14 +30,26 @@ ARG OPENCLAW_NODE_BOOKWORM_SLIM_DIGEST="sha256:e8e2e91b1378f83c5b2dd15f0247f3411
 FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS ext-deps
 ARG OPENCLAW_EXTENSIONS
 COPY extensions /tmp/extensions
-# Copy package.json for opted-in extensions so pnpm resolves their deps.
+# Copy package.json for extensions so pnpm resolves their deps.
+# When OPENCLAW_EXTENSIONS is empty or "__all__", include every extension
+# that has a package.json. Otherwise, only include the listed names.
 RUN mkdir -p /out && \
-    for ext in $OPENCLAW_EXTENSIONS; do \
-      if [ -f "/tmp/extensions/$ext/package.json" ]; then \
-        mkdir -p "/out/$ext" && \
-        cp "/tmp/extensions/$ext/package.json" "/out/$ext/package.json"; \
-      fi; \
-    done
+    if [ -z "$OPENCLAW_EXTENSIONS" ] || [ "$OPENCLAW_EXTENSIONS" = "__all__" ]; then \
+      for dir in /tmp/extensions/*/; do \
+        ext="$(basename "$dir")" && \
+        if [ -f "/tmp/extensions/$ext/package.json" ]; then \
+          mkdir -p "/out/$ext" && \
+          cp "/tmp/extensions/$ext/package.json" "/out/$ext/package.json"; \
+        fi; \
+      done; \
+    else \
+      for ext in $OPENCLAW_EXTENSIONS; do \
+        if [ -f "/tmp/extensions/$ext/package.json" ]; then \
+          mkdir -p "/out/$ext" && \
+          cp "/tmp/extensions/$ext/package.json" "/out/$ext/package.json"; \
+        fi; \
+      done; \
+    fi
 
 # ── Stage 2: Build ──────────────────────────────────────────────
 FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS build
@@ -99,6 +113,9 @@ RUN pnpm ui:build
 FROM build AS runtime-assets
 RUN CI=true pnpm prune --prod && \
     find dist -type f \( -name '*.d.ts' -o -name '*.d.mts' -o -name '*.d.cts' -o -name '*.map' \) -delete
+# Restore self-referencing package link removed by pnpm prune --prod.
+# Required for openclaw/plugin-sdk/* subpath imports at runtime.
+RUN ln -s /app /app/node_modules/openclaw
 
 # ── Runtime base images ─────────────────────────────────────────
 FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS base-default
