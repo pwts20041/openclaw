@@ -64,6 +64,7 @@ These tools ship with OpenClaw and are available without installing any plugins:
 | `nodes`                      | Discover and target paired devices                       |                                   |
 | `cron` / `gateway`           | Manage scheduled jobs, restart gateway                   |                                   |
 | `image` / `image_generate`   | Analyze or generate images                               |                                   |
+| `memory_search` / `memory_get` | Semantic recall and targeted read of memory files        | [Memory](/concepts/memory)        |
 | `sessions_*` / `agents_list` | Session management, sub-agents                           | [Sub-agents](/tools/subagents)    |
 
 For image work, use `image` for analysis and `image_generate` for generation or editing. If you target `openai/*`, `google/*`, `fal/*`, or another non-default image provider, configure that provider's auth/API key first.
