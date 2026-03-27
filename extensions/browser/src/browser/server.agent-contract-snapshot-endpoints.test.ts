@@ -39,11 +39,14 @@ describe("browser control server", () => {
     };
     expect(snapAi.ok).toBe(true);
     expect(snapAi.format).toBe("ai");
-    expect(pwMocks.snapshotAiViaPlaywright).toHaveBeenCalledWith({
-      cdpUrl: state.cdpBaseUrl,
-      targetId: "abcd1234",
-      maxChars: DEFAULT_AI_SNAPSHOT_MAX_CHARS,
-    });
+    expect(pwMocks.snapshotAiViaPlaywright).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cdpUrl: state.cdpBaseUrl,
+        targetId: "abcd1234",
+        maxChars: DEFAULT_AI_SNAPSHOT_MAX_CHARS,
+        signal: expect.any(AbortSignal),
+      }),
+    );
 
     const snapAiZero = (await realFetch(`${base}/snapshot?format=ai&maxChars=0`).then((r) =>
       r.json(),
@@ -51,10 +54,13 @@ describe("browser control server", () => {
     expect(snapAiZero.ok).toBe(true);
     expect(snapAiZero.format).toBe("ai");
     const [lastCall] = pwMocks.snapshotAiViaPlaywright.mock.calls.at(-1) ?? [];
-    expect(lastCall).toEqual({
-      cdpUrl: state.cdpBaseUrl,
-      targetId: "abcd1234",
-    });
+    expect(lastCall).toEqual(
+      expect.objectContaining({
+        cdpUrl: state.cdpBaseUrl,
+        targetId: "abcd1234",
+        signal: expect.any(AbortSignal),
+      }),
+    );
   });
 
   it("agent contract: navigation + common act commands", async () => {
@@ -71,6 +77,7 @@ describe("browser control server", () => {
         cdpUrl: state.cdpBaseUrl,
         targetId: "abcd1234",
         url: "https://example.com",
+        signal: expect.any(AbortSignal),
         ssrfPolicy: {
           dangerouslyAllowPrivateNetwork: true,
         },
@@ -84,14 +91,18 @@ describe("browser control server", () => {
       modifiers: ["Shift"],
     });
     expect(click.ok).toBe(true);
-    expect(pwMocks.clickViaPlaywright).toHaveBeenNthCalledWith(1, {
-      cdpUrl: state.cdpBaseUrl,
-      targetId: "abcd1234",
-      ref: "1",
-      doubleClick: false,
-      button: "left",
-      modifiers: ["Shift"],
-    });
+    expect(pwMocks.clickViaPlaywright).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        cdpUrl: state.cdpBaseUrl,
+        targetId: "abcd1234",
+        ref: "1",
+        doubleClick: false,
+        button: "left",
+        modifiers: ["Shift"],
+        signal: expect.any(AbortSignal),
+      }),
+    );
 
     const clickSelector = await realFetch(`${base}/act`, {
       method: "POST",
@@ -100,12 +111,16 @@ describe("browser control server", () => {
     });
     expect(clickSelector.status).toBe(200);
     expect(((await clickSelector.json()) as { ok?: boolean }).ok).toBe(true);
-    expect(pwMocks.clickViaPlaywright).toHaveBeenNthCalledWith(2, {
-      cdpUrl: state.cdpBaseUrl,
-      targetId: "abcd1234",
-      selector: "button.save",
-      doubleClick: false,
-    });
+    expect(pwMocks.clickViaPlaywright).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        cdpUrl: state.cdpBaseUrl,
+        targetId: "abcd1234",
+        selector: "button.save",
+        doubleClick: false,
+        signal: expect.any(AbortSignal),
+      }),
+    );
 
     const type = await postJson<{ ok: boolean }>(`${base}/act`, {
       kind: "type",
@@ -113,47 +128,60 @@ describe("browser control server", () => {
       text: "",
     });
     expect(type.ok).toBe(true);
-    expect(pwMocks.typeViaPlaywright).toHaveBeenNthCalledWith(1, {
-      cdpUrl: state.cdpBaseUrl,
-      targetId: "abcd1234",
-      ref: "1",
-      text: "",
-      submit: false,
-      slowly: false,
-    });
+    expect(pwMocks.typeViaPlaywright).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        cdpUrl: state.cdpBaseUrl,
+        targetId: "abcd1234",
+        ref: "1",
+        text: "",
+        submit: false,
+        slowly: false,
+        signal: expect.any(AbortSignal),
+      }),
+    );
 
     const press = await postJson<{ ok: boolean }>(`${base}/act`, {
       kind: "press",
       key: "Enter",
     });
     expect(press.ok).toBe(true);
-    expect(pwMocks.pressKeyViaPlaywright).toHaveBeenCalledWith({
-      cdpUrl: state.cdpBaseUrl,
-      targetId: "abcd1234",
-      key: "Enter",
-    });
+    expect(pwMocks.pressKeyViaPlaywright).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cdpUrl: state.cdpBaseUrl,
+        targetId: "abcd1234",
+        key: "Enter",
+        signal: expect.any(AbortSignal),
+      }),
+    );
 
     const hover = await postJson<{ ok: boolean }>(`${base}/act`, {
       kind: "hover",
       ref: "2",
     });
     expect(hover.ok).toBe(true);
-    expect(pwMocks.hoverViaPlaywright).toHaveBeenCalledWith({
-      cdpUrl: state.cdpBaseUrl,
-      targetId: "abcd1234",
-      ref: "2",
-    });
+    expect(pwMocks.hoverViaPlaywright).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cdpUrl: state.cdpBaseUrl,
+        targetId: "abcd1234",
+        ref: "2",
+        signal: expect.any(AbortSignal),
+      }),
+    );
 
     const scroll = await postJson<{ ok: boolean }>(`${base}/act`, {
       kind: "scrollIntoView",
       ref: "2",
     });
     expect(scroll.ok).toBe(true);
-    expect(pwMocks.scrollIntoViewViaPlaywright).toHaveBeenCalledWith({
-      cdpUrl: state.cdpBaseUrl,
-      targetId: "abcd1234",
-      ref: "2",
-    });
+    expect(pwMocks.scrollIntoViewViaPlaywright).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cdpUrl: state.cdpBaseUrl,
+        targetId: "abcd1234",
+        ref: "2",
+        signal: expect.any(AbortSignal),
+      }),
+    );
 
     const drag = await postJson<{ ok: boolean }>(`${base}/act`, {
       kind: "drag",
@@ -161,11 +189,14 @@ describe("browser control server", () => {
       endRef: "4",
     });
     expect(drag.ok).toBe(true);
-    expect(pwMocks.dragViaPlaywright).toHaveBeenCalledWith({
-      cdpUrl: state.cdpBaseUrl,
-      targetId: "abcd1234",
-      startRef: "3",
-      endRef: "4",
-    });
+    expect(pwMocks.dragViaPlaywright).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cdpUrl: state.cdpBaseUrl,
+        targetId: "abcd1234",
+        startRef: "3",
+        endRef: "4",
+        signal: expect.any(AbortSignal),
+      }),
+    );
   });
 });

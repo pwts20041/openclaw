@@ -8,7 +8,9 @@ import {
   isNodeCommandAllowed,
   isPersistentBrowserProfileMutation,
   loadConfig,
+  normalizeBrowserRequestPath,
   persistBrowserProxyFiles,
+  resolveBrowserConfig,
   resolveNodeCommandAllowlist,
   resolveRequestedBrowserProfile,
   respondUnavailableOnNodeInvokeError,
@@ -16,6 +18,7 @@ import {
   startBrowserControlServiceFromConfig,
   type GatewayRequestHandlers,
   type NodeSession,
+  withTimeout,
 } from "../core-api.js";
 
 type BrowserRequestParams = {
@@ -36,6 +39,22 @@ type BrowserProxyResult = {
   result: unknown;
   files?: BrowserProxyFile[];
 };
+
+const ABORT_AWARE_LOCAL_ACT_KINDS = new Set([
+  "click",
+  "type",
+  "press",
+  "hover",
+  "scrollIntoView",
+  "drag",
+  "select",
+  "fill",
+  "resize",
+  "wait",
+  "evaluate",
+  "close",
+  "batch",
+]);
 
 function isBrowserNode(node: NodeSession) {
   const caps = Array.isArray(node.caps) ? node.caps : [];
@@ -124,6 +143,43 @@ async function persistProxyFiles(files: BrowserProxyFile[] | undefined) {
 
 function applyProxyPaths(result: unknown, mapping: Map<string, string>) {
   applyBrowserProxyPaths(result, mapping);
+}
+
+function resolveRequestedProfileDriver(params: {
+  cfg: ReturnType<typeof loadConfig>;
+  query?: Record<string, unknown>;
+  body?: unknown;
+}): string | undefined {
+  const resolvedBrowser = resolveBrowserConfig(params.cfg.browser, params.cfg);
+  const profileName =
+    resolveRequestedBrowserProfile({ query: params.query, body: params.body }) ??
+    resolvedBrowser.defaultProfile;
+  if (!profileName) {
+    return undefined;
+  }
+  const profile = resolvedBrowser.profiles[profileName];
+  return typeof profile?.driver === "string" ? profile.driver : undefined;
+}
+
+function shouldWrapLocalBrowserRequestWithTimeout(params: {
+  cfg: ReturnType<typeof loadConfig>;
+  path: string;
+  query?: Record<string, unknown>;
+  body?: unknown;
+}) {
+  if (resolveRequestedProfileDriver(params) === "existing-session") {
+    return false;
+  }
+  const path = normalizeBrowserRequestPath(params.path);
+  if (path === "/navigate" || path === "/pdf") {
+    return true;
+  }
+  if (path !== "/act" || !params.body || typeof params.body !== "object") {
+    return false;
+  }
+  const kind =
+    "kind" in params.body && typeof params.body.kind === "string" ? params.body.kind.trim() : "";
+  return ABORT_AWARE_LOCAL_ACT_KINDS.has(kind);
 }
 
 export async function handleBrowserGatewayRequest({
@@ -245,12 +301,34 @@ export async function handleBrowserGatewayRequest({
     return;
   }
 
-  const result = await dispatcher.dispatch({
-    method: methodRaw,
-    path,
-    query,
-    body,
-  });
+  const shouldApplyLocalTimeout =
+    timeoutMs !== undefined && shouldWrapLocalBrowserRequestWithTimeout({ cfg, path, query, body });
+
+  let result;
+  try {
+    result = shouldApplyLocalTimeout
+      ? await withTimeout(
+          async (signal) =>
+            await dispatcher.dispatch({
+              method: methodRaw,
+              path,
+              query,
+              body,
+              signal,
+            }),
+          timeoutMs,
+          "browser request",
+        )
+      : await dispatcher.dispatch({
+          method: methodRaw,
+          path,
+          query,
+          body,
+        });
+  } catch (err) {
+    respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, String(err)));
+    return;
+  }
 
   if (result.status >= 400) {
     const message =

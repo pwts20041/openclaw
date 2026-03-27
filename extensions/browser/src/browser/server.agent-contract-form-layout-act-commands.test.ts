@@ -88,6 +88,7 @@ describe("browser control server", () => {
             cdpUrl: expect.any(String),
             targetId: "abcd1234",
             fields: [expected],
+            signal: expect.any(AbortSignal),
           }),
         );
       }
@@ -104,6 +105,7 @@ describe("browser control server", () => {
           targetId: "abcd1234",
           width: 800,
           height: 600,
+          signal: expect.any(AbortSignal),
         }),
       );
 
@@ -112,13 +114,16 @@ describe("browser control server", () => {
         timeMs: 5,
       });
       expect(wait.ok).toBe(true);
-      expect(pwMocks.waitForViaPlaywright).toHaveBeenCalledWith({
-        cdpUrl: state.cdpBaseUrl,
-        targetId: "abcd1234",
-        timeMs: 5,
-        text: undefined,
-        textGone: undefined,
-      });
+      expect(pwMocks.waitForViaPlaywright).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cdpUrl: state.cdpBaseUrl,
+          targetId: "abcd1234",
+          timeMs: 5,
+          text: undefined,
+          textGone: undefined,
+          signal: expect.any(AbortSignal),
+        }),
+      );
 
       const evalRes = await postJson<{ ok: boolean; result?: string }>(`${base}/act`, {
         kind: "evaluate",
@@ -163,6 +168,7 @@ describe("browser control server", () => {
           targetId: "abcd1234",
           stopOnError: false,
           evaluateEnabled: true,
+          signal: expect.any(AbortSignal),
           actions: [
             {
               kind: "click",
@@ -197,6 +203,7 @@ describe("browser control server", () => {
       expect(batchRes.ok).toBe(true);
       expect(pwMocks.batchViaPlaywright).toHaveBeenCalledWith(
         expect.objectContaining({
+          signal: expect.any(AbortSignal),
           actions: [
             {
               kind: "type",
