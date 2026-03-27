@@ -1,13 +1,15 @@
+import fs from "node:fs";
+import path from "node:path";
+import dotenv from "dotenv";
 import {
   loadAuthProfileStoreForSecretsRuntime,
   type AuthProfileStore,
 } from "../agents/auth-profiles.js";
 import { formatCliCommand } from "../cli/command-format.js";
-import { collectDurableServiceEnvVars } from "../config/state-dir-dotenv.js";
-import type { OpenClawConfig } from "../config/types.js";
 import { resolveGatewayLaunchAgentLabel } from "../daemon/constants.js";
 import { resolveGatewayProgramArguments } from "../daemon/program-args.js";
 import { buildServiceEnvironment } from "../daemon/service-env.js";
+import { resolveConfigDir } from "../utils.js";
 import {
   isDangerousHostEnvOverrideVarName,
   isDangerousHostEnvVarName,
@@ -29,9 +31,30 @@ export type GatewayInstallPlan = {
   environment: Record<string, string | undefined>;
 };
 
+function readDurableStateEnvKeys(env: Record<string, string | undefined>): Set<string> {
+  // Use resolveConfigDir (same path as loadDotEnv) so the skip list matches
+  // the .env the installed daemon will actually read at runtime.
+  const envPath = path.join(resolveConfigDir(env as NodeJS.ProcessEnv), ".env");
+  try {
+    const parsed = dotenv.parse(fs.readFileSync(envPath, "utf8"));
+    // Only skip keys that have a usable durable value — exclude empty values
+    // and any $-prefixed expression that dotenv stores literally without
+    // expansion (e.g. $VAR, ${VAR}, ${VAR:-fallback}, ${VAR-default}).
+    return new Set(
+      Object.keys(parsed).filter((k) => {
+        const v = parsed[k].trim();
+        return v !== "" && !v.startsWith("$");
+      }),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 function collectAuthProfileServiceEnvVars(params: {
   env: Record<string, string | undefined>;
   authStore?: AuthProfileStore;
+  skipKeys?: Set<string>;
   warn?: DaemonInstallWarnFn;
 }): Record<string, string> {
   const authStore = params.authStore ?? loadAuthProfileStoreForSecretsRuntime();
@@ -44,7 +67,7 @@ function collectAuthProfileServiceEnvVars(params: {
         : credential.type === "token"
           ? credential.tokenRef
           : undefined;
-    if (!ref || ref.source !== "env") {
+    if (!ref || ref.source !== "env" || params.skipKeys?.has(ref.id)) {
       continue;
     }
     const key = normalizeEnvVarKey(ref.id, { portable: true });
@@ -68,27 +91,6 @@ function collectAuthProfileServiceEnvVars(params: {
   return entries;
 }
 
-function buildGatewayInstallEnvironment(params: {
-  env: Record<string, string | undefined>;
-  config?: OpenClawConfig;
-  authStore?: AuthProfileStore;
-  warn?: DaemonInstallWarnFn;
-  serviceEnvironment: Record<string, string | undefined>;
-}): Record<string, string | undefined> {
-  const environment: Record<string, string | undefined> = {
-    ...collectDurableServiceEnvVars({
-      env: params.env,
-      config: params.config,
-    }),
-    ...collectAuthProfileServiceEnvVars({
-      env: params.env,
-      authStore: params.authStore,
-      warn: params.warn,
-    }),
-  };
-  Object.assign(environment, params.serviceEnvironment);
-  return environment;
-}
 
 export async function buildGatewayInstallPlan(params: {
   env: Record<string, string | undefined>;
@@ -97,8 +99,6 @@ export async function buildGatewayInstallPlan(params: {
   devMode?: boolean;
   nodePath?: string;
   warn?: DaemonInstallWarnFn;
-  /** Full config to extract env vars from (env vars + inline env keys). */
-  config?: OpenClawConfig;
   authStore?: AuthProfileStore;
 }): Promise<GatewayInstallPlan> {
   const { devMode, nodePath } = await resolveDaemonInstallRuntimeInputs({
@@ -131,23 +131,18 @@ export async function buildGatewayInstallPlan(params: {
     // a version-manager bin directory that isn't covered by static PATH guesses.
     extraPathDirs: resolveDaemonNodeBinDir(nodePath),
   });
-
-  // Merge env sources into the service environment in ascending priority:
-  //   1. ~/.openclaw/.env file vars  (lowest — user secrets / fallback keys)
-  //   2. Config env vars              (openclaw.json env.vars + inline keys)
-  //   3. Auth-profile env refs        (credential store → env var lookups)
-  //   4. Service environment          (HOME, PATH, OPENCLAW_* — highest)
-  return {
-    programArguments,
-    workingDirectory,
-    environment: buildGatewayInstallEnvironment({
+  // Avoid duplicating secrets that already live in the durable state-dir `.env`,
+  // while still preserving shell-only env refs for daemon installs.
+  const environment = {
+    ...collectAuthProfileServiceEnvVars({
       env: params.env,
-      config: params.config,
       authStore: params.authStore,
+      skipKeys: readDurableStateEnvKeys(params.env),
       warn: params.warn,
-      serviceEnvironment,
     }),
+    ...serviceEnvironment,
   };
+  return { programArguments, workingDirectory, environment };
 }
 
 export function gatewayInstallErrorHint(platform = process.platform): string {

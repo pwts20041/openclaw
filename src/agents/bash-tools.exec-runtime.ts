@@ -397,7 +397,7 @@ export function buildExecExitOutcome(params: {
       timedOut: false,
     };
   }
-  const failureKind = classifyExecFailureKind({
+  const failureKind: ExecExitFailureKind = classifyExecFailureKind({
     exitReason: params.exit.reason,
     exitCode,
     isShellFailure,
