@@ -1,18 +1,25 @@
 import type { OpenClawConfig } from "../config/types.js";
 import { estimateBase64DecodedBytes } from "../media/base64.js";
 import { sniffMimeFromBase64 } from "../media/sniff-mime-from-base64.js";
+import { MAX_PAYLOAD_BYTES } from "./server-constants.js";
 
 const DEFAULT_INBOUND_MEDIA_MAX_BYTES = 5_000_000;
 
+// Base64 expands raw bytes by ~4/3; clamp configured limit so the encoded
+// payload never exceeds the WS frame budget (MAX_PAYLOAD_BYTES).
+const WS_INBOUND_MAX_BYTES = Math.floor((MAX_PAYLOAD_BYTES * 3) / 4);
+
 /**
  * Resolve the inbound media size limit from config (`agents.defaults.mediaMaxMb`),
- * falling back to 5 000 000 bytes when unset.
+ * falling back to 5 000 000 bytes when unset. The resolved value is clamped to
+ * the maximum that can be base64-encoded within the WS transport frame budget.
  */
 export function resolveInboundMediaMaxBytes(
   cfg: Pick<OpenClawConfig, "agents"> | undefined,
 ): number {
   const mb = cfg?.agents?.defaults?.mediaMaxMb;
-  return mb !== undefined ? mb * 1024 * 1024 : DEFAULT_INBOUND_MEDIA_MAX_BYTES;
+  const configured = mb !== undefined ? mb * 1024 * 1024 : DEFAULT_INBOUND_MEDIA_MAX_BYTES;
+  return Math.min(configured, WS_INBOUND_MAX_BYTES);
 }
 
 export type ChatAttachment = {
