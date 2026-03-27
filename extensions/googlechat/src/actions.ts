@@ -63,7 +63,7 @@ async function loadGoogleChatActionMedia(params: {
       })
     : await runtime.media.loadWebMedia(params.mediaUrl, {
         maxBytes: params.maxBytes,
-        localRoots: params.mediaLocalRoots?.length ? params.mediaLocalRoots : undefined,
+        localRoots: params.mediaLocalRoots === undefined ? undefined : params.mediaLocalRoots,
       });
 }
 

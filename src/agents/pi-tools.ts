@@ -502,6 +502,7 @@ export function createOpenClawCodingTools(options?: {
           const resolvedRootsNonNull = resolvedRoots;
           validatePathAgainstRoots(resolvedPath, "write", resolvedRootsNonNull);
           await assertAliasSafe(resolvedPath, resolvedRootsNonNull, {
+            operation: "write",
             allowFinalSymlinkForUnlink: options?.isUnlink,
             allowFinalHardlinkForUnlink: options?.isUnlink,
           });

@@ -430,7 +430,7 @@ export const googlechatPlugin = createChatChannelPlugin({
             })
           : await runtime.media.loadWebMedia(mediaUrl, {
               maxBytes: effectiveMaxBytes,
-              localRoots: mediaLocalRoots?.length ? mediaLocalRoots : undefined,
+              localRoots: mediaLocalRoots === undefined ? undefined : mediaLocalRoots,
             });
         const { sendGoogleChatMessage, uploadGoogleChatAttachment } =
           await loadGoogleChatChannelRuntime();
