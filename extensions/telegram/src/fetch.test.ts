@@ -69,6 +69,8 @@ vi.mock("openclaw/plugin-sdk/runtime-env", () => ({
       error: vi.fn(),
     }),
   }),
+  danger: (value: unknown) => String(value),
+  logVerbose: vi.fn(),
 }));
 
 let resolveFetch: typeof import("../../../src/infra/fetch.js").resolveFetch;

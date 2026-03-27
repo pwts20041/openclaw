@@ -14,6 +14,21 @@ vi.mock("./mattermost/send.js", () => ({
   sendMessageMattermost: sendMessageMattermostMock,
 }));
 
+vi.mock("openclaw/plugin-sdk/runtime-env", () => {
+  const logger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    child: () => logger,
+  };
+  return {
+    createSubsystemLogger: () => logger,
+    danger: (value: unknown) => String(value),
+    logVerbose: vi.fn(),
+  };
+});
+
 vi.mock("openclaw/plugin-sdk/infra-runtime", async (importOriginal) => {
   const original = (await importOriginal()) as Record<string, unknown>;
   return { ...original, fetchWithSsrFGuard: mockFetchGuard };
