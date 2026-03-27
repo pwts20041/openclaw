@@ -3,6 +3,7 @@ import type { AuthRateLimiter } from "../../auth-rate-limit.js";
 import type { GatewayAuthResult } from "../../auth.js";
 import { buildDeviceAuthPayload, buildDeviceAuthPayloadV3 } from "../../device-auth.js";
 import { isLoopbackAddress } from "../../net.js";
+import { GATEWAY_CLIENT_IDS, GATEWAY_CLIENT_MODES } from "../../protocol/client-info.js";
 import type { ConnectParams } from "../../protocol/index.js";
 import type { AuthProvidedKind } from "./auth-messages.js";
 
@@ -56,6 +57,45 @@ export function shouldAllowSilentLocalPairing(params: {
     params.isLocalClient &&
     (!params.hasBrowserOriginHeader || params.isControlUi || params.isWebchat) &&
     (params.reason === "not-paired" || params.reason === "scope-upgrade")
+  );
+}
+
+export function shouldSkipBackendSelfPairing(params: {
+  connectParams: ConnectParams;
+  isLocalClient: boolean;
+  hasBrowserOriginHeader: boolean;
+  sharedAuthOk: boolean;
+  authMethod: GatewayAuthResult["method"];
+}): boolean {
+  const isLocalTrustedClient =
+    (params.connectParams.client.id === GATEWAY_CLIENT_IDS.GATEWAY_CLIENT &&
+      params.connectParams.client.mode === GATEWAY_CLIENT_MODES.BACKEND) ||
+    (params.connectParams.client.id === GATEWAY_CLIENT_IDS.CLI &&
+      params.connectParams.client.mode === GATEWAY_CLIENT_MODES.CLI);
+  if (!isLocalTrustedClient) {
+    return false;
+  }
+  const usesSharedSecretAuth = params.authMethod === "token" || params.authMethod === "password";
+  const usesDeviceTokenAuth = params.authMethod === "device-token";
+  // `authMethod === "device-token"` only reaches this helper after the caller
+  // has already accepted auth (`authOk === true`), so a separate
+  // `deviceTokenAuthOk` flag would be redundant here.
+  // For backend self-connections, require locality as defense-in-depth.
+  // For CLI connections with valid shared auth (token/password), skip
+  // the locality check — the token is the trust anchor and
+  // isLocalDirectRequest can produce false negatives in Docker
+  // (host networking, network_mode sharing) even when remoteAddress
+  // is 127.0.0.1.
+  const isCli =
+    params.connectParams.client.id === GATEWAY_CLIENT_IDS.CLI &&
+    params.connectParams.client.mode === GATEWAY_CLIENT_MODES.CLI;
+  if (isCli && params.sharedAuthOk && usesSharedSecretAuth && !params.hasBrowserOriginHeader) {
+    return true;
+  }
+  return (
+    params.isLocalClient &&
+    !params.hasBrowserOriginHeader &&
+    ((params.sharedAuthOk && usesSharedSecretAuth) || usesDeviceTokenAuth)
   );
 }
 
