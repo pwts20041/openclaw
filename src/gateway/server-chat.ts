@@ -605,11 +605,14 @@ export function createAgentEventHandler({
       clientRunId,
       sourceRunId,
     );
+    // Skip colon-ending narration so it merges with subsequent tool output instead of orphaning.
+    const isIncompleteNarration = text.endsWith(":");
     if (
       !text ||
       shouldSuppressSilent ||
       shouldSuppressSilentLeadFragment ||
-      shouldSuppressHeartbeatStreaming
+      shouldSuppressHeartbeatStreaming ||
+      isIncompleteNarration
     ) {
       return;
     }
