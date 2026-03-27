@@ -491,6 +491,154 @@ describe("trusted-proxy auth", () => {
     expect(res.user).toBe("nick@example.com");
   });
 
+  it("allows local-direct shared-token auth in trusted-proxy mode", async () => {
+    const localToken = await authorizeGatewayConnect({
+      auth: {
+        mode: "trusted-proxy",
+        allowTailscale: false,
+        token: "secret",
+        trustedProxy: trustedProxyConfig,
+      },
+      connectAuth: { token: "secret" },
+      trustedProxies: ["127.0.0.1"],
+      req: {
+        socket: { remoteAddress: "127.0.0.1" },
+        headers: {
+          host: "127.0.0.1:19001",
+        },
+      } as never,
+    });
+
+    expect(localToken.ok).toBe(true);
+    expect(localToken.method).toBe("token");
+  });
+
+  it("prefers token auth when bearer-style fallback populates both token and password", async () => {
+    const res = await authorizeGatewayConnect({
+      auth: {
+        mode: "trusted-proxy",
+        allowTailscale: false,
+        token: "secret",
+        password: "different-password",
+        trustedProxy: trustedProxyConfig,
+      },
+      connectAuth: { token: "secret", password: "secret" },
+      trustedProxies: ["127.0.0.1"],
+      req: {
+        socket: { remoteAddress: "127.0.0.1" },
+        headers: {
+          host: "127.0.0.1:19001",
+        },
+      } as never,
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.method).toBe("token");
+  });
+
+  it("does not let local fallback preempt valid trusted-proxy header auth", async () => {
+    const res = await authorizeGatewayConnect({
+      auth: {
+        mode: "trusted-proxy",
+        allowTailscale: false,
+        token: "secret",
+        trustedProxy: trustedProxyConfig,
+      },
+      connectAuth: { token: "wrong" },
+      trustedProxies: ["127.0.0.1"],
+      req: {
+        socket: { remoteAddress: "127.0.0.1" },
+        headers: {
+          host: "gateway.local",
+          "x-forwarded-user": "nick@example.com",
+          "x-forwarded-proto": "https",
+        },
+      } as never,
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.method).toBe("trusted-proxy");
+    expect(res.user).toBe("nick@example.com");
+  });
+
+  it("applies rate limiting before trusted-proxy local shared-secret fallback", async () => {
+    const limiter = createLimiterSpy();
+    limiter.check.mockReturnValue({
+      allowed: false,
+      remaining: 0,
+      retryAfterMs: 60_000,
+    });
+
+    const res = await authorizeGatewayConnect({
+      auth: {
+        mode: "trusted-proxy",
+        allowTailscale: false,
+        token: "secret",
+        trustedProxy: trustedProxyConfig,
+      },
+      connectAuth: { token: "secret" },
+      trustedProxies: ["127.0.0.1"],
+      req: {
+        socket: { remoteAddress: "127.0.0.1" },
+        headers: {
+          host: "127.0.0.1:19001",
+        },
+      } as never,
+      rateLimiter: limiter,
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("rate_limited");
+    expect(limiter.check).toHaveBeenCalled();
+  });
+
+  it("does not allow shared-secret fallback for same-host proxied external requests", async () => {
+    const res = await authorizeGatewayConnect({
+      auth: {
+        mode: "trusted-proxy",
+        allowTailscale: false,
+        token: "secret",
+        trustedProxy: trustedProxyConfig,
+      },
+      connectAuth: { token: "secret" },
+      trustedProxies: ["127.0.0.1"],
+      req: {
+        socket: { remoteAddress: "127.0.0.1" },
+        headers: {
+          host: "gateway.local",
+          "x-forwarded-for": "203.0.113.9",
+          "x-forwarded-proto": "https",
+        },
+      } as never,
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("trusted_proxy_user_missing");
+  });
+
+  it("does not allow shared-secret fallback when loopback requests carry proxy-forwarding context", async () => {
+    const res = await authorizeGatewayConnect({
+      auth: {
+        mode: "trusted-proxy",
+        allowTailscale: false,
+        token: "secret",
+        trustedProxy: trustedProxyConfig,
+      },
+      connectAuth: { token: "secret" },
+      trustedProxies: ["127.0.0.1"],
+      req: {
+        socket: { remoteAddress: "127.0.0.1" },
+        headers: {
+          host: "127.0.0.1:19001",
+          "x-forwarded-proto": "https",
+        },
+      } as never,
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("trusted_proxy_missing_header_x-forwarded-proto");
+  });
+
   it("rejects request from untrusted source", async () => {
     const res = await authorizeTrustedProxy({
       remoteAddress: "192.168.1.100",

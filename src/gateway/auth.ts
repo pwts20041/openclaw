@@ -84,6 +84,14 @@ export type AuthorizeGatewayConnectParams = {
   allowRealIpFallback?: boolean;
 };
 
+type SharedSecretAuthParams = {
+  auth: ResolvedGatewayAuth;
+  connectAuth?: ConnectAuth | null;
+  limiter?: AuthRateLimiter;
+  ip?: string;
+  rateLimitScope: string;
+};
+
 type TailscaleUser = {
   login: string;
   name: string;
@@ -131,8 +139,8 @@ export function isLocalDirectRequest(
     req.headers?.["x-real-ip"] ||
     req.headers?.["x-forwarded-host"],
   );
-
-  const remoteIsTrustedProxy = isTrustedProxyAddress(req.socket?.remoteAddress, trustedProxies);
+  const remoteAddr = req.socket?.remoteAddress;
+  const remoteIsTrustedProxy = isTrustedProxyAddress(remoteAddr, trustedProxies);
   return isLocalishHost(req.headers?.host) && (!hasForwarded || remoteIsTrustedProxy);
 }
 
@@ -365,6 +373,78 @@ function shouldAllowTailscaleHeaderAuth(authSurface: GatewayAuthSurface): boolea
   return authSurface === "ws-control-ui";
 }
 
+function authorizeSharedSecretFallback(params: SharedSecretAuthParams): GatewayAuthResult | null {
+  const { auth, connectAuth, limiter, ip, rateLimitScope } = params;
+
+  // HTTP bearer auth paths populate both token and password with the same
+  // bearer token value, so prefer token auth when both shared secrets exist.
+  if (auth.token && connectAuth?.token) {
+    if (!safeEqualSecret(connectAuth.token, auth.token)) {
+      limiter?.recordFailure(ip, rateLimitScope);
+      return { ok: false, reason: "token_mismatch" };
+    }
+    limiter?.reset(ip, rateLimitScope);
+    return { ok: true, method: "token" };
+  }
+
+  if (auth.password && connectAuth?.password) {
+    if (!safeEqualSecret(connectAuth.password, auth.password)) {
+      limiter?.recordFailure(ip, rateLimitScope);
+      return { ok: false, reason: "password_mismatch" };
+    }
+    limiter?.reset(ip, rateLimitScope);
+    return { ok: true, method: "password" };
+  }
+
+  return null;
+}
+
+function hasConfiguredTrustedProxyHeaders(
+  req: IncomingMessage | undefined,
+  trustedProxyConfig: GatewayTrustedProxyConfig | undefined,
+): boolean {
+  if (!req || !trustedProxyConfig) {
+    return false;
+  }
+
+  const headers = [trustedProxyConfig.userHeader, ...(trustedProxyConfig.requiredHeaders ?? [])]
+    .map((header) => header?.trim().toLowerCase())
+    .filter((header): header is string => Boolean(header));
+
+  return headers.some((header) => {
+    const value = headerValue(req.headers[header]);
+    return typeof value === "string" && value.trim() !== "";
+  });
+}
+
+function hasAnyProxyForwardingContext(req?: IncomingMessage): boolean {
+  if (!req) {
+    return false;
+  }
+  return Boolean(
+    req.headers.forwarded ||
+    req.headers["x-forwarded-for"] ||
+    req.headers["x-real-ip"] ||
+    req.headers["x-forwarded-host"] ||
+    req.headers["x-forwarded-proto"],
+  );
+}
+
+function shouldAllowTrustedProxySharedSecretFallback(
+  req: IncomingMessage | undefined,
+  trustedProxyConfig: GatewayTrustedProxyConfig | undefined,
+): boolean {
+  if (!req) {
+    return false;
+  }
+  return (
+    isLocalishHost(req.headers?.host) &&
+    isLoopbackAddress(req.socket?.remoteAddress) &&
+    !hasAnyProxyForwardingContext(req) &&
+    !hasConfiguredTrustedProxyHeaders(req, trustedProxyConfig)
+  );
+}
+
 export async function authorizeGatewayConnect(
   params: AuthorizeGatewayConnectParams,
 ): Promise<GatewayAuthResult> {
@@ -377,8 +457,43 @@ export async function authorizeGatewayConnect(
     trustedProxies,
     params.allowRealIpFallback === true,
   );
+  const limiter = params.rateLimiter;
+  const ip =
+    params.clientIp ??
+    resolveRequestClientIp(req, trustedProxies, params.allowRealIpFallback === true) ??
+    req?.socket?.remoteAddress;
+  const rateLimitScope = params.rateLimitScope ?? AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET;
+  const localTrustedProxyFallback = shouldAllowTrustedProxySharedSecretFallback(
+    req,
+    auth.trustedProxy,
+  );
 
   if (auth.mode === "trusted-proxy") {
+    if (localTrustedProxyFallback && limiter) {
+      const rlCheck: RateLimitCheckResult = limiter.check(ip, rateLimitScope);
+      if (!rlCheck.allowed) {
+        return {
+          ok: false,
+          reason: "rate_limited",
+          rateLimited: true,
+          retryAfterMs: rlCheck.retryAfterMs,
+        };
+      }
+    }
+
+    if (localTrustedProxyFallback) {
+      const sharedSecretFallback = authorizeSharedSecretFallback({
+        auth,
+        connectAuth,
+        limiter,
+        ip,
+        rateLimitScope,
+      });
+      if (sharedSecretFallback) {
+        return sharedSecretFallback;
+      }
+    }
+
     if (!auth.trustedProxy) {
       return { ok: false, reason: "trusted_proxy_config_missing" };
     }
@@ -402,12 +517,6 @@ export async function authorizeGatewayConnect(
     return { ok: true, method: "none" };
   }
 
-  const limiter = params.rateLimiter;
-  const ip =
-    params.clientIp ??
-    resolveRequestClientIp(req, trustedProxies, params.allowRealIpFallback === true) ??
-    req?.socket?.remoteAddress;
-  const rateLimitScope = params.rateLimitScope ?? AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET;
   if (limiter) {
     const rlCheck: RateLimitCheckResult = limiter.check(ip, rateLimitScope);
     if (!rlCheck.allowed) {
