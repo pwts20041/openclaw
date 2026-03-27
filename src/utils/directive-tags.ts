@@ -21,9 +21,12 @@ const INLINE_DIRECTIVE_TAG_WITH_PADDING_RE =
 
 function normalizeDirectiveWhitespace(text: string): string {
   return text
-    .replace(/[ \t]+/g, " ")
-    .replace(/[ \t]*\n[ \t]*/g, "\n")
-    .trim();
+    .replace(/\r\n/g, "\n")
+    .replace(/([^\s\n])[ \t]{2,}([^\s\n])/g, "$1 $2")
+    .replace(/^\n/, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trimEnd();
 }
 
 type StripInlineDirectiveTagsResult = {
@@ -130,7 +133,7 @@ export function parseInlineDirectives(
   cleaned = cleaned.replace(AUDIO_TAG_RE, (match) => {
     audioAsVoice = true;
     hasAudioTag = true;
-    return stripAudioTag ? " " : match;
+    return stripAudioTag ? "" : match;
   });
 
   cleaned = cleaned.replace(REPLY_TAG_RE, (match, idRaw: string | undefined) => {
@@ -143,7 +146,7 @@ export function parseInlineDirectives(
         lastExplicitId = id;
       }
     }
-    return stripReplyTags ? " " : match;
+    return stripReplyTags ? "" : match;
   });
 
   cleaned = normalizeDirectiveWhitespace(cleaned);

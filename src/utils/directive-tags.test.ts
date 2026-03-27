@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  parseInlineDirectives,
   stripInlineDirectiveTagsForDelivery,
   stripInlineDirectiveTagsForDisplay,
   stripInlineDirectiveTagsFromMessageForDisplay,
@@ -48,6 +49,30 @@ describe("stripInlineDirectiveTagsForDelivery", () => {
     const result = stripInlineDirectiveTagsForDelivery(input);
     expect(result.changed).toBe(false);
     expect(result.text).toBe(input);
+  });
+});
+
+describe("parseInlineDirectives", () => {
+  test("preserves leading spaces after stripping a reply tag", () => {
+    const input = "[[reply_to_current]]    keep this indent\n        and this one";
+    const result = parseInlineDirectives(input);
+    expect(result.hasReplyTag).toBe(true);
+    expect(result.text).toBe("    keep this indent\n        and this one");
+  });
+
+  test("preserves fenced code block indentation after stripping a reply tag", () => {
+    const input = [
+      "[[reply_to_current]]",
+      "```python",
+      "    if True:",
+      "        print('ok')",
+      "```",
+    ].join("\n");
+    const result = parseInlineDirectives(input);
+    expect(result.hasReplyTag).toBe(true);
+    expect(result.text).toBe(
+      ["```python", "    if True:", "        print('ok')", "```"].join("\n"),
+    );
   });
 });
 
