@@ -161,6 +161,13 @@ function resolveRetryConfig(cronConfig?: CronConfig) {
   };
 }
 
+function resolveRecurringErrorBackoffSchedule(cronConfig?: CronConfig): number[] {
+  const retryConfig = resolveRetryConfig(cronConfig);
+  return Array.isArray(cronConfig?.retry?.backoffMs) && cronConfig.retry.backoffMs.length > 0
+    ? retryConfig.backoffMs
+    : DEFAULT_BACKOFF_SCHEDULE_MS;
+}
+
 function resolveDeliveryStatus(params: { job: CronJob; delivered?: boolean }): CronDeliveryStatus {
   if (params.delivered === true) {
     return "delivered";
@@ -414,8 +421,13 @@ export function applyJobResult(
         }
       }
     } else if (result.status === "error" && job.enabled) {
-      // Apply exponential backoff for errored jobs to prevent retry storms.
-      const backoff = errorBackoffMs(job.state.consecutiveErrors ?? 1);
+      // Recurring jobs: use default transient patterns only. cron.retry.retryOn is documented
+      // for one-shot retries; narrowing it must not disable recurring network/timeout retries.
+      const transient = isTransientCronError(result.error);
+      // Custom cron.retry.backoffMs applies here via retryConfig (parity with one-shot path).
+      // If unset, use full default ladder (one-shot uses resolveRetryConfig's shorter default).
+      const recurringBackoffMs = resolveRecurringErrorBackoffSchedule(state.deps.cronConfig);
+      const backoff = errorBackoffMs(job.state.consecutiveErrors ?? 1, recurringBackoffMs);
       let normalNext: number | undefined;
       try {
         normalNext =
@@ -429,12 +441,29 @@ export function applyJobResult(
         recordScheduleComputeError({ state, job, err });
       }
       const backoffNext = result.endedAt + backoff;
-      // Use whichever is later: the natural next run or the backoff delay.
-      job.state.nextRunAtMs =
-        normalNext !== undefined ? Math.max(normalNext, backoffNext) : backoffNext;
+      if (transient) {
+        // Transient error (network, timeout, rate-limit, 5xx): retry soon with
+        // backoff regardless of schedule interval. Without this, long-period jobs
+        // (hourly, daily) would wait until the next natural schedule time even
+        // when the error is self-healing (e.g. a brief network blip).
+        // Force runs (preserveSchedule) keep the intended cadence instead of
+        // scheduling an immediate backoff retry.
+        if (opts?.preserveSchedule && normalNext !== undefined) {
+          job.state.nextRunAtMs = Math.max(normalNext, backoffNext);
+        } else {
+          job.state.nextRunAtMs = backoffNext;
+        }
+      } else {
+        // Permanent error: respect natural schedule. Math.max ensures short-interval
+        // jobs still observe the backoff cool-down and don't form retry storms.
+        job.state.nextRunAtMs =
+          normalNext !== undefined ? Math.max(normalNext, backoffNext) : backoffNext;
+      }
       state.deps.log.info(
         {
           jobId: job.id,
+          jobName: job.name,
+          transient,
           consecutiveErrors: job.state.consecutiveErrors,
           backoffMs: backoff,
           nextRunAtMs: job.state.nextRunAtMs,
@@ -733,6 +762,7 @@ export async function onTimer(state: CronServiceState) {
 function isRunnableJob(params: {
   job: CronJob;
   nowMs: number;
+  cronConfig?: CronConfig;
   skipJobIds?: ReadonlySet<string>;
   skipAtIfAlreadyRan?: boolean;
   allowCronMissedRunByLastRun?: boolean;
@@ -775,7 +805,7 @@ function isRunnableJob(params: {
     typeof next === "number" &&
     Number.isFinite(next) &&
     next > nowMs &&
-    isErrorBackoffPending(job, nowMs)
+    isErrorBackoffPending(job, nowMs, params.cronConfig)
   ) {
     // Respect active retry backoff windows on restart, but allow missed-slot
     // replay once the backoff window has elapsed.
@@ -801,7 +831,7 @@ function isRunnableJob(params: {
   return previousRunAtMs > lastRunAtMs;
 }
 
-function isErrorBackoffPending(job: CronJob, nowMs: number): boolean {
+function isErrorBackoffPending(job: CronJob, nowMs: number, cronConfig?: CronConfig): boolean {
   if (job.schedule.kind === "at" || job.state.lastStatus !== "error") {
     return false;
   }
@@ -814,7 +844,8 @@ function isErrorBackoffPending(job: CronJob, nowMs: number): boolean {
     typeof consecutiveErrorsRaw === "number" && Number.isFinite(consecutiveErrorsRaw)
       ? Math.max(1, Math.floor(consecutiveErrorsRaw))
       : 1;
-  return nowMs < lastRunAtMs + errorBackoffMs(consecutiveErrors);
+  const backoffSchedule = resolveRecurringErrorBackoffSchedule(cronConfig);
+  return nowMs < lastRunAtMs + errorBackoffMs(consecutiveErrors, backoffSchedule);
 }
 
 function collectRunnableJobs(
@@ -833,6 +864,7 @@ function collectRunnableJobs(
     isRunnableJob({
       job,
       nowMs,
+      cronConfig: state.deps.cronConfig,
       skipJobIds: opts?.skipJobIds,
       skipAtIfAlreadyRan: opts?.skipAtIfAlreadyRan,
       allowCronMissedRunByLastRun: opts?.allowCronMissedRunByLastRun,
