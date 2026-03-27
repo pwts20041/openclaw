@@ -1,19 +1,19 @@
-import { createLazyRuntimeNamedExport } from "openclaw/plugin-sdk/lazy-runtime";
-import { resolveBlueBubblesAccount } from "./accounts.js";
-import { getCachedBlueBubblesPrivateApiStatus, isMacOS26OrHigher } from "./probe.js";
 import {
   BLUEBUBBLES_ACTION_NAMES,
   BLUEBUBBLES_ACTIONS,
   createActionGate,
   extractToolSend,
   jsonResult,
-  readNumberParam,
   readBooleanParam,
+  readNumberParam,
   readReactionParams,
   readStringParam,
   type ChannelMessageActionAdapter,
   type ChannelMessageActionName,
-} from "./runtime-api.js";
+} from "openclaw/plugin-sdk/bluebubbles";
+import { createLazyRuntimeNamedExport } from "openclaw/plugin-sdk/lazy-runtime";
+import { resolveBlueBubblesAccount } from "./accounts.js";
+import { getCachedBlueBubblesPrivateApiStatus, isMacOS26OrHigher } from "./probe.js";
 import { normalizeSecretInputString } from "./secret-input.js";
 import {
   normalizeBlueBubblesHandle,
@@ -51,11 +51,6 @@ function readMessageText(params: Record<string, unknown>): string | undefined {
   return readStringParam(params, "text") ?? readStringParam(params, "message");
 }
 
-/** Supported action names for BlueBubbles */
-const SUPPORTED_ACTIONS = new Set<ChannelMessageActionName>([
-  ...BLUEBUBBLES_ACTION_NAMES,
-  "upload-file",
-]);
 const PRIVATE_API_ACTIONS = new Set<ChannelMessageActionName>([
   "react",
   "edit",
@@ -68,6 +63,10 @@ const PRIVATE_API_ACTIONS = new Set<ChannelMessageActionName>([
   "removeParticipant",
   "leaveGroup",
 ]);
+
+function isSupportedBlueBubblesAction(action: ChannelMessageActionName): boolean {
+  return action === "upload-file" || BLUEBUBBLES_ACTION_NAMES.includes(action);
+}
 
 export const bluebubblesMessageActions: ChannelMessageActionAdapter = {
   describeMessageTool: ({ cfg, currentChannelId }) => {
@@ -115,7 +114,7 @@ export const bluebubblesMessageActions: ChannelMessageActionAdapter = {
     }
     return { actions: Array.from(actions) };
   },
-  supportsAction: ({ action }) => SUPPORTED_ACTIONS.has(action),
+  supportsAction: ({ action }) => isSupportedBlueBubblesAction(action),
   extractToolSend: ({ args }) => extractToolSend(args, "sendMessage"),
   handleAction: async ({ action, params, cfg, accountId, toolContext }) => {
     const runtime = await loadBlueBubblesActionsRuntime();

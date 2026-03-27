@@ -1,4 +1,3 @@
-export { bluebubblesPlugin } from "./src/channel.js";
 export {
   resolveBlueBubblesGroupRequireMention,
   resolveBlueBubblesGroupToolPolicy,

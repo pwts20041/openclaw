@@ -1,5 +1,6 @@
 import { describeAccountSnapshot } from "openclaw/plugin-sdk/account-helpers";
 import { formatNormalizedAllowFromEntries } from "openclaw/plugin-sdk/allow-from";
+import type { ChannelPlugin } from "openclaw/plugin-sdk/bluebubbles";
 import {
   adaptScopedAccountAccessor,
   createScopedChannelConfigAdapter,
@@ -11,7 +12,6 @@ import {
   resolveDefaultBlueBubblesAccountId,
 } from "./accounts.js";
 import { BlueBubblesChannelConfigSchema } from "./config-schema.js";
-import type { ChannelPlugin } from "./runtime-api.js";
 import { normalizeBlueBubblesHandle } from "./targets.js";
 
 export const bluebubblesMeta = {
