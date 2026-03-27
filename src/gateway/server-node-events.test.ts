@@ -118,7 +118,7 @@ function buildCtx(): NodeEventContext {
     getHealthCache: () => null,
     refreshHealthSnapshot: async () => ({}) as HealthSummary,
     loadGatewayModelCatalog: async () => [],
-    logGateway: { warn: () => {} },
+    logGateway: { info: () => {}, warn: () => {} },
   };
 }
 
@@ -451,7 +451,7 @@ describe("voice transcript events", () => {
   it("does not block agent dispatch when session-store touch fails", async () => {
     const warn = vi.fn();
     const ctx = buildCtx();
-    ctx.logGateway = { warn };
+    ctx.logGateway = { info: () => {}, warn };
     updateSessionStoreMock.mockRejectedValueOnce(new Error("disk down"));
 
     await handleNodeEvent(ctx, "node-v3", {
@@ -686,7 +686,7 @@ describe("agent request events", () => {
   it("disables delivery when route is unresolved instead of falling back globally", async () => {
     const warn = vi.fn();
     const ctx = buildCtx();
-    ctx.logGateway = { warn };
+    ctx.logGateway = { info: () => {}, warn };
 
     await handleNodeEvent(ctx, "node-route-miss", {
       event: "agent.request",
