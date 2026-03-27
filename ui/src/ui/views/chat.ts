@@ -644,17 +644,15 @@ function renderWelcomeState(props: ChatProps): TemplateResult {
   return html`
     <div class="agent-chat__welcome" style="--agent-color: var(--accent)">
       <div class="agent-chat__welcome-glow"></div>
-      ${
-        avatar
-          ? html`<img
+      ${avatar
+        ? html`<img
             src=${avatar}
             alt=${name}
             style="width:56px; height:56px; border-radius:50%; object-fit:cover;"
           />`
-          : html`<div class="agent-chat__avatar agent-chat__avatar--logo">
+        : html`<div class="agent-chat__avatar agent-chat__avatar--logo">
             <img src=${logoUrl} alt="OpenClaw" />
-          </div>`
-      }
+          </div>`}
       <h2>${name}</h2>
       <div class="agent-chat__badges">
         <span class="agent-chat__badge"><img src=${logoUrl} alt="" /> Ready to chat</span>
@@ -745,9 +743,8 @@ function renderPinnedSection(
           >${icons.chevronDown}</span
         >
       </button>
-      ${
-        vs.pinnedExpanded
-          ? html`
+      ${vs.pinnedExpanded
+        ? html`
             <div class="agent-chat__pinned-list">
               ${entries.map(
                 ({ index, text, role }) => html`
@@ -773,8 +770,7 @@ function renderPinnedSection(
               )}
             </div>
           `
-          : nothing
-      }
+        : nothing}
     </div>
   `;
 }
@@ -807,11 +803,9 @@ function renderSlashMenu(
                   requestUpdate();
                 }}
               >
-                ${
-                  vs.slashMenuCommand?.icon
-                    ? html`<span class="slash-menu-icon">${icons[vs.slashMenuCommand.icon]}</span>`
-                    : nothing
-                }
+                ${vs.slashMenuCommand?.icon
+                  ? html`<span class="slash-menu-icon">${icons[vs.slashMenuCommand.icon]}</span>`
+                  : nothing}
                 <span class="slash-menu-name">${arg}</span>
                 <span class="slash-menu-desc">/${vs.slashMenuCommand?.name} ${arg}</span>
               </div>
@@ -853,9 +847,9 @@ function renderSlashMenu(
         ${entries.map(
           ({ cmd, globalIdx }) => html`
             <div
-              class="slash-menu-item ${
-                globalIdx === vs.slashMenuIndex ? "slash-menu-item--active" : ""
-              }"
+              class="slash-menu-item ${globalIdx === vs.slashMenuIndex
+                ? "slash-menu-item--active"
+                : ""}"
               role="option"
               aria-selected=${globalIdx === vs.slashMenuIndex}
               @click=${() => selectSlashCommand(cmd, props, requestUpdate)}
@@ -868,15 +862,11 @@ function renderSlashMenu(
               <span class="slash-menu-name">/${cmd.name}</span>
               ${cmd.args ? html`<span class="slash-menu-args">${cmd.args}</span>` : nothing}
               <span class="slash-menu-desc">${cmd.description}</span>
-              ${
-                cmd.argOptions?.length
-                  ? html`<span class="slash-menu-badge">${cmd.argOptions.length} options</span>`
-                  : cmd.executeLocal && !cmd.args
-                    ? html`
-                        <span class="slash-menu-badge">instant</span>
-                      `
-                    : nothing
-              }
+              ${cmd.argOptions?.length
+                ? html`<span class="slash-menu-badge">${cmd.argOptions.length} options</span>`
+                : cmd.executeLocal && !cmd.args
+                  ? html` <span class="slash-menu-badge">instant</span> `
+                  : nothing}
             </div>
           `,
         )}
@@ -956,46 +946,49 @@ export function renderChat(props: ChatProps) {
       @click=${handleCodeBlockCopy}
     >
       <div class="chat-thread-inner">
-        ${
-          props.loading
-            ? html`
-                <div class="chat-loading-skeleton" aria-label="Loading chat">
-                  <div class="chat-line assistant">
-                    <div class="chat-msg">
-                      <div class="chat-bubble">
-                        <div class="skeleton skeleton-line skeleton-line--long" style="margin-bottom: 8px"></div>
-                        <div class="skeleton skeleton-line skeleton-line--medium" style="margin-bottom: 8px"></div>
-                        <div class="skeleton skeleton-line skeleton-line--short"></div>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="chat-line user" style="margin-top: 12px">
-                    <div class="chat-msg">
-                      <div class="chat-bubble">
-                        <div class="skeleton skeleton-line skeleton-line--medium"></div>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="chat-line assistant" style="margin-top: 12px">
-                    <div class="chat-msg">
-                      <div class="chat-bubble">
-                        <div class="skeleton skeleton-line skeleton-line--long" style="margin-bottom: 8px"></div>
-                        <div class="skeleton skeleton-line skeleton-line--short"></div>
-                      </div>
+        ${props.loading
+          ? html`
+              <div class="chat-loading-skeleton" aria-label="Loading chat">
+                <div class="chat-line assistant">
+                  <div class="chat-msg">
+                    <div class="chat-bubble">
+                      <div
+                        class="skeleton skeleton-line skeleton-line--long"
+                        style="margin-bottom: 8px"
+                      ></div>
+                      <div
+                        class="skeleton skeleton-line skeleton-line--medium"
+                        style="margin-bottom: 8px"
+                      ></div>
+                      <div class="skeleton skeleton-line skeleton-line--short"></div>
                     </div>
                   </div>
                 </div>
-              `
-            : nothing
-        }
+                <div class="chat-line user" style="margin-top: 12px">
+                  <div class="chat-msg">
+                    <div class="chat-bubble">
+                      <div class="skeleton skeleton-line skeleton-line--medium"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="chat-line assistant" style="margin-top: 12px">
+                  <div class="chat-msg">
+                    <div class="chat-bubble">
+                      <div
+                        class="skeleton skeleton-line skeleton-line--long"
+                        style="margin-bottom: 8px"
+                      ></div>
+                      <div class="skeleton skeleton-line skeleton-line--short"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            `
+          : nothing}
         ${isEmpty && !vs.searchOpen ? renderWelcomeState(props) : nothing}
-        ${
-          isEmpty && vs.searchOpen
-            ? html`
-                <div class="agent-chat__empty">No matching messages</div>
-              `
-            : nothing
-        }
+        ${isEmpty && vs.searchOpen
+          ? html` <div class="agent-chat__empty">No matching messages</div> `
+          : nothing}
         ${repeat(
           chatItems,
           (item) => item.key,
@@ -1185,9 +1178,8 @@ export function renderChat(props: ChatProps) {
     >
       ${props.disabledReason ? html`<div class="callout">${props.disabledReason}</div>` : nothing}
       ${props.error ? html`<div class="callout danger">${props.error}</div>` : nothing}
-      ${
-        props.focusMode
-          ? html`
+      ${props.focusMode
+        ? html`
             <button
               class="chat-focus-exit"
               type="button"
@@ -1198,8 +1190,7 @@ export function renderChat(props: ChatProps) {
               ${icons.x}
             </button>
           `
-          : nothing
-      }
+        : nothing}
       ${renderSearchBar(requestUpdate)} ${renderPinnedSection(props, pinned, requestUpdate)}
 
       <div class="chat-split-container ${sidebarOpen ? "chat-split-container--open" : ""}">
@@ -1210,9 +1201,8 @@ export function renderChat(props: ChatProps) {
           ${thread}
         </div>
 
-        ${
-          sidebarOpen
-            ? html`
+        ${sidebarOpen
+          ? html`
               <resizable-divider
                 .splitRatio=${splitRatio}
                 @resize=${(e: CustomEvent) => props.onSplitRatioChange?.(e.detail.splitRatio)}
@@ -1231,13 +1221,11 @@ export function renderChat(props: ChatProps) {
                 })}
               </div>
             `
-            : nothing
-        }
+          : nothing}
       </div>
 
-      ${
-        props.queue.length
-          ? html`
+      ${props.queue.length
+        ? html`
             <div class="chat-queue" role="status" aria-live="polite">
               <div class="chat-queue__title">Queued (${props.queue.length})</div>
               <div class="chat-queue__list">
@@ -1245,10 +1233,8 @@ export function renderChat(props: ChatProps) {
                   (item) => html`
                     <div class="chat-queue__item">
                       <div class="chat-queue__text">
-                        ${
-                          item.text ||
-                          (item.attachments?.length ? `Image (${item.attachments.length})` : "")
-                        }
+                        ${item.text ||
+                        (item.attachments?.length ? `Image (${item.attachments.length})` : "")}
                       </div>
                       <button
                         class="btn chat-queue__remove"
@@ -1264,20 +1250,17 @@ export function renderChat(props: ChatProps) {
               </div>
             </div>
           `
-          : nothing
-      }
+        : nothing}
       ${renderFallbackIndicator(props.fallbackStatus)}
       ${renderCompactionIndicator(props.compactionStatus)}
       ${renderContextNotice(activeSession, props.sessions?.defaults?.contextTokens ?? null)}
-      ${
-        props.showNewMessages
-          ? html`
+      ${props.showNewMessages
+        ? html`
             <button class="chat-new-messages" type="button" @click=${props.onScrollToBottom}>
               ${icons.arrowDown} New messages
             </button>
           `
-          : nothing
-      }
+        : nothing}
 
       <!-- Input bar -->
       <div class="agent-chat__input">
@@ -1291,11 +1274,9 @@ export function renderChat(props: ChatProps) {
           @change=${(e: Event) => handleFileSelect(e, props)}
         />
 
-        ${
-          vs.sttRecording && vs.sttInterimText
-            ? html`<div class="agent-chat__stt-interim">${vs.sttInterimText}</div>`
-            : nothing
-        }
+        ${vs.sttRecording && vs.sttInterimText
+          ? html`<div class="agent-chat__stt-interim">${vs.sttInterimText}</div>`
+          : nothing}
 
         <textarea
           ${ref((el) => el && adjustTextareaHeight(el as HTMLTextAreaElement))}
@@ -1323,13 +1304,12 @@ export function renderChat(props: ChatProps) {
               ${icons.paperclip}
             </button>
 
-            ${
-              isSttSupported()
-                ? html`
+            ${isSttSupported()
+              ? html`
                   <button
-                    class="agent-chat__input-btn ${
-                      vs.sttRecording ? "agent-chat__input-btn--recording" : ""
-                    }"
+                    class="agent-chat__input-btn ${vs.sttRecording
+                      ? "agent-chat__input-btn--recording"
+                      : ""}"
                     @click=${() => {
                       if (vs.sttRecording) {
                         stopStt();
@@ -1376,17 +1356,15 @@ export function renderChat(props: ChatProps) {
                     ${vs.sttRecording ? icons.micOff : icons.mic}
                   </button>
                 `
-                : nothing
-            }
+              : nothing}
             ${tokens ? html`<span class="agent-chat__token-count">${tokens}</span>` : nothing}
           </div>
 
           <div class="agent-chat__toolbar-right">
             ${nothing /* search hidden for now */}
-            ${
-              canAbort
-                ? nothing
-                : html`
+            ${canAbort
+              ? nothing
+              : html`
                   <button
                     class="btn btn--ghost"
                     @click=${props.onNewSession}
@@ -1395,8 +1373,7 @@ export function renderChat(props: ChatProps) {
                   >
                     ${icons.plus}
                   </button>
-                `
-            }
+                `}
             <button
               class="btn btn--ghost"
               @click=${() => exportMarkdown(props)}
@@ -1407,9 +1384,8 @@ export function renderChat(props: ChatProps) {
               ${icons.download}
             </button>
 
-            ${
-              canAbort && (isBusy || props.sending)
-                ? html`
+            ${canAbort && (isBusy || props.sending)
+              ? html`
                   <button
                     class="chat-send-btn chat-send-btn--stop"
                     @click=${props.onAbort}
@@ -1419,7 +1395,7 @@ export function renderChat(props: ChatProps) {
                     ${icons.stop}
                   </button>
                 `
-                : html`
+              : html`
                   <button
                     class="chat-send-btn"
                     @click=${() => {
@@ -1434,8 +1410,7 @@ export function renderChat(props: ChatProps) {
                   >
                     ${icons.send}
                   </button>
-                `
-            }
+                `}
           </div>
         </div>
       </div>
