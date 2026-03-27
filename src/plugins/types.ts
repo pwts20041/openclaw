@@ -1660,6 +1660,9 @@ export type PluginHookName =
   | "subagent_ended"
   | "gateway_start"
   | "gateway_stop"
+  | "context_assembled"
+  | "loop_iteration_start"
+  | "loop_iteration_end"
   | "before_dispatch";
 
 export const PLUGIN_HOOK_NAMES = [
@@ -1688,6 +1691,9 @@ export const PLUGIN_HOOK_NAMES = [
   "subagent_ended",
   "gateway_start",
   "gateway_stop",
+  "context_assembled",
+  "loop_iteration_start",
+  "loop_iteration_end",
   "before_dispatch",
 ] as const satisfies readonly PluginHookName[];
 
@@ -2194,6 +2200,73 @@ export type PluginHookGatewayStopEvent = {
   reason?: string;
 };
 
+// ============================================================================
+// Agent Loop Observability Hooks
+// ============================================================================
+
+// context_assembled hook (void — parallel)
+// Fires once per attempt before the first LLM call with the assembled context.
+// The outer run loop may retry (overflow compaction, auth refresh, tool result
+// truncation), producing a new attempt with different context each time.
+// Use attemptIndex to distinguish initial assembly (0) from retries (1+).
+// Use loop_iteration_start/end for per-turn tracking within an attempt.
+export type PluginHookContextAssembledEvent = {
+  /** Stable run identifier — same across all attempts within one user-visible run.
+   *  Use for run-level deduplication when context_assembled fires multiple times. */
+  runId: string;
+  systemPrompt: string;
+  /** The effective user prompt for this turn (after hook modifications). */
+  prompt: string;
+  /** Deep-copy snapshot of messages at context assembly time (via structuredClone).
+   *  Both the array and individual message objects are independent copies —
+   *  handlers can freely inspect or mutate them without affecting session state. */
+  messages: AgentMessage[];
+  messageCount: number;
+  /** Number of images attached to the prompt. */
+  imageCount: number;
+  /** Images about to be sent with this prompt (not yet in messages).
+   *  Each entry contains type, mimeType, and base64-encoded data.
+   *  Available for hashing, token estimation, content classification, etc. */
+  images?: Array<{ type: string; data: string; mimeType: string }>;
+  /** Zero-based attempt index within the outer run loop. 0 = initial attempt,
+   *  1+ = retry after overflow compaction, auth refresh, or tool result truncation.
+   *  Context (messages, systemPrompt) may differ between attempts due to compaction.
+   *  Plugins needing run-level deduplication should key on runId, not this event. */
+  attemptIndex: number;
+};
+
+// loop_iteration_start hook (void — parallel)
+export type PluginHookLoopIterationStartEvent = {
+  /** Unique run identifier for correlating loop events with context_assembled. */
+  runId?: string;
+  /** Attempt index within the run (0-based; increments on compaction/auth retries). */
+  attemptIndex?: number;
+  iteration: number;
+  /** Number of pending tool results awaiting processing. Always provided by the
+   *  embedded runner; may be undefined at future or custom call sites. */
+  pendingToolResults?: number;
+  messageCount: number;
+};
+
+// loop_iteration_end hook (void — parallel)
+export type PluginHookLoopIterationEndEvent = {
+  /** Unique run identifier for correlating loop events with context_assembled. */
+  runId?: string;
+  /** Attempt index within the run (0-based; increments on compaction/auth retries). */
+  attemptIndex?: number;
+  iteration: number;
+  toolCallsMade: number;
+  /** Number of new messages added this iteration (clamped to 0 if compaction
+   *  reduced message count mid-turn). Always provided by the embedded runner;
+   *  may be undefined at future or custom call sites. */
+  newMessagesAdded?: number;
+  /** True when the turn produced tool results, suggesting (but not guaranteeing)
+   *  that the loop will continue. Does not account for abort signals, timeouts,
+   *  or max-iteration limits — those are evaluated by the loop controller after
+   *  this event fires. Use `llm_output` for definitive loop-terminal detection. */
+  hasToolResults: boolean;
+};
+
 // Hook handler types mapped by hook name
 export type PluginHookHandlerMap = {
   before_model_resolve: (
@@ -2299,6 +2372,18 @@ export type PluginHookHandlerMap = {
   gateway_stop: (
     event: PluginHookGatewayStopEvent,
     ctx: PluginHookGatewayContext,
+  ) => Promise<void> | void;
+  context_assembled: (
+    event: PluginHookContextAssembledEvent,
+    ctx: PluginHookAgentContext,
+  ) => Promise<void> | void;
+  loop_iteration_start: (
+    event: PluginHookLoopIterationStartEvent,
+    ctx: PluginHookAgentContext,
+  ) => Promise<void> | void;
+  loop_iteration_end: (
+    event: PluginHookLoopIterationEndEvent,
+    ctx: PluginHookAgentContext,
   ) => Promise<void> | void;
 };
 
