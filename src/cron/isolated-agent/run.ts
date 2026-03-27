@@ -649,8 +649,18 @@ export async function runCronIsolatedAgentTurn(params: {
         provider: providerUsed,
         model: modelUsed,
       });
+      cronSession.sessionEntry.contextTokens = contextTokens;
+    } else {
+      // When a fallback was used, contextTokens was derived from the fallback model.
+      // Downstream readers like resolveGatewaySessionRow prefer stored entry.contextTokens,
+      // so storing a fallback model's window would cause token-window drift until the
+      // next non-fallback run. Instead, store the primary model's context window.
+      const primaryContextTokens =
+        agentCfg?.contextTokens ??
+        lookupContextTokens(originalModel, { allowAsyncLoad: false }) ??
+        DEFAULT_CONTEXT_TOKENS;
+      cronSession.sessionEntry.contextTokens = primaryContextTokens;
     }
-    cronSession.sessionEntry.contextTokens = contextTokens;
     // CLI session IDs are resume handles — persisting one from a fallback run would
     // cause the next run to resume from a fallback-provider session, preventing the
     // primary from being retried once it recovers. Guard these writes the same way.
