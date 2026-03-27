@@ -82,6 +82,58 @@ describe("xai reasoning effort wrapper", () => {
     });
   });
 
+  it("strips unsupported xai payload fields before dispatch", () => {
+    let capturedPayload: Record<string, unknown> | undefined;
+    const baseStreamFn: StreamFn = (_model, _context, options) => {
+      const payload = {
+        reasoning: { effort: "high", summary: "auto" },
+        reasoningEffort: "high",
+        reasoning_effort: "high",
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "write",
+              strict: true,
+            },
+          },
+        ],
+      };
+      options?.onPayload?.(payload, _model);
+      capturedPayload = payload;
+      return {} as ReturnType<StreamFn>;
+    };
+
+    const wrapped = createXaiReasoningEffortStripWrapper(baseStreamFn);
+    void wrapped(
+      {
+        api: "openai-responses",
+        provider: "xai",
+        id: "grok-4.20-beta-latest-reasoning",
+      } as Model<"openai-responses">,
+      { messages: [] } as Context,
+      {} as never,
+    );
+
+    expect(capturedPayload).not.toHaveProperty("reasoning");
+    expect(capturedPayload).not.toHaveProperty("reasoningEffort");
+    expect(capturedPayload).not.toHaveProperty("reasoning_effort");
+    const typedPayload = capturedPayload as
+      | {
+          tools?: Array<{
+            type: string;
+            function?: Record<string, unknown>;
+          }>;
+        }
+      | undefined;
+    expect(typedPayload?.tools?.[0]).toEqual({
+      type: "function",
+      function: {
+        name: "write",
+      },
+    });
+  });
+
   it("leaves non-xai models untouched", () => {
     let capturedOptions: Record<string, unknown> | undefined;
     const baseStreamFn: StreamFn = (_model, _context, options) => {
