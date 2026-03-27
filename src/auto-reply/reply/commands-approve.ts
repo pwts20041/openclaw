@@ -1,4 +1,8 @@
 import {
+  isFeishuExecApprovalApprover,
+  isFeishuExecApprovalClientEnabled,
+} from "../../../extensions/feishu/api.js";
+import {
   isTelegramExecApprovalApprover,
   isTelegramExecApprovalClientEnabled,
 } from "../../../extensions/telegram/api.js";
@@ -111,6 +115,27 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
       return {
         shouldContinue: false,
         reply: { text: "❌ You are not authorized to approve exec requests on Telegram." },
+      };
+    }
+  }
+
+  if (params.command.channel === "feishu") {
+    if (!isFeishuExecApprovalClientEnabled({ cfg: params.cfg, accountId: params.ctx.AccountId })) {
+      return {
+        shouldContinue: false,
+        reply: { text: "❌ Feishu exec approvals are not enabled for this bot account." },
+      };
+    }
+    if (
+      !isFeishuExecApprovalApprover({
+        cfg: params.cfg,
+        accountId: params.ctx.AccountId,
+        senderId: params.command.senderId,
+      })
+    ) {
+      return {
+        shouldContinue: false,
+        reply: { text: "❌ You are not authorized to approve exec requests on Feishu." },
       };
     }
   }

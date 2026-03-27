@@ -45,6 +45,15 @@ import { createFeishuClient } from "./client.js";
 import { FeishuConfigSchema } from "./config-schema.js";
 import { parseFeishuConversationId } from "./conversation-id.js";
 import { listFeishuDirectoryPeers, listFeishuDirectoryGroups } from "./directory.static.js";
+import {
+  shouldSuppressFeishuExecApprovalForwardingFallback,
+  buildFeishuExecApprovalPendingPayload,
+} from "./exec-approval-forwarding.js";
+import {
+  isFeishuExecApprovalClientEnabled,
+  resolveFeishuExecApprovalTarget,
+  shouldSuppressLocalFeishuExecApprovalPrompt,
+} from "./exec-approvals.js";
 import { resolveFeishuGroupToolPolicy } from "./policy.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { resolveFeishuOutboundSessionRoute } from "./session-route.js";
@@ -951,6 +960,26 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
           looksLikeId: looksLikeFeishuId,
           hint: "<chatId|user:openId|chat:chatId>",
         },
+      },
+      execApprovals: {
+        getInitiatingSurfaceState: ({ cfg, accountId }) =>
+          isFeishuExecApprovalClientEnabled({ cfg, accountId })
+            ? { kind: "enabled" }
+            : { kind: "disabled" },
+        shouldSuppressLocalPrompt: ({ cfg, accountId, payload }) =>
+          shouldSuppressLocalFeishuExecApprovalPrompt({ cfg, accountId, payload }),
+        hasConfiguredDmRoute: ({ cfg }) =>
+          listFeishuAccountIds(cfg).some((accountId) => {
+            if (!isFeishuExecApprovalClientEnabled({ cfg, accountId })) {
+              return false;
+            }
+            const target = resolveFeishuExecApprovalTarget({ cfg, accountId });
+            return target === "dm" || target === "both";
+          }),
+        shouldSuppressForwardingFallback: (params) =>
+          shouldSuppressFeishuExecApprovalForwardingFallback(params),
+        buildPendingPayload: ({ request, nowMs }) =>
+          buildFeishuExecApprovalPendingPayload({ request, nowMs }),
       },
       directory: createChannelDirectoryAdapter({
         listPeers: async ({ cfg, query, limit, accountId }) =>
