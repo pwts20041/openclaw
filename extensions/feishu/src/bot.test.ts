@@ -8,6 +8,7 @@ import type { FeishuMessageEvent } from "./bot.js";
 import {
   buildBroadcastSessionKey,
   buildFeishuAgentBody,
+  clearFeishuBotCachesForTests,
   handleFeishuMessage,
   resolveBroadcastAgents,
   toMessageResourceType,
@@ -279,6 +280,7 @@ async function dispatchMessage(params: { cfg: ClawdbotConfig; event: FeishuMessa
 describe("handleFeishuMessage ACP routing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearFeishuBotCachesForTests();
     mockResolveConfiguredBindingRoute.mockReset().mockImplementation(
       ({
         route,
@@ -479,6 +481,7 @@ describe("handleFeishuMessage command authorization", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    clearFeishuBotCachesForTests();
     mockShouldComputeCommandAuthorized.mockReset().mockReturnValue(true);
     mockGetMessageFeishu.mockReset().mockResolvedValue(null);
     mockListFeishuThreadMessages.mockReset().mockResolvedValue([]);
@@ -689,6 +692,175 @@ describe("handleFeishuMessage command authorization", () => {
     await dispatchMessage({ cfg, event });
 
     expect(mockCreateFeishuClient).not.toHaveBeenCalled();
+  });
+
+  it("uses chatMembers API for direct display names", async () => {
+    const getUser = vi
+      .fn()
+      .mockResolvedValue({ code: 0, data: { user: { name: "ShouldNotUse" } } });
+    const getMembers = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {
+        items: [
+          {
+            member_id: "ou-direct-review-user-members-only",
+            name: "SenderFromMembersOnly",
+          },
+        ],
+      },
+    });
+    mockCreateFeishuClient.mockReturnValue({
+      contact: { user: { get: getUser } },
+      im: { chatMembers: { get: getMembers } },
+    });
+
+    const cfg: ClawdbotConfig = {
+      channels: {
+        feishu: {
+          appId: "cli_test",
+          appSecret: "secret_test",
+          dmPolicy: "open",
+        },
+      },
+    } as ClawdbotConfig;
+
+    const event: FeishuMessageEvent = {
+      sender: {
+        sender_id: {
+          open_id: "ou-direct-review-user-members-only",
+          user_id: "fouser_12345",
+        },
+      },
+      message: {
+        message_id: "msg-direct-display-enabled",
+        chat_id: "oc-dm-direct-display",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello dm display" }),
+      },
+    };
+
+    await dispatchMessage({ cfg, event });
+
+    expect(getMembers).toHaveBeenCalledWith({
+      path: { chat_id: "oc-dm-direct-display" },
+      params: { member_id_type: "open_id", page_size: 50 },
+    });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(mockFinalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        SenderName: "SenderFromMembersOnly (ou-direct-review-user-members-only)",
+      }),
+    );
+  });
+
+  it("keeps open_id when direct member lookup has no matching name", async () => {
+    const getMembers = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {
+        items: [
+          {
+            member_id: "ou-someone-else",
+            name: "SomeoneElse",
+          },
+        ],
+      },
+    });
+    mockCreateFeishuClient.mockReturnValue({
+      contact: { user: { get: vi.fn() } },
+      im: { chatMembers: { get: getMembers } },
+    });
+
+    const cfg: ClawdbotConfig = {
+      channels: {
+        feishu: {
+          appId: "cli_test",
+          appSecret: "secret_test",
+          dmPolicy: "open",
+        },
+      },
+    } as ClawdbotConfig;
+
+    const event: FeishuMessageEvent = {
+      sender: {
+        sender_id: {
+          open_id: "ou-direct-no-member-name",
+        },
+      },
+      message: {
+        message_id: "msg-direct-no-member-name",
+        chat_id: "oc-dm-direct-no-member-name",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello dm no member name" }),
+      },
+    };
+
+    await dispatchMessage({ cfg, event });
+
+    expect(getMembers).toHaveBeenCalledWith({
+      path: { chat_id: "oc-dm-direct-no-member-name" },
+      params: { member_id_type: "open_id", page_size: 50 },
+    });
+    expect(mockFinalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        SenderName: "ou-direct-no-member-name",
+      }),
+    );
+  });
+
+  it("prefers sender user_id lookup for group sender resolution when available", async () => {
+    const getUser = vi
+      .fn()
+      .mockResolvedValue({ code: 0, data: { user: { name: "SenderByUserId" } } });
+    mockCreateFeishuClient.mockReturnValue({
+      contact: { user: { get: getUser } },
+      im: { chat: { get: vi.fn().mockResolvedValue({ code: 0, data: { name: "GroupName" } }) } },
+    });
+
+    const cfg: ClawdbotConfig = {
+      channels: {
+        feishu: {
+          appId: "cli_test",
+          appSecret: "secret_test",
+          groupPolicy: "allowlist",
+          groupAllowFrom: ["oc-group"],
+          groups: {
+            "oc-group": {
+              requireMention: false,
+            },
+          },
+        },
+      },
+    } as ClawdbotConfig;
+
+    const event: FeishuMessageEvent = {
+      sender: {
+        sender_id: {
+          open_id: "ou-group-user",
+          user_id: "fouser_group_user",
+        },
+      },
+      message: {
+        message_id: "msg-group-user-id-name",
+        chat_id: "oc-group",
+        chat_type: "group",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello group user id" }),
+      },
+    };
+
+    await dispatchMessage({ cfg, event });
+
+    expect(getUser).toHaveBeenCalledWith({
+      path: { user_id: "fouser_group_user" },
+      params: { user_id_type: "user_id" },
+    });
+    expect(mockFinalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        SenderName: "SenderByUserId",
+      }),
+    );
   });
 
   it("propagates parent/root message ids into inbound context for reply reconstruction", async () => {
@@ -1639,6 +1811,83 @@ describe("handleFeishuMessage command authorization", () => {
     );
   });
 
+  it("preserves resolveSenderNames opt-out for DM and group display lookups", async () => {
+    mockShouldComputeCommandAuthorized.mockReturnValue(false);
+    const contactGet = vi.fn().mockResolvedValue({ data: { user: { name: "Sender Name" } } });
+    const chatGet = vi.fn().mockResolvedValue({ code: 0, data: { name: "Ops Group" } });
+    const chatMembersGet = vi.fn().mockResolvedValue({
+      code: 0,
+      data: { items: [{ member_id: "ou-dm-user", name: "DM Display" }] },
+    });
+    mockCreateFeishuClient.mockReturnValue({
+      contact: { user: { get: contactGet } },
+      im: {
+        chat: { get: chatGet },
+        chatMembers: { get: chatMembersGet },
+      },
+    });
+
+    const cfg: ClawdbotConfig = {
+      channels: {
+        feishu: {
+          dmPolicy: "open",
+          resolveSenderNames: false,
+          groups: {
+            "oc-group": {
+              requireMention: false,
+            },
+          },
+        },
+      },
+    } as ClawdbotConfig;
+
+    await dispatchMessage({
+      cfg,
+      event: {
+        sender: { sender_id: { open_id: "ou-dm-user" } },
+        message: {
+          message_id: "msg-dm-opt-out",
+          chat_id: "oc-dm",
+          chat_type: "p2p",
+          message_type: "text",
+          content: JSON.stringify({ text: "hello dm" }),
+        },
+      },
+    });
+
+    expect(chatMembersGet).not.toHaveBeenCalled();
+    expect(mockFinalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        BodyForAgent: expect.stringContaining("ou-dm-user: hello dm"),
+      }),
+    );
+
+    mockFinalizeInboundContext.mockClear();
+    mockDispatchReplyFromConfig.mockClear();
+
+    await dispatchMessage({
+      cfg,
+      event: {
+        sender: { sender_id: { open_id: "ou-group-user" } },
+        message: {
+          message_id: "msg-group-opt-out",
+          chat_id: "oc-group",
+          chat_type: "group",
+          message_type: "text",
+          content: JSON.stringify({ text: "hello group" }),
+        },
+      },
+    });
+
+    expect(contactGet).not.toHaveBeenCalled();
+    expect(chatGet).not.toHaveBeenCalled();
+    expect(mockFinalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        BodyForAgent: expect.stringContaining("ou-group-user: hello group"),
+      }),
+    );
+  });
+
   it("dispatches once and appends permission notice to the main agent body", async () => {
     mockShouldComputeCommandAuthorized.mockReturnValue(false);
     mockCreateFeishuClient.mockReturnValue({
@@ -1802,6 +2051,12 @@ describe("handleFeishuMessage command authorization", () => {
 
   it("routes topic sessions and parentPeer when groupSessionScope=group_topic_sender", async () => {
     mockShouldComputeCommandAuthorized.mockReturnValue(false);
+    mockGetMessageFeishu.mockResolvedValueOnce({
+      messageId: "om_root_topic",
+      chatId: "oc-group",
+      content: "Role-Task-Routing",
+      contentType: "text",
+    });
 
     const cfg: ClawdbotConfig = {
       channels: {
@@ -1836,6 +2091,17 @@ describe("handleFeishuMessage command authorization", () => {
         parentPeer: { kind: "group", id: "oc-group" },
       }),
     );
+    expect(mockFinalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        MessageThreadId: "om_root_topic",
+        ThreadLabel: expect.stringContaining("Role-Task-Routing"),
+      }),
+    );
+    const lastContext = mockFinalizeInboundContext.mock.calls.at(-1)?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(lastContext?.ThreadLabel).toBe("oc-group / Role-Task-Routing");
+    expect(lastContext?.ThreadLabel).not.toContain("?");
   });
 
   it("keeps root_id as topic key when root_id and thread_id both exist", async () => {
@@ -2028,6 +2294,11 @@ describe("handleFeishuMessage command authorization", () => {
         parentPeer: { kind: "group", id: "oc-group" },
       }),
     );
+    const lastContext = mockFinalizeInboundContext.mock.calls.at(-1)?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(lastContext?.ThreadLabel).toBeUndefined();
+    expect(lastContext?.MessageThreadId).toBeUndefined();
   });
 
   it("keeps topic session key stable after first turn creates a thread", async () => {
@@ -2346,7 +2617,7 @@ describe("handleFeishuMessage command authorization", () => {
       expect.objectContaining({
         ThreadStarterBody: "root starter",
         ThreadHistoryBody: "assistant reply\n\nfollow-up question",
-        ThreadLabel: "Feishu thread in oc-group",
+        ThreadLabel: expect.stringContaining("root starter"),
         MessageThreadId: "om_topic_root",
       }),
     );
@@ -2355,6 +2626,12 @@ describe("handleFeishuMessage command authorization", () => {
   it("skips topic thread bootstrap when the thread session already exists", async () => {
     mockShouldComputeCommandAuthorized.mockReturnValue(false);
     mockReadSessionUpdatedAt.mockReturnValue(1710000000000);
+    mockGetMessageFeishu.mockResolvedValueOnce({
+      messageId: "om_topic_root",
+      chatId: "oc-group",
+      content: "root starter",
+      contentType: "text",
+    });
 
     const cfg: ClawdbotConfig = {
       channels: {
@@ -2383,13 +2660,13 @@ describe("handleFeishuMessage command authorization", () => {
 
     await dispatchMessage({ cfg, event });
 
-    expect(mockGetMessageFeishu).not.toHaveBeenCalled();
+    expect(mockGetMessageFeishu).toHaveBeenCalledTimes(1);
     expect(mockListFeishuThreadMessages).not.toHaveBeenCalled();
     expect(mockFinalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
         ThreadStarterBody: undefined,
         ThreadHistoryBody: undefined,
-        ThreadLabel: "Feishu thread in oc-group",
+        ThreadLabel: expect.stringContaining("root starter"),
         MessageThreadId: "om_topic_root",
       }),
     );
@@ -2459,7 +2736,7 @@ describe("handleFeishuMessage command authorization", () => {
       expect.objectContaining({
         ThreadStarterBody: "root starter",
         ThreadHistoryBody: "assistant reply\n\nfollow-up question",
-        ThreadLabel: "Feishu thread in oc-group",
+        ThreadLabel: expect.stringContaining("root starter"),
         MessageThreadId: "om_topic_root",
       }),
     );
@@ -2495,5 +2772,297 @@ describe("handleFeishuMessage command authorization", () => {
 
     await Promise.all([dispatchMessage({ cfg, event }), dispatchMessage({ cfg, event })]);
     expect(mockDispatchReplyFromConfig).toHaveBeenCalledTimes(1);
+  });
+  it("uses user_id member lookups for direct messages when open_id is unavailable", async () => {
+    const getUser = vi
+      .fn()
+      .mockResolvedValue({ code: 0, data: { user: { name: "ShouldNotUse" } } });
+    const getMembers = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {
+        items: [
+          {
+            member_id: "fouser_dm_only",
+            name: "SenderFromUserIdMembers",
+          },
+        ],
+      },
+    });
+    mockCreateFeishuClient.mockReturnValue({
+      contact: { user: { get: getUser } },
+      im: { chatMembers: { get: getMembers } },
+    });
+
+    const cfg: ClawdbotConfig = {
+      channels: {
+        feishu: {
+          appId: "cli_test",
+          appSecret: "secret_test",
+          dmPolicy: "open",
+        },
+      },
+    } as ClawdbotConfig;
+
+    const event: FeishuMessageEvent = {
+      sender: {
+        sender_id: {
+          user_id: "fouser_dm_only",
+        },
+      },
+      message: {
+        message_id: "msg-direct-user-id-only",
+        chat_id: "oc-dm-user-id-only",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello dm user id" }),
+      },
+    };
+
+    await dispatchMessage({ cfg, event });
+
+    expect(getMembers).toHaveBeenCalledWith({
+      path: { chat_id: "oc-dm-user-id-only" },
+      params: { member_id_type: "user_id", page_size: 50 },
+    });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(mockFinalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        SenderName: "SenderFromUserIdMembers (fouser_dm_only)",
+      }),
+    );
+  });
+
+  it("falls back to contact lookup when direct member lookup has no matching name", async () => {
+    const getUser = vi.fn().mockResolvedValue({
+      code: 0,
+      data: { user: { name: "SenderFromContacts" } },
+    });
+    const getMembers = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {
+        items: [
+          {
+            member_id: "ou-someone-else",
+            name: "SomeoneElse",
+          },
+        ],
+      },
+    });
+    mockCreateFeishuClient.mockReturnValue({
+      contact: { user: { get: getUser } },
+      im: { chatMembers: { get: getMembers } },
+    });
+
+    const cfg: ClawdbotConfig = {
+      channels: {
+        feishu: {
+          appId: "cli_test",
+          appSecret: "secret_test",
+          dmPolicy: "open",
+        },
+      },
+    } as ClawdbotConfig;
+
+    const event: FeishuMessageEvent = {
+      sender: {
+        sender_id: {
+          open_id: "ou-dm-contact-fallback",
+          user_id: "fouser_dm_contact_fallback",
+        },
+      },
+      message: {
+        message_id: "msg-direct-contact-fallback",
+        chat_id: "oc-dm-contact-fallback",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello dm fallback" }),
+      },
+    };
+
+    await dispatchMessage({ cfg, event });
+
+    expect(getMembers).toHaveBeenCalledWith({
+      path: { chat_id: "oc-dm-contact-fallback" },
+      params: { member_id_type: "open_id", page_size: 50 },
+    });
+    expect(getUser).toHaveBeenCalledWith({
+      path: { user_id: "fouser_dm_contact_fallback" },
+      params: { user_id_type: "user_id" },
+    });
+    expect(mockFinalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        SenderName: "SenderFromContacts (ou-dm-contact-fallback)",
+      }),
+    );
+  });
+
+  it("propagates DM contact fallback permission errors to the agent body", async () => {
+    const getUser = vi.fn().mockRejectedValue({
+      response: {
+        data: {
+          code: 99991672,
+          msg: "permission denied: contact:user.base:readonly https://open.feishu.cn/app/cli_dm_scope",
+        },
+      },
+    });
+    const getMembers = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {
+        items: [
+          {
+            member_id: "ou-someone-else",
+            name: "SomeoneElse",
+          },
+        ],
+      },
+    });
+    mockCreateFeishuClient.mockReturnValue({
+      contact: { user: { get: getUser } },
+      im: { chatMembers: { get: getMembers } },
+    });
+
+    const cfg: ClawdbotConfig = {
+      channels: {
+        feishu: {
+          appId: "cli_dm_scope",
+          appSecret: "secret_test",
+          dmPolicy: "open",
+        },
+      },
+    } as ClawdbotConfig;
+
+    const event: FeishuMessageEvent = {
+      sender: {
+        sender_id: {
+          open_id: "ou-dm-permission-fallback",
+          user_id: "fouser_dm_permission_fallback",
+        },
+      },
+      message: {
+        message_id: "msg-direct-permission-fallback",
+        chat_id: "oc-dm-permission-fallback",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello dm permission fallback" }),
+      },
+    };
+
+    await dispatchMessage({ cfg, event });
+
+    expect(mockDispatchReplyFromConfig).toHaveBeenCalledTimes(1);
+    expect(mockFinalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        BodyForAgent: expect.stringContaining(
+          "Permission grant URL: https://open.feishu.cn/app/cli_dm_scope",
+        ),
+      }),
+    );
+    expect(mockFinalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        BodyForAgent: expect.stringContaining(
+          "ou-dm-permission-fallback: hello dm permission fallback",
+        ),
+      }),
+    );
+  });
+
+  it("does not resolve group names for groups rejected by groupAllowFrom", async () => {
+    mockShouldComputeCommandAuthorized.mockReturnValue(false);
+    const contactGet = vi
+      .fn()
+      .mockResolvedValue({ code: 0, data: { user: { name: "Sender Name" } } });
+    const chatGet = vi.fn().mockResolvedValue({ code: 0, data: { name: "Denied Group" } });
+    mockCreateFeishuClient.mockReturnValue({
+      contact: { user: { get: contactGet } },
+      im: { chat: { get: chatGet } },
+    });
+
+    const cfg: ClawdbotConfig = {
+      channels: {
+        feishu: {
+          groupPolicy: "allowlist",
+          groupAllowFrom: ["oc-allowed-group"],
+          groups: {
+            "oc-denied-group": {
+              requireMention: false,
+            },
+          },
+        },
+      },
+    } as ClawdbotConfig;
+
+    const event: FeishuMessageEvent = {
+      sender: {
+        sender_id: {
+          open_id: "ou-denied-group-user",
+        },
+      },
+      message: {
+        message_id: "msg-denied-group-name-lookup",
+        chat_id: "oc-denied-group",
+        chat_type: "group",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello denied group" }),
+      },
+    };
+
+    await dispatchMessage({ cfg, event });
+
+    expect(chatGet).not.toHaveBeenCalled();
+    expect(mockDispatchReplyFromConfig).not.toHaveBeenCalled();
+  });
+
+  it("negative-caches missing topic labels to avoid repeated root fetches", async () => {
+    mockShouldComputeCommandAuthorized.mockReturnValue(false);
+    mockReadSessionUpdatedAt.mockReturnValue(123);
+    mockGetMessageFeishu.mockResolvedValue(null);
+
+    const cfg: ClawdbotConfig = {
+      channels: {
+        feishu: {
+          groups: {
+            "oc-group-negative-topic": {
+              requireMention: false,
+              groupSessionScope: "group_topic_sender",
+            },
+          },
+        },
+      },
+    } as ClawdbotConfig;
+
+    await dispatchMessage({
+      cfg,
+      event: {
+        sender: { sender_id: { open_id: "ou-topic-negative-cache" } },
+        message: {
+          message_id: "msg-topic-negative-cache-1",
+          chat_id: "oc-group-negative-topic",
+          chat_type: "group",
+          root_id: "om_root_negative_cache",
+          message_type: "text",
+          content: JSON.stringify({ text: "first topic label miss" }),
+        },
+      },
+    });
+
+    await dispatchMessage({
+      cfg,
+      event: {
+        sender: { sender_id: { open_id: "ou-topic-negative-cache" } },
+        message: {
+          message_id: "msg-topic-negative-cache-2",
+          chat_id: "oc-group-negative-topic",
+          chat_type: "group",
+          root_id: "om_root_negative_cache",
+          message_type: "text",
+          content: JSON.stringify({ text: "second topic label miss" }),
+        },
+      },
+    });
+
+    const topicRootFetches = mockGetMessageFeishu.mock.calls.filter(
+      (call) => call[0]?.messageId === "om_root_negative_cache",
+    );
+    expect(topicRootFetches).toHaveLength(1);
   });
 });
