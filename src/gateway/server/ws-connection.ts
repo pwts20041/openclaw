@@ -297,7 +297,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
           handshakeMs: Date.now() - openedAt,
         });
         logWsControl.warn(`handshake timeout conn=${connId} remote=${remoteAddr ?? "?"}`);
-        close();
+        close(1008, "handshake timeout");
       }
     }, handshakeTimeoutMs);
 
