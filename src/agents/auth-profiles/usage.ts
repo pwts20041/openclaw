@@ -321,21 +321,28 @@ export async function markAuthProfileUsed(params: {
   authProfileUsageDeps.saveAuthProfileStore(store, agentDir);
 }
 
-export function calculateAuthProfileCooldownMs(errorCount: number): number {
+export function calculateAuthProfileCooldownMs(
+  errorCount: number,
+  config?: { transientFailureThreshold?: number; transientCooldownMinutes?: number },
+): number {
+  const threshold = config?.transientFailureThreshold ?? 3;
+  const maxCooldownMs = (config?.transientCooldownMinutes ?? 5) * 60_000;
   const normalized = Math.max(1, errorCount);
   if (normalized <= 1) {
-    return 30_000; // 30 seconds
+    return 30_000; // 30 seconds — first failure is always short
   }
-  if (normalized <= 2) {
-    return 60_000; // 1 minute
+  if (normalized < threshold) {
+    return 60_000; // 1 minute — still below threshold
   }
-  return 5 * 60_000; // 5 minutes max
+  return maxCooldownMs; // At or above threshold — max cooldown
 }
 
 type ResolvedAuthCooldownConfig = {
   billingBackoffMs: number;
   billingMaxMs: number;
   failureWindowMs: number;
+  transientFailureThreshold?: number;
+  transientCooldownMinutes?: number;
 };
 
 function resolveAuthCooldownConfig(params: {
@@ -379,6 +386,18 @@ function resolveAuthCooldownConfig(params: {
     billingBackoffMs: billingBackoffHours * 60 * 60 * 1000,
     billingMaxMs: billingMaxHours * 60 * 60 * 1000,
     failureWindowMs: failureWindowHours * 60 * 60 * 1000,
+    transientFailureThreshold:
+      typeof cooldowns?.transientFailureThreshold === "number" &&
+      Number.isFinite(cooldowns.transientFailureThreshold) &&
+      cooldowns.transientFailureThreshold >= 2
+        ? cooldowns.transientFailureThreshold
+        : undefined,
+    transientCooldownMinutes:
+      typeof cooldowns?.transientCooldownMinutes === "number" &&
+      Number.isFinite(cooldowns.transientCooldownMinutes) &&
+      cooldowns.transientCooldownMinutes > 0
+        ? cooldowns.transientCooldownMinutes
+        : undefined,
   };
 }
 
@@ -497,7 +516,10 @@ function computeNextProfileUsageStats(params: {
     });
     updatedStats.disabledReason = params.reason;
   } else {
-    const backoffMs = calculateAuthProfileCooldownMs(nextErrorCount);
+    const backoffMs = calculateAuthProfileCooldownMs(nextErrorCount, {
+      transientFailureThreshold: params.cfgResolved.transientFailureThreshold,
+      transientCooldownMinutes: params.cfgResolved.transientCooldownMinutes,
+    });
     // Keep active cooldown windows immutable so retries within the window
     // cannot push recovery further out.
     updatedStats.cooldownUntil = keepActiveWindowOrRecompute({
