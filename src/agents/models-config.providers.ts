@@ -45,6 +45,7 @@ import {
   resolvePluginDiscoveryProviders,
   runProviderCatalog,
 } from "../plugins/provider-discovery.js";
+import { resolveProviderSyntheticAuthWithPlugin } from "../plugins/provider-runtime.js";
 import {
   isNonSecretApiKeyMarker,
   resolveNonEnvSecretRefApiKeyMarker,
@@ -688,6 +689,42 @@ type ImplicitProviderContext = ImplicitProviderParams & {
   resolveProviderAuth: ProviderAuthResolver;
 };
 
+function resolveConfigBackedProviderAuth(params: { provider: string; config?: OpenClawConfig }):
+  | {
+      apiKey: string;
+      discoveryApiKey?: string;
+      mode: "api_key";
+      source: "config";
+    }
+  | undefined {
+  const synthetic = resolveProviderSyntheticAuthWithPlugin({
+    provider: params.provider,
+    config: params.config,
+    context: {
+      config: params.config,
+      provider: params.provider,
+      providerConfig: params.config?.models?.providers?.[params.provider],
+    },
+  });
+  const apiKey = synthetic?.apiKey?.trim();
+  if (!apiKey) {
+    return undefined;
+  }
+  return isNonSecretApiKeyMarker(apiKey)
+    ? {
+        apiKey,
+        discoveryApiKey: toDiscoveryApiKey(apiKey),
+        mode: "api_key",
+        source: "config",
+      }
+    : {
+        apiKey: resolveNonEnvSecretRefApiKeyMarker("file"),
+        discoveryApiKey: toDiscoveryApiKey(apiKey),
+        mode: "api_key",
+        source: "config",
+      };
+}
+
 function mergeImplicitProviderSet(
   target: Record<string, ProviderConfig>,
   additions: Record<string, ProviderConfig> | undefined,
@@ -797,9 +834,19 @@ export async function resolveImplicitProviders(
       };
     }
     const fromProfiles = resolveApiKeyFromProfiles({ provider, store: authStore, env });
+    if (fromProfiles?.apiKey) {
+      return {
+        apiKey: fromProfiles.apiKey,
+        discoveryApiKey: fromProfiles.discoveryApiKey,
+      };
+    }
+    const fromConfig = resolveConfigBackedProviderAuth({
+      provider,
+      config: params.config,
+    });
     return {
-      apiKey: fromProfiles?.apiKey,
-      discoveryApiKey: fromProfiles?.discoveryApiKey,
+      apiKey: fromConfig?.apiKey,
+      discoveryApiKey: fromConfig?.discoveryApiKey,
     };
   };
   const resolveProviderAuth: ProviderAuthResolver = (
@@ -855,6 +902,19 @@ export async function resolveImplicitProviders(
     }
     if (oauthCandidate) {
       return oauthCandidate;
+    }
+
+    const fromConfig = resolveConfigBackedProviderAuth({
+      provider,
+      config: params.config,
+    });
+    if (fromConfig) {
+      return {
+        apiKey: fromConfig.apiKey,
+        discoveryApiKey: fromConfig.discoveryApiKey,
+        mode: fromConfig.mode,
+        source: "none",
+      };
     }
 
     return {
