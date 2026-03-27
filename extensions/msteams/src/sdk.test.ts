@@ -12,15 +12,17 @@ const { mockGetToken } = vi.hoisted(() => {
   return { mockGetToken };
 });
 vi.mock("@azure/identity", () => {
-  // Use function constructors so `new ...Credential()` works
-  function ManagedIdentityCredential() {
-    return { getToken: mockGetToken };
+  // Use classes so `new ...Credential()` works after vitest hoisting
+  // (function declarations inside vi.mock factories can be transformed
+  // into arrow functions during hoisting, which breaks `new`).
+  class ManagedIdentityCredential {
+    getToken = mockGetToken;
   }
-  function DefaultAzureCredential() {
-    return { getToken: mockGetToken };
+  class DefaultAzureCredential {
+    getToken = mockGetToken;
   }
-  function ClientCertificateCredential() {
-    return { getToken: mockGetToken };
+  class ClientCertificateCredential {
+    getToken = mockGetToken;
   }
   return { ManagedIdentityCredential, DefaultAzureCredential, ClientCertificateCredential };
 });
