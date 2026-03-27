@@ -21,6 +21,7 @@ vi.mock("../../config/sessions.js", () => ({
 
 vi.mock("../../agents/subagent-registry.js", () => ({
   countActiveDescendantRuns: vi.fn().mockReturnValue(0),
+  listDescendantRunsForRequester: vi.fn().mockReturnValue([]),
 }));
 
 vi.mock("../../infra/outbound/deliver.js", () => ({
@@ -56,7 +57,10 @@ vi.mock("./subagent-followup.js", () => ({
 }));
 
 // Import after mocks
-import { countActiveDescendantRuns } from "../../agents/subagent-registry.js";
+import {
+  countActiveDescendantRuns,
+  listDescendantRunsForRequester,
+} from "../../agents/subagent-registry.js";
 import { deliverOutboundPayloads } from "../../infra/outbound/deliver.js";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
 import { shouldEnqueueCronMainSummary } from "../heartbeat-policy.js";
@@ -150,6 +154,7 @@ describe("dispatchCronDelivery — double-announce guard", () => {
     vi.clearAllMocks();
     resetCompletedDirectCronDeliveriesForTests();
     vi.mocked(countActiveDescendantRuns).mockReturnValue(0);
+    vi.mocked(listDescendantRunsForRequester).mockReturnValue([]);
     vi.mocked(expectsSubagentFollowup).mockReturnValue(false);
     vi.mocked(isLikelyInterimCronMessage).mockReturnValue(false);
     vi.mocked(readDescendantSubagentFallbackReply).mockResolvedValue(undefined);
@@ -162,8 +167,20 @@ describe("dispatchCronDelivery — double-announce guard", () => {
   });
 
   it("early return (active subagent) sets deliveryAttempted=true so timer skips enqueueSystemEvent", async () => {
-    // countActiveDescendantRuns returns >0 → enters wait block; still >0 after wait → early return
-    vi.mocked(countActiveDescendantRuns).mockReturnValue(2);
+    // listDescendantRunsForRequester returns active descendants in the current window
+    const now = Date.now();
+    vi.mocked(listDescendantRunsForRequester).mockReturnValue([
+      {
+        runId: "run-1",
+        childSessionKey: "child-session",
+        requesterSessionKey: "agent:main",
+        requesterDisplayKey: "agent:main",
+        task: "task",
+        cleanup: "keep",
+        createdAt: now,
+        startedAt: now,
+      },
+    ]);
     vi.mocked(waitForDescendantSubagentSummary).mockResolvedValue(undefined);
     vi.mocked(readDescendantSubagentFallbackReply).mockResolvedValue(undefined);
 
@@ -190,10 +207,22 @@ describe("dispatchCronDelivery — double-announce guard", () => {
   });
 
   it("early return (stale interim suppression) sets deliveryAttempted=true so timer skips enqueueSystemEvent", async () => {
-    // First countActiveDescendantRuns call returns >0 (had descendants), second returns 0
-    vi.mocked(countActiveDescendantRuns)
-      .mockReturnValueOnce(2) // initial check → hadDescendants=true, enters wait block
-      .mockReturnValueOnce(0); // second check after wait → activeSubagentRuns=0
+    // First window-scoped active run count >0 (had descendants), after wait it becomes 0
+    const now = Date.now();
+    vi.mocked(listDescendantRunsForRequester)
+      .mockReturnValueOnce([
+        {
+          runId: "run-1",
+          childSessionKey: "child-session",
+          requesterSessionKey: "agent:main",
+          requesterDisplayKey: "agent:main",
+          task: "task",
+          cleanup: "keep",
+          createdAt: now,
+          startedAt: now,
+        },
+      ])
+      .mockReturnValueOnce([]);
     vi.mocked(waitForDescendantSubagentSummary).mockResolvedValue(undefined);
     vi.mocked(readDescendantSubagentFallbackReply).mockResolvedValue(undefined);
     // synthesizedText matches initialSynthesizedText & isLikelyInterimCronMessage → stale interim
@@ -222,7 +251,7 @@ describe("dispatchCronDelivery — double-announce guard", () => {
   });
 
   it("consolidates descendant output into the final direct delivery", async () => {
-    vi.mocked(countActiveDescendantRuns).mockReturnValue(0);
+    vi.mocked(listDescendantRunsForRequester).mockReturnValue([]);
     vi.mocked(isLikelyInterimCronMessage).mockReturnValue(true);
     vi.mocked(readDescendantSubagentFallbackReply).mockResolvedValue(
       "Detailed child result, everything finished successfully.",
@@ -247,7 +276,7 @@ describe("dispatchCronDelivery — double-announce guard", () => {
   });
 
   it("normal text delivery sends exactly once and sets deliveryAttempted=true", async () => {
-    vi.mocked(countActiveDescendantRuns).mockReturnValue(0);
+    vi.mocked(listDescendantRunsForRequester).mockReturnValue([]);
     vi.mocked(isLikelyInterimCronMessage).mockReturnValue(false);
 
     const params = makeBaseParams({ synthesizedText: "Morning briefing complete." });
