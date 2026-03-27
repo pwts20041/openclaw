@@ -9,6 +9,8 @@ import { linePlugin, setLineRuntime } from "../../../extensions/line/index.js";
 import { lineSetupPlugin } from "../../../extensions/line/setup-entry.js";
 import { mattermostPlugin } from "../../../extensions/mattermost/index.js";
 import { nextcloudTalkPlugin } from "../../../extensions/nextcloud-talk/index.js";
+import { qqbotPlugin } from "../../../extensions/qqbot/index.js";
+import { qqbotSetupPlugin } from "../../../extensions/qqbot/setup-entry.js";
 import { signalPlugin } from "../../../extensions/signal/index.js";
 import { signalSetupPlugin } from "../../../extensions/signal/setup-entry.js";
 import { slackPlugin } from "../../../extensions/slack/index.js";
@@ -28,6 +30,7 @@ export const bundledChannelPlugins = [
   linePlugin,
   mattermostPlugin,
   nextcloudTalkPlugin,
+  qqbotPlugin,
   signalPlugin,
   slackPlugin,
   synologyChatPlugin,
@@ -43,6 +46,7 @@ export const bundledChannelSetupPlugins = [
   signalSetupPlugin,
   imessageSetupPlugin,
   lineSetupPlugin,
+  qqbotSetupPlugin,
 ] as ChannelPlugin[];
 
 function buildBundledChannelPluginsById(plugins: readonly ChannelPlugin[]) {
