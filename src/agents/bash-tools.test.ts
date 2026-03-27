@@ -36,7 +36,7 @@ const PROCESS_STATUS_COMPLETED = "completed";
 const PROCESS_STATUS_FAILED = "failed";
 const OUTPUT_DONE = "done";
 const OUTPUT_NOPE = "nope";
-const OUTPUT_EXEC_COMPLETED = "Exec completed";
+const OUTPUT_EXEC_COMPLETED = "exec finished: completed";
 const OUTPUT_EXIT_CODE_1 = "Command exited with code 1";
 const shellEcho = (message: string) => (isWin ? `Write-Output ${message}` : `echo ${message}`);
 const COMMAND_ECHO_HELLO = shellEcho("hello");
@@ -527,12 +527,12 @@ describe("exec notifyOnExit", () => {
       wakeHandler as unknown as Parameters<typeof setHeartbeatWakeHandler>[0],
     );
     try {
-      const sessionId = await startBackgroundCommand(tool, echoAfterDelay("notify"));
+      await startBackgroundCommand(tool, echoAfterDelay("notify"));
 
       await expect
         .poll(() => wakeHandler.mock.calls[0]?.[0], NOTIFY_POLL_OPTIONS)
         .toMatchObject({
-          reason: `exec:${sessionId}:exit`,
+          reason: "exec-event",
           sessionKey: DEFAULT_NOTIFY_SESSION_KEY,
         });
     } finally {
@@ -547,12 +547,12 @@ describe("exec notifyOnExit", () => {
       wakeHandler as unknown as Parameters<typeof setHeartbeatWakeHandler>[0],
     );
     try {
-      const sessionId = await startBackgroundCommand(tool, echoAfterDelay("notify"));
+      await startBackgroundCommand(tool, echoAfterDelay("notify"));
 
       await expect
         .poll(() => wakeHandler.mock.calls[0]?.[0], NOTIFY_POLL_OPTIONS)
         .toEqual({
-          reason: `exec:${sessionId}:exit`,
+          reason: "exec-event",
         });
     } finally {
       dispose();
