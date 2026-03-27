@@ -29,6 +29,13 @@ const DEFAULT_RETRY_CONFIG = {
   jitter: 0,
 };
 
+/**
+ * Node.js setTimeout silently overflows for values exceeding 2^31 - 1 ms (~24.8 days),
+ * firing almost immediately instead of waiting. Cap retryAfterMs to this value to
+ * prevent a pathological or malicious server retry_after from becoming an instant retry hammer.
+ */
+export const TIMER_SAFE_MAX_MS = 2_147_483_647;
+
 const asFiniteNumber = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
@@ -114,12 +121,24 @@ export async function retryAsync<T>(
 
       const retryAfterMs = options.retryAfterMs?.(err);
       const hasRetryAfter = typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs);
-      const baseDelay = hasRetryAfter
-        ? Math.max(retryAfterMs, minDelayMs)
-        : minDelayMs * 2 ** (attempt - 1);
-      let delay = Math.min(baseDelay, maxDelayMs);
-      delay = applyJitter(delay, jitter);
-      delay = Math.min(Math.max(delay, minDelayMs), maxDelayMs);
+      let delay: number;
+      if (hasRetryAfter) {
+        // Server-dictated retry_after: honor the full delay without applying maxDelayMs cap.
+        // Clamp to TIMER_SAFE_MAX_MS first — Node.js setTimeout silently overflows values
+        // above 2^31-1 ms, turning a huge delay into an ~immediate retry.
+        const safeRetryAfterMs = Math.min(retryAfterMs, TIMER_SAFE_MAX_MS);
+        // Jitter is applied on top but must not reduce below the server-required floor.
+        const serverFloor = Math.max(safeRetryAfterMs, minDelayMs);
+        const jittered = applyJitter(serverFloor, jitter);
+        // Re-clamp after jitter: applyJitter can push the value above TIMER_SAFE_MAX_MS
+        // (e.g. +10% on a value near the cap), which would still overflow Node.js setTimeout.
+        delay = Math.min(Math.max(jittered, serverFloor), TIMER_SAFE_MAX_MS);
+      } else {
+        const baseDelay = minDelayMs * 2 ** (attempt - 1);
+        delay = Math.min(baseDelay, maxDelayMs);
+        delay = applyJitter(delay, jitter);
+        delay = Math.min(Math.max(delay, minDelayMs), maxDelayMs);
+      }
 
       options.onRetry?.({
         attempt,

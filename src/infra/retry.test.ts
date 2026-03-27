@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resolveRetryConfig, retryAsync } from "./retry.js";
+import { resolveRetryConfig, retryAsync, TIMER_SAFE_MAX_MS } from "./retry.js";
 
 async function runRetryAfterCase(params: {
   minDelayMs: number;
   maxDelayMs: number;
   retryAfterMs: number;
+  jitter?: number;
 }): Promise<number[]> {
   vi.clearAllTimers();
   vi.useFakeTimers();
@@ -15,7 +16,7 @@ async function runRetryAfterCase(params: {
       attempts: 2,
       minDelayMs: params.minDelayMs,
       maxDelayMs: params.maxDelayMs,
-      jitter: 0,
+      jitter: params.jitter ?? 0,
       retryAfterMs: () => params.retryAfterMs,
       onRetry: (info) => delays.push(info.delayMs),
     });
@@ -138,14 +139,54 @@ describe("retryAsync", () => {
     expect(delays[0]).toBe(500);
   });
 
-  it("clamps retryAfterMs to maxDelayMs", async () => {
+  it("does not cap retryAfterMs to maxDelayMs — server delay is honored in full", async () => {
+    // retry_after from the server (500ms) must not be capped by maxDelayMs (100ms).
+    // The server-dictated window must be fully honored to avoid hammering a rate-limited endpoint.
     const delays = await runRetryAfterCase({ minDelayMs: 0, maxDelayMs: 100, retryAfterMs: 500 });
-    expect(delays[0]).toBe(100);
+    expect(delays[0]).toBe(500);
   });
 
   it("clamps retryAfterMs to minDelayMs", async () => {
     const delays = await runRetryAfterCase({ minDelayMs: 250, maxDelayMs: 1000, retryAfterMs: 50 });
     expect(delays[0]).toBe(250);
+  });
+
+  it("honors large retryAfterMs exceeding maxDelayMs (e.g. 65s flood-control with 30s cap)", async () => {
+    // Telegram can issue retry_after values well above the 30 s default maxDelayMs.
+    // The delay must not be capped — firing before the server window would re-hit 429
+    // and exhaust all attempts.
+    const delays = await runRetryAfterCase({
+      minDelayMs: 0,
+      maxDelayMs: 30_000,
+      retryAfterMs: 65_000,
+    });
+    expect(delays[0]).toBeGreaterThanOrEqual(65_000);
+  });
+
+  it("clamps retryAfterMs exceeding Node timer max to TIMER_SAFE_MAX_MS to prevent overflow", async () => {
+    // 3_000_000_000 ms (3B) exceeds Node.js setTimeout max of 2^31-1 (~2.147B ms).
+    // Without clamping it silently overflows to ~1 ms, becoming an instant retry hammer.
+    const delays = await runRetryAfterCase({
+      minDelayMs: 0,
+      maxDelayMs: Number.POSITIVE_INFINITY,
+      retryAfterMs: 3_000_000_000,
+    });
+    expect(delays[0]).toBe(TIMER_SAFE_MAX_MS);
+    expect(delays[0]).toBeLessThan(3_000_000_000);
+  });
+
+  it("clamps final delay to TIMER_SAFE_MAX_MS even after jitter can push it above the cap", async () => {
+    // retry_after = 2_000_000_000 ms is below TIMER_SAFE_MAX_MS (~2.147B), so pre-jitter
+    // clamping does not fire. With jitter=0.1 (+10% worst case) the value becomes up to
+    // 2_200_000_000 ms which exceeds TIMER_SAFE_MAX_MS and would overflow Node.js setTimeout.
+    // The post-jitter re-clamp must catch this.
+    const delays = await runRetryAfterCase({
+      minDelayMs: 0,
+      maxDelayMs: Number.POSITIVE_INFINITY,
+      retryAfterMs: 2_000_000_000,
+      jitter: 0.1,
+    });
+    expect(delays[0]).toBeLessThanOrEqual(TIMER_SAFE_MAX_MS);
   });
 });
 
