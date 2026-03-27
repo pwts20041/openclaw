@@ -811,7 +811,7 @@ describe("circuit breaker arg signature for action-based tools with url/path arg
     });
   }
 
-  it("does not trip circuit when browser URLs differ only beyond 200 chars", async () => {
+  it("does not trip circuit when browser URLs share a long common prefix but differ at the end", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
@@ -958,7 +958,7 @@ describe("circuit breaker probe-reset prevention", () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
-  it("does not trip circuit when long commands differ only beyond 100 chars", async () => {
+  it("does not trip circuit when long commands share a common prefix but differ at the end", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;
@@ -1038,7 +1038,7 @@ describe("circuit breaker arg signature for fallback url key (e.g. web_fetch)", 
     });
   }
 
-  it("does not trip circuit when web_fetch URLs share a 100-char prefix but differ after it", async () => {
+  it("does not trip circuit when web_fetch URLs share a long common prefix but differ at the end", async () => {
     const { ctx } = createTestContext();
     const onError = vi.fn();
     ctx.params.onConsecutiveToolError = onError;

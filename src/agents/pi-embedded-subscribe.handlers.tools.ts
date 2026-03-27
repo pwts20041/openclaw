@@ -87,9 +87,9 @@ function extendExecMeta(toolName: string, args: unknown, meta?: string): string 
 function stableJsonStringify(val: unknown): string {
   return JSON.stringify(val, (_key, v: unknown) => {
     if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-      const sorted = v as Record<string, unknown>;
+      const obj = v as Record<string, unknown>;
       return Object.fromEntries(
-        Object.entries(sorted).toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+        Object.entries(obj).toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
       );
     }
     return v;
@@ -101,9 +101,8 @@ function stableJsonStringify(val: unknown): string {
  *
  * Three paths:
  *   1. exec/bash  — full command text (the only meaningful field).
- *   2. action present — nested request object gets a readable key
- *      (browser action:"act"), then a stable JSON fingerprint of all
- *      non-action args covers everything else (strings, arrays, objects).
+ *   2. action present — stable JSON fingerprint of all non-action args
+ *      (includes request, target, node, and any other routing fields).
  *   3. no action  — stable JSON fingerprint of all args.
  *
  * JSON fingerprints handle any field type and any future tool without
