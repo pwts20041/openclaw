@@ -6,6 +6,7 @@ const statusCommand = vi.fn();
 const healthCommand = vi.fn();
 const sessionsCommand = vi.fn();
 const sessionsCleanupCommand = vi.fn();
+const sessionsWrapupCommand = vi.fn();
 const setVerbose = vi.fn();
 
 const { defaultRuntime: runtime, resetRuntimeCapture } = createCliRuntimeCapture();
@@ -24,6 +25,10 @@ vi.mock("../../commands/sessions.js", () => ({
 
 vi.mock("../../commands/sessions-cleanup.js", () => ({
   sessionsCleanupCommand,
+}));
+
+vi.mock("../../commands/sessions-wrapup.js", () => ({
+  sessionsWrapupCommand,
 }));
 
 vi.mock("../../globals.js", () => ({
@@ -55,6 +60,7 @@ describe("registerStatusHealthSessionsCommands", () => {
     healthCommand.mockResolvedValue(undefined);
     sessionsCommand.mockResolvedValue(undefined);
     sessionsCleanupCommand.mockResolvedValue(undefined);
+    sessionsWrapupCommand.mockResolvedValue(undefined);
   });
 
   it("runs status command with timeout and debug-derived verbose", async () => {
@@ -197,6 +203,30 @@ describe("registerStatusHealthSessionsCommands", () => {
     expect(sessionsCleanupCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         allAgents: true,
+      }),
+      runtime,
+    );
+  });
+
+  it("runs sessions wrapup subcommand with forwarded options", async () => {
+    await runCli([
+      "sessions",
+      "wrapup",
+      "--agent",
+      "main",
+      "--summary",
+      "handoff summary",
+      "--timeout",
+      "15",
+      "--json",
+    ]);
+
+    expect(sessionsWrapupCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agent: "main",
+        summary: "handoff summary",
+        timeout: "15",
+        json: true,
       }),
       runtime,
     );
