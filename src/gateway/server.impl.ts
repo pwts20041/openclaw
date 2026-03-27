@@ -81,6 +81,7 @@ import {
   GATEWAY_EVENT_UPDATE_AVAILABLE,
   type GatewayUpdateAvailableEventPayload,
 } from "./events.js";
+import { setGlobalExecApprovalContext } from "./exec-approval-context.js";
 import { ExecApprovalManager } from "./exec-approval-manager.js";
 import { startGatewayModelPricingRefresh } from "./model-pricing-cache.js";
 import { NodeRegistry } from "./node-registry.js";
@@ -1125,6 +1126,11 @@ export async function startGatewayServer(
 
     const execApprovalManager = new ExecApprovalManager();
     const execApprovalForwarder = createExecApprovalForwarder();
+    setGlobalExecApprovalContext({
+      manager: execApprovalManager,
+      forwarder: execApprovalForwarder,
+      broadcast,
+    });
     const execApprovalHandlers = createExecApprovalHandlers(execApprovalManager, {
       forwarder: execApprovalForwarder,
     });
