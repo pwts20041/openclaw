@@ -62,6 +62,8 @@ export function resolveSystemdUserUnitPath(env: GatewayServiceEnv): string {
 export { enableSystemdUserLinger, readSystemdUserLingerStatus };
 export type { SystemdUserLingerStatus };
 
+export type SystemdServiceScope = "user" | "system";
+
 // Unit file parsing/rendering: see systemd-unit.ts
 
 export async function readSystemdServiceExecStart(
@@ -294,6 +296,36 @@ function isSystemdUserScopeUnavailable(detail: string): boolean {
   return classifySystemdUnavailableDetail(detail) !== null;
 }
 
+function isSystemdUnavailable(detail: string): boolean {
+  if (!detail) {
+    return false;
+  }
+  const normalized = detail.toLowerCase();
+  return (
+    isSystemctlMissing(normalized) ||
+    normalized.includes("not been booted") ||
+    normalized.includes("not booted") ||
+    normalized.includes("not supported")
+  );
+}
+
+function isDegradedSystemdStatus(detail: string): boolean {
+  if (!detail) {
+    return false;
+  }
+  return detail.toLowerCase().includes("degraded");
+}
+
+function isSystemdUnitMissing(detail: string): boolean {
+  const normalized = detail.toLowerCase();
+  return (
+    normalized.includes("not found") ||
+    normalized.includes("not loaded") ||
+    normalized.includes("no such unit") ||
+    normalized.includes("could not be found")
+  );
+}
+
 function isGenericSystemctlIsEnabledFailure(detail: string): boolean {
   if (!detail) {
     return false;
@@ -384,6 +416,13 @@ async function execSystemctlUser(
   return await execSystemctl([...machineScopeArgs, ...args]);
 }
 
+// Execute systemctl without --user for system-scope units.
+async function execSystemctlSystem(
+  args: string[],
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  return await execSystemctl(args);
+}
+
 export async function isSystemdUserServiceAvailable(
   env: GatewayServiceEnv = process.env as GatewayServiceEnv,
 ): Promise<boolean> {
@@ -404,14 +443,25 @@ async function assertSystemdAvailable(env: GatewayServiceEnv = process.env as Ga
     return;
   }
   const detail = readSystemctlDetail(res);
-  if (isSystemctlMissing(detail)) {
-    throw new Error("systemctl not available; systemd user services are required on Linux.");
-  }
   if (!detail) {
     throw new Error("systemctl --user unavailable: unknown error");
   }
   if (!isSystemdUserScopeUnavailable(detail)) {
     return;
+  }
+
+  // User scope is unavailable; probe system scope before failing. This keeps
+  // system-scope installs operable in non-login/root sessions.
+  const systemRes = await execSystemctlSystem(["status"]);
+  const systemDetail = readSystemctlDetail(systemRes);
+  if (systemRes.code === 0 || isDegradedSystemdStatus(systemDetail)) {
+    return;
+  }
+  if (isSystemctlMissing(systemDetail)) {
+    throw new Error("systemctl not available; systemd services are required on Linux.");
+  }
+  if (isSystemdUnavailable(systemDetail)) {
+    throw new Error(`systemctl unavailable: ${systemDetail || "unknown error"}`.trim());
   }
   throw new Error(`systemctl --user unavailable: ${detail || "unknown error"}`.trim());
 }
@@ -544,16 +594,30 @@ async function runSystemdServiceAction(params: {
   env?: GatewayServiceEnv;
   action: "stop" | "restart";
   label: string;
-}) {
+}): Promise<{ scope: SystemdServiceScope }> {
   const env = params.env ?? process.env;
   await assertSystemdAvailable(env);
   const serviceName = resolveSystemdServiceName(env);
   const unitName = `${serviceName}.service`;
   const res = await execSystemctlUser(env, [params.action, unitName]);
-  if (res.code !== 0) {
-    throw new Error(`systemctl ${params.action} failed: ${res.stderr || res.stdout}`.trim());
+  if (res.code === 0) {
+    params.stdout.write(`${formatLine(params.label, unitName)}\n`);
+    return { scope: "user" };
   }
-  params.stdout.write(`${formatLine(params.label, unitName)}\n`);
+  // Only fall back to system scope when the user unit is missing/not-loaded.
+  // Operational errors (permission denied, bus failures) should surface immediately.
+  const userDetail = readSystemctlDetail(res);
+  const isUnitMissing = isSystemdUnitMissing(userDetail);
+  if (isUnitMissing) {
+    const systemRes = await execSystemctlSystem([params.action, unitName]);
+    if (systemRes.code === 0) {
+      params.stdout.write(`${formatLine(params.label, unitName)}\n`);
+      return { scope: "system" };
+    }
+    const systemDetail = readSystemctlDetail(systemRes);
+    throw new Error(`systemctl ${params.action} failed: ${systemDetail || "unknown error"}`.trim());
+  }
+  throw new Error(`systemctl ${params.action} failed: ${userDetail || "unknown error"}`.trim());
 }
 
 export async function stopSystemdService({
@@ -572,28 +636,63 @@ export async function restartSystemdService({
   stdout,
   env,
 }: GatewayServiceControlArgs): Promise<GatewayServiceRestartResult> {
-  await runSystemdServiceAction({
+  const { scope } = await runSystemdServiceAction({
     stdout,
     env,
     action: "restart",
     label: "Restarted systemd service",
   });
-  return { outcome: "completed" };
+  return { outcome: "completed", scope };
 }
 
 export async function isSystemdServiceEnabled(args: GatewayServiceEnvArgs): Promise<boolean> {
   const env = args.env ?? process.env;
+  const serviceName = resolveSystemdServiceName(env);
+  const unitName = `${serviceName}.service`;
   try {
     await fs.access(resolveSystemdUnitPath(env));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return false;
+      // User unit file missing; detect system-scope installs so lifecycle
+      // commands can operate on gateways installed under /etc/systemd/system.
+      const systemEnabled = await execSystemctlSystem(["is-enabled", unitName]);
+      if (systemEnabled.code === 0) {
+        return true;
+      }
+      const systemEnabledDetail = readSystemctlDetail(systemEnabled);
+      if (
+        !isSystemctlMissing(systemEnabledDetail) &&
+        !isSystemdUnitNotEnabled(systemEnabledDetail)
+      ) {
+        throw new Error(
+          `systemctl is-enabled unavailable: ${systemEnabledDetail || "unknown error"}`.trim(),
+          { cause: error },
+        );
+      }
+
+      const systemActive = await execSystemctlSystem(["is-active", unitName]);
+      if (systemActive.code === 0) {
+        return true;
+      }
+      const systemActiveDetail = readSystemctlDetail(systemActive);
+      if (isSystemctlMissing(systemActiveDetail) || isSystemdUnitMissing(systemActiveDetail)) {
+        return false;
+      }
+      if (isSystemdUnavailable(systemActiveDetail)) {
+        return false;
+      }
+      const activeState = systemActive.stdout.trim().toLowerCase();
+      if (activeState && activeState !== "active") {
+        return false;
+      }
+      throw new Error(
+        `systemctl is-active unavailable: ${systemActiveDetail || "unknown error"}`.trim(),
+        { cause: error },
+      );
     }
     throw error;
   }
 
-  const serviceName = resolveSystemdServiceName(env);
-  const unitName = `${serviceName}.service`;
   const res = await execSystemctlUser(env, ["is-enabled", unitName]);
   if (res.code === 0) {
     return true;
@@ -603,6 +702,20 @@ export async function isSystemdServiceEnabled(args: GatewayServiceEnvArgs): Prom
     return false;
   }
   throw new Error(`systemctl is-enabled unavailable: ${detail || "unknown error"}`.trim());
+}
+
+function buildRuntimeFromShow(stdout: string): GatewayServiceRuntime {
+  const parsed = parseSystemdShow(stdout || "");
+  const activeState = parsed.activeState?.toLowerCase();
+  const status = activeState === "active" ? "running" : activeState ? "stopped" : "unknown";
+  return {
+    status,
+    state: parsed.activeState,
+    subState: parsed.subState,
+    pid: parsed.mainPid,
+    lastExitStatus: parsed.execMainStatus,
+    lastExitReason: parsed.execMainCode,
+  };
 }
 
 export async function readSystemdServiceRuntime(
@@ -618,32 +731,43 @@ export async function readSystemdServiceRuntime(
   }
   const serviceName = resolveSystemdServiceName(env);
   const unitName = `${serviceName}.service`;
-  const res = await execSystemctlUser(env, [
+  const showArgs = [
     "show",
     unitName,
     "--no-page",
     "--property",
     "ActiveState,SubState,MainPID,ExecMainStatus,ExecMainCode",
-  ]);
-  if (res.code !== 0) {
-    const detail = (res.stderr || res.stdout).trim();
-    const missing = detail.toLowerCase().includes("not found");
+  ];
+  const res = await execSystemctlUser(env, showArgs);
+  if (res.code === 0) {
+    return buildRuntimeFromShow(res.stdout);
+  }
+  const detail = (res.stderr || res.stdout).trim();
+  const missing = isSystemdUnitMissing(detail);
+  // Only fall back to system scope when user unit is missing.
+  if (missing) {
+    const systemRes = await execSystemctlSystem(showArgs);
+    if (systemRes.code === 0) {
+      return { ...buildRuntimeFromShow(systemRes.stdout), detail: "system scope" };
+    }
+    const systemDetail = readSystemctlDetail(systemRes);
+    const systemMissing = isSystemdUnitMissing(systemDetail);
+    if (!systemMissing) {
+      return {
+        status: "unknown",
+        detail: systemDetail || undefined,
+      };
+    }
     return {
-      status: missing ? "stopped" : "unknown",
-      detail: detail || undefined,
-      missingUnit: missing,
+      status: "stopped",
+      detail: systemDetail || detail || undefined,
+      missingUnit: true,
     };
   }
-  const parsed = parseSystemdShow(res.stdout || "");
-  const activeState = parsed.activeState?.toLowerCase();
-  const status = activeState === "active" ? "running" : activeState ? "stopped" : "unknown";
   return {
-    status,
-    state: parsed.activeState,
-    subState: parsed.subState,
-    pid: parsed.mainPid,
-    lastExitStatus: parsed.execMainStatus,
-    lastExitReason: parsed.execMainCode,
+    status: missing ? "stopped" : "unknown",
+    detail: detail || undefined,
+    missingUnit: missing,
   };
 }
 export type LegacySystemdUnit = {
