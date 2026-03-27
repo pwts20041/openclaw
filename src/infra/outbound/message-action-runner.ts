@@ -19,7 +19,8 @@ import {
   getAgentScopedMediaLocalRoots,
   getAgentScopedMediaLocalRootsForSources,
 } from "../../media/local-roots.js";
-import { hasPollCreationParams } from "../../poll-params.js";
+import { hasPollCreationParams, POLL_CREATION_PARAM_NAMES } from "../../poll-params.js";
+import { toSnakeCaseKey } from "../../param-key.js";
 import { resolvePollMaxSelections } from "../../polls.js";
 import { buildChannelAccountBindings } from "../../routing/bindings.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
@@ -715,11 +716,27 @@ export async function runMessageAction(
   if (action === "broadcast") {
     return handleBroadcastAction(input, params);
   }
+
+  // Remember if poll params were present before any normalization/cleanup
+  const hadPollParams = hasPollCreationParams(params);
+
   params = normalizeMessageActionInput({
     action,
     args: params,
     toolContext: input.toolContext,
   });
+
+  // For non-poll actions, clean up poll creation params to avoid false positives from wrappers
+  if (action !== "poll") {
+    const keysToRemove = new Set<string>();
+    for (const key of POLL_CREATION_PARAM_NAMES) {
+      keysToRemove.add(key);
+      keysToRemove.add(toSnakeCaseKey(key));
+    }
+    params = Object.fromEntries(
+      Object.entries(params).filter(([key]) => !keysToRemove.has(key))
+    );
+  }
 
   const channel = await resolveChannel(cfg, params, input.toolContext);
   let accountId = readStringParam(params, "accountId") ?? input.defaultAccountId;
@@ -780,7 +797,7 @@ export async function runMessageAction(
     cfg,
   });
 
-  if (action === "send" && hasPollCreationParams(params)) {
+  if (action === "send" && hadPollParams) {
     throw new Error('Poll fields require action "poll"; use action "poll" instead of "send".');
   }
 
@@ -829,3 +846,4 @@ export async function runMessageAction(
     abortSignal: input.abortSignal,
   });
 }
+
