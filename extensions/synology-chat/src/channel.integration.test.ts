@@ -4,7 +4,10 @@ import {
   dispatchReplyWithBufferedBlockDispatcher,
   finalizeInboundContextMock,
   registerPluginHttpRouteMock,
+  resolveLegacyWebhookNameToChatUserIdMock,
   resolveAgentRouteMock,
+  sendFileUrlMock,
+  sendMessageMock,
 } from "./channel.test-mocks.js";
 import { makeFormBody, makeReq, makeRes } from "./test-http-utils.js";
 
@@ -15,16 +18,111 @@ type RegisteredRoute = {
 };
 
 const { createSynologyChatPlugin } = await import("./channel.js");
+const actualGatewayRuntime = await import("./gateway-runtime.js");
+const { createWebhookHandler } = await import("./webhook-handler.js");
+const activeRouteUnregisters = new Map<string, () => void>();
+
+function createHandlerLogAdapter(log?: {
+  info?: (message: string) => void;
+  warn?: (message: string) => void;
+  error?: (message: string) => void;
+}) {
+  if (!log) {
+    return undefined;
+  }
+  return {
+    info: (...args: unknown[]) => log.info?.(String(args[0] ?? "")),
+    warn: (...args: unknown[]) => log.warn?.(String(args[0] ?? "")),
+    error: (...args: unknown[]) => log.error?.(String(args[0] ?? "")),
+  };
+}
+
+function createGatewayRuntimeOverride() {
+  return {
+    collectSynologyGatewayRoutingWarnings:
+      actualGatewayRuntime.collectSynologyGatewayRoutingWarnings,
+    validateSynologyGatewayAccountStartup:
+      actualGatewayRuntime.validateSynologyGatewayAccountStartup,
+    registerSynologyWebhookRoute: ({
+      account,
+      log,
+    }: {
+      account: {
+        accountId: string;
+        webhookPath: string;
+        incomingUrl: string;
+        allowInsecureSsl: boolean;
+      };
+      accountId: string;
+      log?: {
+        info?: (message: string) => void;
+        warn?: (message: string) => void;
+        error?: (message: string) => void;
+      };
+    }) => {
+      const routeKey = `${account.accountId}:${account.webhookPath}`;
+      const previous = activeRouteUnregisters.get(routeKey);
+      if (previous) {
+        log?.info?.(`Deregistering stale route before re-registering: ${account.webhookPath}`);
+        previous();
+        activeRouteUnregisters.delete(routeKey);
+      }
+      const handler = createWebhookHandler({
+        account: account as never,
+        client: {
+          sendMessage: sendMessageMock,
+          resolveLegacyWebhookNameToChatUserId: resolveLegacyWebhookNameToChatUserIdMock,
+        },
+        deliver: async (msg) => {
+          const route = resolveAgentRouteMock({ accountId: account.accountId });
+          finalizeInboundContextMock({
+            AccountId: account.accountId,
+            SessionKey: `agent:${route.agentId}:synology-chat:${account.accountId}:direct:${msg.from}`,
+          });
+          await dispatchReplyWithBufferedBlockDispatcher();
+          return null;
+        },
+        log: createHandlerLogAdapter(log),
+      });
+      const unregister = registerPluginHttpRouteMock({
+        path: account.webhookPath,
+        accountId: account.accountId,
+        handler,
+      });
+      activeRouteUnregisters.set(routeKey, unregister);
+      return () => {
+        unregister();
+        activeRouteUnregisters.delete(routeKey);
+      };
+    },
+  };
+}
+
+function createTestPlugin() {
+  return createSynologyChatPlugin({
+    client: {
+      sendMessage: sendMessageMock,
+      sendFileUrl: sendFileUrlMock,
+    },
+    gatewayRuntime: createGatewayRuntimeOverride(),
+  });
+}
+
 describe("Synology channel wiring integration", () => {
   beforeEach(() => {
+    activeRouteUnregisters.clear();
+    registerPluginHttpRouteMock.mockReset();
     registerPluginHttpRouteMock.mockClear();
     dispatchReplyWithBufferedBlockDispatcher.mockClear();
     finalizeInboundContextMock.mockClear();
     resolveAgentRouteMock.mockClear();
+    resolveLegacyWebhookNameToChatUserIdMock.mockClear();
+    sendMessageMock.mockClear();
+    sendFileUrlMock.mockClear();
   });
 
   it("registers real webhook handler with resolved account config and enforces allowlist", async () => {
-    const plugin = createSynologyChatPlugin();
+    const plugin = createTestPlugin();
     const abortController = new AbortController();
     const ctx = {
       cfg: {
@@ -79,7 +177,7 @@ describe("Synology channel wiring integration", () => {
   });
 
   it("isolates same user_id across different accounts", async () => {
-    const plugin = createSynologyChatPlugin();
+    const plugin = createTestPlugin();
     const alphaAbortController = new AbortController();
     const betaAbortController = new AbortController();
     const cfg = {

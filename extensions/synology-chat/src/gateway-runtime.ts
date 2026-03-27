@@ -1,6 +1,6 @@
 import { DEFAULT_ACCOUNT_ID, type OpenClawConfig } from "openclaw/plugin-sdk/account-resolution";
 import { waitUntilAbort } from "openclaw/plugin-sdk/channel-lifecycle";
-import { registerPluginHttpRoute } from "openclaw/plugin-sdk/webhook-ingress";
+import * as webhookIngress from "openclaw/plugin-sdk/webhook-ingress";
 import { listAccountIds, resolveAccount } from "./accounts.js";
 import { dispatchSynologyChatInboundTurn } from "./inbound-turn.js";
 import type { ResolvedSynologyChatAccount } from "./types.js";
@@ -186,7 +186,7 @@ export function registerSynologyWebhookRoute(params: {
       }),
     log: createUnknownArgsLogAdapter(log),
   });
-  const unregister = registerPluginHttpRoute({
+  const unregister = webhookIngress.registerPluginHttpRoute({
     path: account.webhookPath,
     auth: "plugin",
     pluginId: CHANNEL_ID,

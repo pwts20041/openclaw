@@ -30,6 +30,10 @@ export const resolveAgentRouteMock: Mock<
   };
 });
 
+export const sendMessageMock = vi.fn().mockResolvedValue(true);
+export const sendFileUrlMock = vi.fn().mockResolvedValue(true);
+export const resolveLegacyWebhookNameToChatUserIdMock = vi.fn().mockResolvedValue(undefined);
+
 async function readRequestBodyWithLimitForTest(req: IncomingMessage): Promise<string> {
   return await new Promise<string>((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -74,9 +78,9 @@ vi.mock("openclaw/plugin-sdk/webhook-ingress", async () => {
 });
 
 vi.mock("./client.js", () => ({
-  sendMessage: vi.fn().mockResolvedValue(true),
-  sendFileUrl: vi.fn().mockResolvedValue(true),
-  resolveLegacyWebhookNameToChatUserId: vi.fn().mockResolvedValue(undefined),
+  sendMessage: sendMessageMock,
+  sendFileUrl: sendFileUrlMock,
+  resolveLegacyWebhookNameToChatUserId: resolveLegacyWebhookNameToChatUserIdMock,
 }));
 
 vi.mock("./runtime.js", () => ({

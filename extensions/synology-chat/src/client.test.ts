@@ -1,23 +1,22 @@
 import { EventEmitter } from "node:events";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// Mock http and https modules before importing the client
-vi.mock("node:https", () => {
-  const mockRequest = vi.fn();
-  const mockGet = vi.fn();
-  return { default: { request: mockRequest, get: mockGet }, request: mockRequest, get: mockGet };
-});
+const httpTransportMock = {
+  request: vi.fn(),
+  get: vi.fn(),
+};
+const httpsTransportMock = {
+  request: vi.fn(),
+  get: vi.fn(),
+};
 
-vi.mock("node:http", () => {
-  const mockRequest = vi.fn();
-  const mockGet = vi.fn();
-  return { default: { request: mockRequest, get: mockGet }, request: mockRequest, get: mockGet };
-});
-
-// Import after mocks are set up
-const { sendMessage, sendFileUrl, fetchChatUsers, resolveLegacyWebhookNameToChatUserId } =
-  await import("./client.js");
-const https = await import("node:https");
+const {
+  sendMessage,
+  sendFileUrl,
+  fetchChatUsers,
+  resolveLegacyWebhookNameToChatUserId,
+  setSynologyTransportOverridesForTest,
+} = await import("./client.js");
 let fakeNowMs = 1_700_000_000_000;
 
 async function settleTimers<T>(promise: Promise<T>): Promise<T> {
@@ -27,11 +26,10 @@ async function settleTimers<T>(promise: Promise<T>): Promise<T> {
 }
 
 function mockResponse(statusCode: number, body: string) {
-  const httpsRequest = vi.mocked(https.request);
-  httpsRequest.mockImplementation((_url: any, _opts: any, callback: any) => {
+  httpsTransportMock.request.mockImplementation((_url: any, _opts: any, callback: any) => {
     const res = new EventEmitter() as any;
     res.statusCode = statusCode;
-    process.nextTick(() => {
+    queueMicrotask(() => {
       callback(res);
       res.emit("data", Buffer.from(body));
       res.emit("end");
@@ -55,12 +53,17 @@ function mockFailureResponse(statusCode = 500) {
 function installFakeTimerHarness() {
   beforeEach(() => {
     vi.clearAllMocks();
+    setSynologyTransportOverridesForTest({
+      http: httpTransportMock,
+      https: httpsTransportMock,
+    });
     vi.useFakeTimers();
     fakeNowMs += 10_000;
     vi.setSystemTime(fakeNowMs);
   });
 
   afterEach(() => {
+    setSynologyTransportOverridesForTest(undefined);
     vi.useRealTimers();
   });
 }
@@ -83,9 +86,8 @@ describe("sendMessage", () => {
   it("includes user_ids when userId is numeric", async () => {
     mockSuccessResponse();
     await settleTimers(sendMessage("https://nas.example.com/incoming", "Hello", 42));
-    const httpsRequest = vi.mocked(https.request);
-    expect(httpsRequest).toHaveBeenCalled();
-    const callArgs = httpsRequest.mock.calls[0];
+    expect(httpsTransportMock.request).toHaveBeenCalled();
+    const callArgs = httpsTransportMock.request.mock.calls[0];
     expect(callArgs[0]).toBe("https://nas.example.com/incoming");
   });
 });
@@ -127,11 +129,10 @@ function mockUserListResponseImpl(
   users: Array<{ user_id: number; username: string; nickname: string }>,
   once: boolean,
 ) {
-  const httpsGet = vi.mocked((https as any).get);
   const impl = (_url: any, _opts: any, callback: any) => {
     const res = new EventEmitter() as any;
     res.statusCode = 200;
-    process.nextTick(() => {
+    queueMicrotask(() => {
       callback(res);
       res.emit("data", Buffer.from(JSON.stringify({ success: true, data: { users } })));
       res.emit("end");
@@ -141,10 +142,10 @@ function mockUserListResponseImpl(
     return req;
   };
   if (once) {
-    httpsGet.mockImplementationOnce(impl);
+    httpsTransportMock.get.mockImplementationOnce(impl);
     return;
   }
-  httpsGet.mockImplementation(impl);
+  httpsTransportMock.get.mockImplementation(impl);
 }
 
 describe("resolveLegacyWebhookNameToChatUserId", () => {
@@ -155,6 +156,10 @@ describe("resolveLegacyWebhookNameToChatUserId", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    setSynologyTransportOverridesForTest({
+      http: httpTransportMock,
+      https: httpsTransportMock,
+    });
     vi.useFakeTimers();
     // Advance time to invalidate any cached user list from previous tests
     fakeNowMs += 10 * 60 * 1000;
@@ -162,6 +167,7 @@ describe("resolveLegacyWebhookNameToChatUserId", () => {
   });
 
   afterEach(() => {
+    setSynologyTransportOverridesForTest(undefined);
     vi.useRealTimers();
   });
 
@@ -222,8 +228,7 @@ describe("resolveLegacyWebhookNameToChatUserId", () => {
       incomingUrl: baseUrl,
       mutableWebhookUsername: "anyone",
     });
-    const httpsGet = vi.mocked((https as any).get);
-    expect(httpsGet).toHaveBeenCalledWith(
+    expect(httpsTransportMock.get).toHaveBeenCalledWith(
       expect.stringContaining("method=user_list"),
       expect.any(Object),
       expect.any(Function),
@@ -245,8 +250,7 @@ describe("resolveLegacyWebhookNameToChatUserId", () => {
 
     expect(result1).toBe(4);
     expect(result2).toBe(9);
-    const httpsGet = vi.mocked((https as any).get);
-    expect(httpsGet).toHaveBeenCalledTimes(2);
+    expect(httpsTransportMock.get).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -254,11 +258,10 @@ describe("fetchChatUsers", () => {
   installFakeTimerHarness();
 
   it("filters malformed user entries while keeping valid ones", async () => {
-    const httpsGet = vi.mocked((https as any).get);
-    httpsGet.mockImplementation((_url: any, _opts: any, callback: any) => {
+    httpsTransportMock.get.mockImplementation((_url: any, _opts: any, callback: any) => {
       const res = new EventEmitter() as any;
       res.statusCode = 200;
-      process.nextTick(() => {
+      queueMicrotask(() => {
         callback(res);
         res.emit(
           "data",
