@@ -642,8 +642,8 @@ export async function readSystemdServiceRuntime(
     state: parsed.activeState,
     subState: parsed.subState,
     pid: parsed.mainPid,
-    lastExitStatus: parsed.execMainStatus,
-    lastExitReason: parsed.execMainCode,
+    lastExitStatus: status !== "running" ? parsed.execMainStatus : undefined,
+    lastExitReason: status !== "running" ? parsed.execMainCode : undefined,
   };
 }
 export type LegacySystemdUnit = {
