@@ -64,26 +64,62 @@ export function resolveCronSession(params: {
     previousSessionId: isNewSession ? entry?.sessionId : undefined,
   });
 
-  const sessionEntry: SessionEntry = {
-    // Preserve existing per-session overrides even when rolling to a new sessionId.
-    ...entry,
-    // Always update these core fields
-    sessionId,
-    updatedAt: params.nowMs,
-    systemSent,
-    // When starting a fresh session (forceNew / isolated), clear delivery routing
-    // state inherited from prior sessions. Without this, lastThreadId leaks into
-    // the new session and causes announce-mode cron deliveries to post as thread
-    // replies instead of channel top-level messages.
-    // deliveryContext must also be cleared because normalizeSessionEntryDelivery
-    // repopulates lastThreadId from deliveryContext.threadId on store writes.
-    ...(isNewSession && {
-      lastChannel: undefined,
-      lastTo: undefined,
-      lastAccountId: undefined,
-      lastThreadId: undefined,
-      deliveryContext: undefined,
-    }),
-  };
+  // Build session entry based on mode:
+  // - Isolated mode (forceNew): fresh runtime context but preserve user config
+  // - Non-isolated: preserve everything, clear routing only for new sessions
+  const sessionEntry: SessionEntry = params.forceNew
+    ? {
+        // Isolated mode: fresh runtime context but preserve user-managed overrides
+        sessionId,
+        updatedAt: params.nowMs,
+        systemSent,
+        // Preserve user config from previous session
+        modelOverride: entry?.modelOverride,
+        providerOverride: entry?.providerOverride,
+        authProfileOverride: entry?.authProfileOverride,
+        authProfileOverrideSource: entry?.authProfileOverrideSource,
+        authProfileOverrideCompactionCount: entry?.authProfileOverrideCompactionCount,
+        sendPolicy: entry?.sendPolicy,
+        queueMode: entry?.queueMode,
+        queueDebounceMs: entry?.queueDebounceMs,
+        queueCap: entry?.queueCap,
+        queueDrop: entry?.queueDrop,
+        thinkingLevel: entry?.thinkingLevel,
+        fastMode: entry?.fastMode,
+        verboseLevel: entry?.verboseLevel,
+        reasoningLevel: entry?.reasoningLevel,
+        elevatedLevel: entry?.elevatedLevel,
+        ttsAuto: entry?.ttsAuto,
+        responseUsage: entry?.responseUsage,
+        execHost: entry?.execHost,
+        execSecurity: entry?.execSecurity,
+        execAsk: entry?.execAsk,
+        execNode: entry?.execNode,
+        chatType: entry?.chatType,
+        groupActivation: entry?.groupActivation,
+        groupActivationNeedsSystemIntro: entry?.groupActivationNeedsSystemIntro,
+        // Preserve skills snapshot to avoid re-scanning workspace
+        skillsSnapshot: entry?.skillsSnapshot,
+        // Preserve session label and display name for session listings
+        label: entry?.label,
+        displayName: entry?.displayName,
+        // Preserve system prompt report for bootstrap warning deduplication
+        systemPromptReport: entry?.systemPromptReport,
+      }
+    : {
+        // Non-isolated: preserve everything, clear routing only for new sessions
+        ...entry,
+        sessionId,
+        updatedAt: params.nowMs,
+        systemSent,
+        // Clear routing metadata only for new sessions (matches original behavior)
+        ...(isNewSession && {
+          lastChannel: undefined,
+          lastTo: undefined,
+          lastAccountId: undefined,
+          lastThreadId: undefined,
+          deliveryContext: undefined,
+        }),
+      };
   return { storePath, store, sessionEntry, systemSent, isNewSession };
 }
