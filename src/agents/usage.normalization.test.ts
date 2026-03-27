@@ -89,4 +89,22 @@ describe("normalizeUsage", () => {
       }),
     ).toBe(65_000);
   });
+
+  it("normalizes nested usage object (Bailian API style)", () => {
+    const usage = normalizeUsage({
+      usage: {
+        prompt_tokens: 22,
+        completion_tokens: 8,
+        total_tokens: 30,
+        cached_tokens: 0,
+      },
+    });
+    expect(usage).toEqual({
+      input: 22,
+      output: 8,
+      cacheRead: 0,
+      cacheWrite: undefined,
+      total: 30,
+    });
+  });
 });
