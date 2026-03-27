@@ -232,7 +232,7 @@ export async function createVoiceCallRuntime(params: {
           );
         }
       } else {
-        log.warn("[voice-call] Telephony TTS unavailable; streaming TTS disabled");
+        log.warn("Telephony TTS unavailable; streaming TTS disabled");
       }
 
       const mediaHandler = webhookServer.getMediaStreamHandler();
