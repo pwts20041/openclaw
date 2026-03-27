@@ -674,9 +674,13 @@ function warnAboutUntrackedLoadedPlugins(params: {
   }
 }
 
-function activatePluginRegistry(registry: PluginRegistry, cacheKey: string): void {
+function activatePluginRegistry(
+  registry: PluginRegistry,
+  cacheKey: string,
+  options?: { hookTimeoutMs?: number },
+): void {
   setActivePluginRegistry(registry, cacheKey);
-  initializeGlobalHookRunner(registry);
+  initializeGlobalHookRunner(registry, { hookTimeoutMs: options?.hookTimeoutMs });
 }
 
 export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegistry {
@@ -730,7 +734,9 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
         runtime: cached.memoryRuntime,
       });
       if (shouldActivate) {
-        activatePluginRegistry(cached.registry, cacheKey);
+        activatePluginRegistry(cached.registry, cacheKey, {
+          hookTimeoutMs: options.config?.plugins?.hookTimeoutMs,
+        });
       }
       return cached.registry;
     }
@@ -1321,7 +1327,9 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
     });
   }
   if (shouldActivate) {
-    activatePluginRegistry(registry, cacheKey);
+    activatePluginRegistry(registry, cacheKey, {
+      hookTimeoutMs: options.config?.plugins?.hookTimeoutMs,
+    });
   }
   return registry;
 }
