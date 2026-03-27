@@ -16,7 +16,7 @@ export type SystemEvent = {
   deliveryContext?: DeliveryContext;
 };
 
-const MAX_EVENTS = 20;
+export const MAX_EVENTS = 20;
 
 type SessionQueue = {
   queue: SystemEvent[];
