@@ -74,6 +74,20 @@ describe("parseInlineDirectives", () => {
       ["```python", "    if True:", "        print('ok')", "```"].join("\n"),
     );
   });
+
+  test("preserves word boundaries when a reply tag is adjacent to text", () => {
+    const input = "see[[reply_to_current]]now";
+    const result = parseInlineDirectives(input);
+    expect(result.hasReplyTag).toBe(true);
+    expect(result.text).toBe("see now");
+  });
+
+  test("drops all leading blank lines introduced by a stripped reply tag", () => {
+    const input = "[[reply_to_current]]\n\ntext";
+    const result = parseInlineDirectives(input);
+    expect(result.hasReplyTag).toBe(true);
+    expect(result.text).toBe("text");
+  });
 });
 
 describe("stripInlineDirectiveTagsFromMessageForDisplay", () => {
