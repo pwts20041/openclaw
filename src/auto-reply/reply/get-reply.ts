@@ -10,6 +10,7 @@ import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../../agents/
 import { resolveChannelModelOverride } from "../../channels/model-overrides.js";
 import { type OpenClawConfig, loadConfig } from "../../config/config.js";
 import { applyMergePatch } from "../../config/merge-patch.js";
+import { getAutoModelForMessage } from "../../hooks/auto-model-router.js";
 import { defaultRuntime } from "../../runtime.js";
 import { normalizeStringEntries } from "../../shared/string-normalization.js";
 import { resolveCommandAuthorization } from "../command-auth.js";
@@ -237,6 +238,30 @@ export async function getReplyFromConfig(
     bodyStripped,
   } = sessionState;
 
+  // Auto model routing based on message complexity
+  // Skip routing if higher-priority overrides are already resolved (heartbeat/session)
+  // to avoid unnecessary router process execution and latency
+  // Note: Recalculate hasSessionModelOverride at each use site to handle reset mutations
+  const hasSessionModelOverride = () =>
+    Boolean(sessionEntry.modelOverride?.trim() || sessionEntry.providerOverride?.trim());
+  if (!hasResolvedHeartbeatModelOverride && !hasSessionModelOverride()) {
+    const triggerMessage = finalized.Body || triggerBodyNormalized || "";
+    const autoModelResult = await getAutoModelForMessage(triggerMessage, cfg);
+    if (autoModelResult) {
+      const resolved = resolveModelRefFromString({
+        raw: autoModelResult.model,
+        defaultProvider,
+        aliasIndex,
+      });
+      if (resolved) {
+        provider = resolved.ref.provider;
+        model = resolved.ref.model;
+        // Use defaultRuntime.log instead of direct call
+        defaultRuntime.log(`[auto-model-router] Selected model: ${provider}/${model}`);
+      }
+    }
+  }
+
   if (resetTriggered && bodyStripped?.trim()) {
     const { applyResetModelOverride } = await loadSessionResetModelRuntime();
     await applyResetModelOverride({
@@ -271,10 +296,7 @@ export async function getReplyFromConfig(
     groupSubject: sessionEntry.subject ?? sessionCtx.GroupSubject ?? finalized.GroupSubject,
     parentSessionKey: sessionCtx.ParentSessionKey,
   });
-  const hasSessionModelOverride = Boolean(
-    sessionEntry.modelOverride?.trim() || sessionEntry.providerOverride?.trim(),
-  );
-  if (!hasResolvedHeartbeatModelOverride && !hasSessionModelOverride && channelModelOverride) {
+  if (!hasResolvedHeartbeatModelOverride && !hasSessionModelOverride() && channelModelOverride) {
     const resolved = resolveModelRefFromString({
       raw: channelModelOverride.model,
       defaultProvider,
