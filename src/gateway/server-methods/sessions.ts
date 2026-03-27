@@ -1301,7 +1301,10 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const ts = new Date().toISOString().replaceAll(":", "-");
     const tmpPath = `${filePath}.tmp.${ts}`;
     const bakPath = `${filePath}.bak.${ts}`;
-    fs.writeFileSync(tmpPath, newContent, "utf-8");
+    // Preserve original file permissions (typically 0o600) so the replacement does not
+    // weaken transcript privacy on shared hosts.
+    const originalMode = fs.statSync(filePath).mode & 0o777;
+    fs.writeFileSync(tmpPath, newContent, { encoding: "utf-8", mode: originalMode });
     fs.renameSync(filePath, bakPath);
     fs.renameSync(tmpPath, filePath);
     const archived = bakPath;
