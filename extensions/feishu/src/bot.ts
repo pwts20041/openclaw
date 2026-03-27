@@ -3,6 +3,7 @@ import {
   resolveConfiguredBindingRoute,
 } from "openclaw/plugin-sdk/conversation-runtime";
 import { getSessionBindingService } from "openclaw/plugin-sdk/conversation-runtime";
+import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-runtime";
 import { deriveLastRoutePolicy } from "openclaw/plugin-sdk/routing";
 import { resolveAgentIdFromSessionKey } from "openclaw/plugin-sdk/routing";
 import type { ClawdbotConfig, RuntimeEnv } from "../runtime-api.js";
@@ -1015,6 +1016,7 @@ export async function handleFeishuMessage(params: {
             accountId: account.accountId,
             identity,
             messageCreateTimeMs,
+            mediaLocalRoots: getAgentScopedMediaLocalRoots(cfg, agentId),
           });
 
           log(
@@ -1117,6 +1119,7 @@ export async function handleFeishuMessage(params: {
         accountId: account.accountId,
         identity,
         messageCreateTimeMs,
+        mediaLocalRoots: getAgentScopedMediaLocalRoots(cfg, route.agentId),
       });
 
       log(`feishu[${account.accountId}]: dispatching to agent (session=${route.sessionKey})`);
