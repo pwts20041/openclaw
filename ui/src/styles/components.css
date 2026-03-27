@@ -2886,6 +2886,10 @@ td.data-table-key-col {
   border-radius: var(--radius-lg);
   padding: 20px;
   animation: scale-in 0.2s var(--ease-out);
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .exec-approval-header {
@@ -2957,6 +2961,11 @@ td.data-table-key-col {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  position: sticky;
+  bottom: 0;
+  background: var(--card);
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 /* ===========================================
