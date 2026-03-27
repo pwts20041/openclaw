@@ -71,6 +71,8 @@ export type CronServiceDeps = {
     sessionKey?: string;
     /** Optional heartbeat config override (e.g. target: "last" for cron-triggered heartbeats). */
     heartbeat?: { target?: string };
+    /** Abort signal to propagate the cron job timeout into heartbeat pre-hook execution. */
+    abortSignal?: AbortSignal;
   }) => Promise<HeartbeatRunResult>;
   /**
    * WakeMode=now: max time to wait for runHeartbeatOnce to stop returning

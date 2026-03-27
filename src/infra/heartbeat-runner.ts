@@ -530,6 +530,8 @@ export async function runHeartbeatOnce(opts: {
   heartbeat?: HeartbeatConfig;
   reason?: string;
   deps?: HeartbeatDeps;
+  /** Abort signal forwarded from cron job timeout to cancel pre-hook processes. */
+  abortSignal?: AbortSignal;
 }): Promise<HeartbeatRunResult> {
   const cfg = opts.cfg ?? loadConfig();
   const explicitAgentId = typeof opts.agentId === "string" ? opts.agentId.trim() : "";
@@ -560,6 +562,9 @@ export async function runHeartbeatOnce(opts: {
   }
 
   // Preflight centralizes trigger classification, event inspection, and HEARTBEAT.md gating.
+  // Run preflight BEFORE the pre-hook so that operators who disable heartbeats via
+  // HEARTBEAT.md (or other preflight conditions) do not trigger side-effecting
+  // shell commands on every interval.
   const preflight = await resolveHeartbeatPreflight({
     cfg,
     agentId,
@@ -574,6 +579,27 @@ export async function runHeartbeatOnce(opts: {
       durationMs: Date.now() - startedAt,
     });
     return { status: "skipped", reason: preflight.skipReason };
+  }
+
+  // Pre-hook gate: run optional shell command before the heartbeat turn.
+  // Placed after preflight so the hook only runs when the heartbeat will
+  // actually execute (not when HEARTBEAT.md is empty or other preflight
+  // conditions skip the run).
+  // Fall back to the resolved agent default preHook when the override omits it
+  // (e.g. cron wake-now passes partial heartbeat: { target: "last" }).
+  const resolvedHb = resolveHeartbeatConfig(cfg, agentId);
+  const preHookConfig = heartbeat?.preHook ?? resolvedHb?.preHook;
+  if (preHookConfig?.command) {
+    const { runPreHook } = await import("../cron/pre-hook.js");
+    const hookResult = await runPreHook(preHookConfig, opts.abortSignal);
+    if (hookResult.outcome === "skip") {
+      log.info("heartbeat: pre-hook returned skip");
+      return { status: "skipped", reason: "pre-hook-skip" };
+    }
+    if (hookResult.outcome === "error") {
+      log.warn(`heartbeat: pre-hook failed: ${hookResult.message}`);
+      return { status: "failed", reason: `pre-hook: ${hookResult.message}` };
+    }
   }
   const { entry, sessionKey, storePath } = preflight.session;
   const previousUpdatedAt = entry?.updatedAt;

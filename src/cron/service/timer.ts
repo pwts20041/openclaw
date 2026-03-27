@@ -1037,6 +1037,23 @@ export async function executeJobCore(
     });
   };
 
+  // Pre-hook gate: run optional shell command before the job.
+  if (job.preHook?.command) {
+    const { runPreHook } = await import("../pre-hook.js");
+    const hookResult = await runPreHook(job.preHook, abortSignal);
+    if (hookResult.outcome === "skip") {
+      state.deps.log.info({ jobId: job.id, jobName: job.name }, "cron: pre-hook returned skip");
+      return { status: "skipped", error: "pre-hook: skipped" };
+    }
+    if (hookResult.outcome === "error") {
+      state.deps.log.warn(
+        { jobId: job.id, exitCode: hookResult.exitCode },
+        `cron: pre-hook failed: ${hookResult.message}`,
+      );
+      return { status: "error", error: `pre-hook: ${hookResult.message}` };
+    }
+  }
+
   if (abortSignal?.aborted) {
     return resolveAbortError();
   }
@@ -1081,6 +1098,7 @@ export async function executeJobCore(
           // e2362d35) and cron main-session responses are silently swallowed.
           // See: https://github.com/openclaw/openclaw/issues/28508
           heartbeat: { target: "last" },
+          abortSignal,
         });
         if (
           heartbeatResult.status !== "skipped" ||
