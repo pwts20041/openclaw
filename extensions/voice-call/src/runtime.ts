@@ -11,6 +11,7 @@ import type { TelephonyTtsRuntime } from "./telephony-tts.js";
 import { createTelephonyTtsProvider } from "./telephony-tts.js";
 import { startTunnel, type TunnelResult } from "./tunnel.js";
 import { VoiceCallWebhookServer } from "./webhook.js";
+import { RealtimeCallHandler } from "./webhook/realtime-handler.js";
 import { cleanupTailscaleExposure, setupTailscaleExposure } from "./webhook/tailscale.js";
 
 export type VoiceCallRuntime = {
@@ -20,6 +21,8 @@ export type VoiceCallRuntime = {
   webhookServer: VoiceCallWebhookServer;
   webhookUrl: string;
   publicUrl: string | null;
+  /** Realtime voice handler — present when config.realtime.enabled is true */
+  realtimeHandler?: RealtimeCallHandler;
   stop: () => Promise<void>;
 };
 
@@ -175,6 +178,20 @@ export async function createVoiceCallRuntime(params: {
   );
   const lifecycle = createRuntimeResourceLifecycle({ config, webhookServer });
 
+  // Wire realtime handler before the server starts so it's ready for upgrades
+  let realtimeHandler: RealtimeCallHandler | undefined;
+  if (config.realtime.enabled) {
+    realtimeHandler = new RealtimeCallHandler(
+      config.realtime,
+      manager,
+      provider,
+      coreConfig,
+      config.streaming.openaiApiKey,
+    );
+    webhookServer.setRealtimeHandler(realtimeHandler);
+    log.info("[voice-call] Realtime voice handler initialized");
+  }
+
   const localUrl = await webhookServer.start();
 
   // Wrap remaining initialization in try/catch so the webhook server is
@@ -211,6 +228,10 @@ export async function createVoiceCallRuntime(params: {
 
     if (publicUrl && provider.name === "twilio") {
       (provider as TwilioProvider).setPublicUrl(publicUrl);
+    }
+
+    if (publicUrl && realtimeHandler) {
+      realtimeHandler.setPublicUrl(publicUrl);
     }
 
     if (provider.name === "twilio" && config.streaming?.enabled) {
@@ -259,6 +280,7 @@ export async function createVoiceCallRuntime(params: {
       webhookServer,
       webhookUrl,
       publicUrl,
+      realtimeHandler,
       stop,
     };
   } catch (err) {

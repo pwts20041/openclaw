@@ -19,6 +19,7 @@ import type { VoiceCallProvider } from "./providers/base.js";
 import { OpenAIRealtimeSTTProvider } from "./providers/stt-openai-realtime.js";
 import type { TwilioProvider } from "./providers/twilio.js";
 import type { CallRecord, NormalizedEvent, WebhookContext } from "./types.js";
+import type { RealtimeCallHandler } from "./webhook/realtime-handler.js";
 import { startStaleCallReaper } from "./webhook/stale-call-reaper.js";
 
 const MAX_WEBHOOK_BODY_BYTES = WEBHOOK_BODY_READ_DEFAULTS.preAuth.maxBytes;
@@ -44,7 +45,7 @@ function sanitizeTranscriptForLog(value: string): string {
   return `${sanitized.slice(0, TRANSCRIPT_LOG_MAX_CHARS)}...`;
 }
 
-type WebhookResponsePayload = {
+export type WebhookResponsePayload = {
   statusCode: number;
   body: string;
   headers?: Record<string, string>;
@@ -89,6 +90,9 @@ export class VoiceCallWebhookServer {
   private mediaStreamHandler: MediaStreamHandler | null = null;
   /** Delayed auto-hangup timers keyed by provider call ID after stream disconnect. */
   private pendingDisconnectHangups = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /** Realtime voice handler — present when config.realtime.enabled is true */
+  private realtimeHandler: RealtimeCallHandler | null = null;
 
   constructor(
     config: VoiceCallConfig,
@@ -144,6 +148,13 @@ export class VoiceCallWebhookServer {
     const initialMessage =
       typeof call.metadata?.initialMessage === "string" ? call.metadata.initialMessage.trim() : "";
     return initialMessage.length > 0;
+  }
+
+  /**
+   * Wire the realtime call handler (called from runtime.ts before server starts).
+   */
+  setRealtimeHandler(handler: RealtimeCallHandler): void {
+    this.realtimeHandler = handler;
   }
 
   /**
@@ -318,13 +329,19 @@ export class VoiceCallWebhookServer {
         });
       });
 
-      // Handle WebSocket upgrades for media streams
-      if (this.mediaStreamHandler) {
+      // Handle WebSocket upgrades for realtime voice and media streams
+      if (this.realtimeHandler || this.mediaStreamHandler) {
         this.server.on("upgrade", (request, socket, head) => {
+          // Realtime voice takes precedence when the path matches
+          if (this.realtimeHandler && this.isRealtimeWebSocketUpgrade(request)) {
+            console.log("[voice-call] WebSocket upgrade for realtime voice");
+            this.realtimeHandler.handleWebSocketUpgrade(request, socket, head);
+            return;
+          }
           const path = this.getUpgradePathname(request);
-          if (path === streamPath) {
+          if (path === streamPath && this.mediaStreamHandler) {
             console.log("[voice-call] WebSocket upgrade for media stream");
-            this.mediaStreamHandler?.handleUpgrade(request, socket, head);
+            this.mediaStreamHandler.handleUpgrade(request, socket, head);
           } else {
             socket.destroy();
           }
@@ -433,6 +450,19 @@ export class VoiceCallWebhookServer {
     this.writeWebhookResponse(res, payload);
   }
 
+  /**
+   * Returns true for WebSocket upgrade paths that belong to the realtime handler.
+   * Used only for upgrade routing — not for the inbound HTTP webhook POST.
+   */
+  private isRealtimeWebSocketUpgrade(req: http.IncomingMessage): boolean {
+    try {
+      const pathname = buildRequestUrl(req.url, req.headers.host).pathname;
+      return pathname.startsWith("/voice/stream/realtime");
+    } catch {
+      return false;
+    }
+  }
+
   private async runWebhookPipeline(
     req: http.IncomingMessage,
     webhookPath: string,
@@ -502,6 +532,26 @@ export class VoiceCallWebhookServer {
       if (!verification.verifiedRequestKey) {
         console.warn("[voice-call] Webhook verification succeeded without request identity key");
         return { statusCode: 401, body: "Unauthorized" };
+      }
+
+      // Realtime mode: return TwiML <Connect><Stream> for calls that need bridging.
+      // Status callbacks (CallStatus=completed etc.) must fall through to the normal
+      // webhook pipeline so call state is updated correctly.
+      // Replayed requests are intentionally excluded — a replayed ringing/in-progress
+      // callback must not mint a new stream token or start a second realtime session.
+      if (this.realtimeHandler && this.provider.name === "twilio" && !verification.isReplay) {
+        const params = new URLSearchParams(ctx.rawBody);
+        const callStatus = params.get("CallStatus");
+        const direction = params.get("Direction");
+        const isInboundRinging =
+          callStatus === "ringing" && (!direction || direction === "inbound");
+        // outbound-api calls fire the webhook during ringing; TwiML executes on answer
+        const isOutboundActive =
+          direction === "outbound-api" &&
+          (callStatus === "ringing" || callStatus === "in-progress");
+        if (isInboundRinging || isOutboundActive) {
+          return this.realtimeHandler.buildTwiMLPayload(req, params);
+        }
       }
 
       const parsed = this.provider.parseWebhookEvent(ctx, {

@@ -196,6 +196,76 @@ export const OutboundConfigSchema = z
 export type OutboundConfig = z.infer<typeof OutboundConfigSchema>;
 
 // -----------------------------------------------------------------------------
+// Realtime Voice Configuration (OpenAI Realtime API — voice-to-voice)
+// -----------------------------------------------------------------------------
+
+/**
+ * Zod schema for a single OpenAI Realtime tool (mirrors the RealtimeTool interface
+ * in providers/openai-realtime-voice.ts, expressed as a schema for config parsing).
+ */
+export const RealtimeToolSchema = z
+  .object({
+    type: z.literal("function"),
+    name: z.string(),
+    description: z.string(),
+    parameters: z.object({
+      type: z.literal("object"),
+      properties: z.record(z.string(), z.unknown()),
+      required: z.array(z.string()).optional(),
+    }),
+  })
+  .strict();
+export type RealtimeToolConfig = z.infer<typeof RealtimeToolSchema>;
+
+export const VoiceCallRealtimeConfigSchema = z
+  .object({
+    /** Enable realtime voice-to-voice mode (OpenAI Realtime API). Default: false. */
+    enabled: z.boolean().default(false),
+    /** Realtime model (env: REALTIME_VOICE_MODEL, default: "gpt-4o-mini-realtime-preview") */
+    model: z.string().optional(),
+    /** Voice for AI speech output (env: REALTIME_VOICE_VOICE) */
+    voice: z
+      .enum([
+        "alloy",
+        "ash",
+        "ballad",
+        "cedar",
+        "coral",
+        "echo",
+        "marin",
+        "sage",
+        "shimmer",
+        "verse",
+      ])
+      .optional(),
+    /** System instructions / persona (env: REALTIME_VOICE_INSTRUCTIONS) */
+    instructions: z.string().optional(),
+    /** Temperature 0–2 (env: REALTIME_VOICE_TEMPERATURE) */
+    temperature: z.number().min(0).max(2).optional(),
+    /** VAD threshold 0–1 (env: VAD_THRESHOLD) */
+    vadThreshold: z.number().min(0).max(1).optional(),
+    /** Silence duration in ms before turn ends (env: SILENCE_DURATION_MS) */
+    silenceDurationMs: z.number().int().positive().optional(),
+    /** Audio padding before speech in ms */
+    prefixPaddingMs: z.number().int().nonnegative().optional(),
+    /** Tool definitions (OpenAI function-call schema); execution wired via registerToolHandler */
+    tools: z.array(RealtimeToolSchema).default([]),
+    /**
+     * Azure OpenAI resource endpoint, e.g. https://myresource.cognitiveservices.azure.com
+     * When combined with azureDeployment, uses Azure auth (api-key header).
+     * When set alone, used as a generic base URL for OpenAI-compatible proxies (Bearer auth).
+     */
+    azureEndpoint: z.string().url().optional(),
+    /** Azure OpenAI deployment name (e.g. gpt-realtime). Requires azureEndpoint. */
+    azureDeployment: z.string().optional(),
+    /** Azure OpenAI API version (default: "2024-10-01-preview"). Requires azureEndpoint + azureDeployment. */
+    azureApiVersion: z.string().optional(),
+  })
+  .strict()
+  .default({ enabled: false, tools: [] });
+export type VoiceCallRealtimeConfig = z.infer<typeof VoiceCallRealtimeConfigSchema>;
+
+// -----------------------------------------------------------------------------
 // Streaming Configuration (OpenAI Realtime STT)
 // -----------------------------------------------------------------------------
 
@@ -319,6 +389,9 @@ export const VoiceCallConfigSchema = z
     /** Real-time audio streaming configuration */
     streaming: VoiceCallStreamingConfigSchema,
 
+    /** Realtime voice-to-voice configuration (OpenAI Realtime API) */
+    realtime: VoiceCallRealtimeConfigSchema,
+
     /** Public webhook URL override (if set, bypasses tunnel auto-detection) */
     publicUrl: z.string().url().optional(),
 
@@ -393,6 +466,14 @@ export function normalizeVoiceCallConfig(config: VoiceCallConfigInput): VoiceCal
         config.webhookSecurity?.trustedProxyIPs ?? defaults.webhookSecurity.trustedProxyIPs,
     },
     streaming: { ...defaults.streaming, ...config.streaming },
+    realtime: {
+      ...defaults.realtime,
+      ...config.realtime,
+      // Cast: DeepPartial makes tool fields appear optional in the input type,
+      // but Zod validates the full shape before it reaches here.
+      tools:
+        (config.realtime?.tools as RealtimeToolConfig[] | undefined) ?? defaults.realtime.tools,
+    },
     stt: { ...defaults.stt, ...config.stt },
     tts: normalizeVoiceCallTtsConfig(defaults.tts, config.tts),
   };
@@ -447,6 +528,34 @@ export function resolveVoiceCallConfig(config: VoiceCallConfigInput): VoiceCallC
   resolved.webhookSecurity.trustForwardingHeaders =
     resolved.webhookSecurity.trustForwardingHeaders ?? false;
   resolved.webhookSecurity.trustedProxyIPs = resolved.webhookSecurity.trustedProxyIPs ?? [];
+
+  // Realtime voice — resolve env var fallbacks
+  resolved.realtime = { ...resolved.realtime };
+  // REALTIME_VOICE_ENABLED=true auto-enables realtime mode (backward compat)
+  if (!resolved.realtime.enabled && process.env.REALTIME_VOICE_ENABLED === "true") {
+    resolved.realtime.enabled = true;
+  }
+  resolved.realtime.model = resolved.realtime.model ?? process.env.REALTIME_VOICE_MODEL;
+  resolved.realtime.voice =
+    (resolved.realtime.voice ??
+      (process.env.REALTIME_VOICE_VOICE as VoiceCallRealtimeConfig["voice"])) ||
+    undefined;
+  resolved.realtime.instructions =
+    resolved.realtime.instructions ?? process.env.REALTIME_VOICE_INSTRUCTIONS;
+  if (resolved.realtime.temperature == null && process.env.REALTIME_VOICE_TEMPERATURE) {
+    resolved.realtime.temperature = parseFloat(process.env.REALTIME_VOICE_TEMPERATURE);
+  }
+  if (resolved.realtime.vadThreshold == null && process.env.VAD_THRESHOLD) {
+    resolved.realtime.vadThreshold = parseFloat(process.env.VAD_THRESHOLD);
+  }
+  if (resolved.realtime.silenceDurationMs == null && process.env.SILENCE_DURATION_MS) {
+    resolved.realtime.silenceDurationMs = parseInt(process.env.SILENCE_DURATION_MS, 10);
+  }
+
+  // Re-validate realtime sub-config so env var parsing errors (e.g. NaN from a
+  // non-numeric REALTIME_VOICE_TEMPERATURE) throw at startup instead of propagating
+  // silently into session.update at call time.
+  resolved.realtime = VoiceCallRealtimeConfigSchema.parse(resolved.realtime);
 
   return normalizeVoiceCallConfig(resolved);
 }
@@ -514,6 +623,25 @@ export function validateProviderConfig(config: VoiceCallConfig): {
         "plugins.entries.voice-call.config.plivo.authToken is required (or set PLIVO_AUTH_TOKEN env)",
       );
     }
+  }
+
+  // Realtime mode requires inbound calls to be accepted — policy "disabled"
+  // means the manager will reject every call before it can be tracked.
+  // "open" or "allowlist" are the correct choices when realtime.enabled = true.
+  if (config.realtime?.enabled && config.inboundPolicy === "disabled") {
+    errors.push(
+      'plugins.entries.voice-call.config.inboundPolicy must not be "disabled" when realtime.enabled is true ' +
+        '(use "open" or "allowlist" — realtime calls are answered before policy can reject them)',
+    );
+  }
+
+  // Both streaming and realtime cannot be enabled simultaneously — they use
+  // incompatible WebSocket paths and audio routing.
+  if (config.realtime?.enabled && config.streaming?.enabled) {
+    errors.push(
+      "plugins.entries.voice-call.config: realtime.enabled and streaming.enabled cannot both be true " +
+        "(they use incompatible audio paths — choose one mode)",
+    );
   }
 
   return { valid: errors.length === 0, errors };
