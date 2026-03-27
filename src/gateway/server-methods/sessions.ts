@@ -1228,19 +1228,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const entry = truncateTarget.entry;
     const legacyKey = truncateTarget.primaryKey;
     const canonicalKey = target.canonicalKey;
-    const mutationCleanupError = await cleanupSessionBeforeMutation({
-      cfg,
-      key,
-      target,
-      entry,
-      legacyKey,
-      canonicalKey,
-      reason: "session-delete",
-    });
-    if (mutationCleanupError) {
-      respond(false, undefined, mutationCleanupError);
-      return;
-    }
+
+    // Check prerequisites before calling cleanupSessionBeforeMutation so that
+    // no-op truncate requests do not abort active runs unnecessarily.
     const sessionId = entry?.sessionId;
     if (!sessionId) {
       respond(
@@ -1266,50 +1256,33 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
 
-    // Serialize the read-modify-write under the write lock so concurrent transcript
-    // appends between readFileSync and the final rename are not silently dropped.
+    // Phase 1: read-only scan under the write lock to locate the cut point.
+    // Do NOT abort active runs yet; only do so after confirming a valid cut exists.
     let cutLineIndex = -1;
-    let keptLines: string[] = [];
-    let archived = "";
-    const lock = await acquireSessionWriteLock({ sessionFile: filePath });
-    try {
-      const raw = fs.readFileSync(filePath, "utf-8");
-      const allLines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
-
-      // Walk lines to find the JSONL line that corresponds to the requested seq (p.seq).
-      let seq = 0;
-      for (let i = 0; i < allLines.length; i++) {
-        try {
-          const parsed = JSON.parse(allLines[i]) as Record<string, unknown>;
-          if (parsed?.message || parsed?.type === "compaction") {
-            seq += 1;
-            if (seq === p.seq) {
-              cutLineIndex = i;
-              break;
+    {
+      const scanLock = await acquireSessionWriteLock({ sessionFile: filePath });
+      try {
+        const raw = fs.readFileSync(filePath, "utf-8");
+        const allLines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+        // Walk lines to find the JSONL line that corresponds to the requested seq (p.seq).
+        let seq = 0;
+        for (let i = 0; i < allLines.length; i++) {
+          try {
+            const parsed = JSON.parse(allLines[i]) as Record<string, unknown>;
+            if (parsed?.message || parsed?.type === "compaction") {
+              seq += 1;
+              if (seq === p.seq) {
+                cutLineIndex = i;
+                break;
+              }
             }
+          } catch {
+            // skip malformed lines
           }
-        } catch {
-          // skip malformed lines
         }
+      } finally {
+        await scanLock.release();
       }
-
-      if (cutLineIndex >= 0) {
-        keptLines = allLines.slice(0, cutLineIndex);
-        const newContent = keptLines.length > 0 ? `${keptLines.join("\n")}\n` : "";
-        // Write-then-rename: write to a temp file first so the original is untouched if writeFileSync throws.
-        const ts = new Date().toISOString().replaceAll(":", "-");
-        const tmpPath = `${filePath}.tmp.${ts}`;
-        const bakPath = `${filePath}.bak.${ts}`;
-        // Preserve original file permissions (typically 0o600) so the replacement does not
-        // weaken transcript privacy on shared hosts.
-        const originalMode = fs.statSync(filePath).mode & 0o777;
-        fs.writeFileSync(tmpPath, newContent, { encoding: "utf-8", mode: originalMode });
-        fs.renameSync(filePath, bakPath);
-        fs.renameSync(tmpPath, filePath);
-        archived = bakPath;
-      }
-    } finally {
-      await lock.release();
     }
 
     if (cutLineIndex < 0) {
@@ -1319,6 +1292,47 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         undefined,
       );
       return;
+    }
+
+    // Phase 2: abort active runs, but only now that we know the truncation will proceed.
+    const mutationCleanupError = await cleanupSessionBeforeMutation({
+      cfg,
+      key,
+      target,
+      entry,
+      legacyKey,
+      canonicalKey,
+      reason: "session-delete",
+    });
+    if (mutationCleanupError) {
+      respond(false, undefined, mutationCleanupError);
+      return;
+    }
+
+    // Phase 3: re-acquire the write lock and perform the actual truncation.
+    // Re-read the file to pick up any appends that landed between Phase 1 and Phase 2.
+    // The cutLineIndex is still valid because transcript appends only extend the tail.
+    let keptLines: string[] = [];
+    let archived = "";
+    const writeLock = await acquireSessionWriteLock({ sessionFile: filePath });
+    try {
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const allLines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+      keptLines = allLines.slice(0, cutLineIndex);
+      const newContent = keptLines.length > 0 ? `${keptLines.join("\n")}\n` : "";
+      // Write-then-rename: write to a temp file first so the original is untouched if writeFileSync throws.
+      const ts = new Date().toISOString().replaceAll(":", "-");
+      const tmpPath = `${filePath}.tmp.${ts}`;
+      const bakPath = `${filePath}.bak.${ts}`;
+      // Preserve original file permissions (typically 0o600) so the replacement does not
+      // weaken transcript privacy on shared hosts.
+      const originalMode = fs.statSync(filePath).mode & 0o777;
+      fs.writeFileSync(tmpPath, newContent, { encoding: "utf-8", mode: originalMode });
+      fs.renameSync(filePath, bakPath);
+      fs.renameSync(tmpPath, filePath);
+      archived = bakPath;
+    } finally {
+      await writeLock.release();
     }
 
     await updateSessionStore(storePath, (store) => {
