@@ -28,14 +28,29 @@ function hasExplicitHeartbeatAgents(cfg: OpenClawConfig) {
   return list.some((entry) => Boolean(entry?.heartbeat));
 }
 
+function hasHeartbeatDefaults(cfg: OpenClawConfig) {
+  return Boolean(cfg.agents?.defaults?.heartbeat);
+}
+
+function isConfiguredAgentId(cfg: OpenClawConfig, agentId: string) {
+  const resolvedAgentId = normalizeAgentId(agentId);
+  if (resolvedAgentId === resolveDefaultAgentId(cfg)) {
+    return true;
+  }
+  const list = cfg.agents?.list ?? [];
+  return list.some((entry) => normalizeAgentId(entry?.id ?? "") === resolvedAgentId);
+}
+
 export function isHeartbeatEnabledForAgent(cfg: OpenClawConfig, agentId?: string): boolean {
   const resolvedAgentId = normalizeAgentId(agentId ?? resolveDefaultAgentId(cfg));
-  const list = cfg.agents?.list ?? [];
-  const hasExplicit = hasExplicitHeartbeatAgents(cfg);
-  if (hasExplicit) {
-    return list.some(
-      (entry) => Boolean(entry?.heartbeat) && normalizeAgentId(entry?.id) === resolvedAgentId,
-    );
+  if (resolveAgentConfig(cfg, resolvedAgentId)?.heartbeat) {
+    return true;
+  }
+  if (hasHeartbeatDefaults(cfg)) {
+    return isConfiguredAgentId(cfg, resolvedAgentId);
+  }
+  if (hasExplicitHeartbeatAgents(cfg)) {
+    return false;
   }
   return resolvedAgentId === resolveDefaultAgentId(cfg);
 }

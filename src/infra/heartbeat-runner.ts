@@ -125,6 +125,10 @@ function hasExplicitHeartbeatAgents(cfg: OpenClawConfig) {
   return list.some((entry) => Boolean(entry?.heartbeat));
 }
 
+function hasHeartbeatDefaults(cfg: OpenClawConfig) {
+  return Boolean(cfg.agents?.defaults?.heartbeat);
+}
+
 function resolveHeartbeatConfig(
   cfg: OpenClawConfig,
   agentId?: string,
@@ -140,19 +144,31 @@ function resolveHeartbeatConfig(
   return { ...defaults, ...overrides };
 }
 
+function createHeartbeatAgent(agentId: string, heartbeat?: HeartbeatConfig): HeartbeatAgent {
+  return heartbeat === undefined ? { agentId } : { agentId, heartbeat };
+}
+
 function resolveHeartbeatAgents(cfg: OpenClawConfig): HeartbeatAgent[] {
   const list = cfg.agents?.list ?? [];
+  if (hasHeartbeatDefaults(cfg) && list.length > 0) {
+    return list
+      .map((entry) => {
+        const id = normalizeAgentId(entry?.id ?? "");
+        return id ? createHeartbeatAgent(id, resolveHeartbeatConfig(cfg, id)) : undefined;
+      })
+      .filter((entry): entry is HeartbeatAgent => entry !== undefined);
+  }
   if (hasExplicitHeartbeatAgents(cfg)) {
     return list
       .filter((entry) => entry?.heartbeat)
       .map((entry) => {
         const id = normalizeAgentId(entry.id);
-        return { agentId: id, heartbeat: resolveHeartbeatConfig(cfg, id) };
+        return createHeartbeatAgent(id, resolveHeartbeatConfig(cfg, id));
       })
       .filter((entry) => entry.agentId);
   }
   const fallbackId = resolveDefaultAgentId(cfg);
-  return [{ agentId: fallbackId, heartbeat: resolveHeartbeatConfig(cfg, fallbackId) }];
+  return [createHeartbeatAgent(fallbackId, resolveHeartbeatConfig(cfg, fallbackId))];
 }
 
 export function resolveHeartbeatPrompt(cfg: OpenClawConfig, heartbeat?: HeartbeatConfig) {
