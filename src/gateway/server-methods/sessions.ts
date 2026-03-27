@@ -1262,7 +1262,18 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     {
       const scanLock = await acquireSessionWriteLock({ sessionFile: filePath });
       try {
-        const raw = fs.readFileSync(filePath, "utf-8");
+        let raw: string;
+        try {
+          raw = fs.readFileSync(filePath, "utf-8");
+        } catch (readErr: unknown) {
+          if (readErr instanceof Error && "code" in readErr && readErr.code === "ENOENT") {
+            // File removed/moved by a concurrent operation between existsSync and here.
+            // Fall through with empty content so cutLineIndex stays -1 → truncated: false.
+            raw = "";
+          } else {
+            throw readErr;
+          }
+        }
         const allLines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
         // Walk lines to find the JSONL line that corresponds to the requested seq (p.seq).
         let seq = 0;
@@ -1378,9 +1389,12 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       canonicalKey,
       reason: "session-delete",
     });
+    // Do NOT return an error if cleanup fails here: the transcript has already been
+    // rewritten on disk. Reporting failure would leave the client and emitSessionsChanged
+    // out of sync with the real on-disk state. Log and continue with truncated: true.
     if (mutationCleanupError) {
-      respond(false, undefined, mutationCleanupError);
-      return;
+      // Non-fatal: cleanup (e.g. run abort) failed after the write was committed.
+      // The truncation is real; proceed so the UI stays consistent.
     }
 
     await updateSessionStore(storePath, (store) => {
