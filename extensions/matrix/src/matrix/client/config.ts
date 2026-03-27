@@ -28,6 +28,26 @@ import { ensureMatrixSdkLoggingConfigured } from "./logging.js";
 import type { MatrixAuth, MatrixResolvedConfig } from "./types.js";
 
 function clean(value: unknown, path: string): string {
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    "source" in value &&
+    (value as Record<string, unknown>).source === "env" &&
+    "id" in value
+  ) {
+    const keys = Object.keys(value as object);
+    const envId = (value as Record<string, unknown>).id;
+    if (
+      typeof envId === "string" &&
+      /^[A-Z][A-Z0-9_]{0,127}$/.test(envId) &&
+      (keys.length === 2 || keys.length === 3)
+    ) {
+      const resolved = process.env[envId];
+      if (resolved !== undefined) {
+        value = resolved;
+      }
+    }
+  }
   return normalizeResolvedSecretInputString({ value, path }) ?? "";
 }
 
