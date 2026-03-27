@@ -492,6 +492,11 @@ async function handleSlashCommandAsync(params: {
     core.channel.reply.createReplyDispatcherWithTyping({
       ...replyPipeline,
       humanDelay,
+      hookContext: {
+        channelId: "mattermost",
+        to,
+        accountId: account.accountId,
+      },
       deliver: async (payload: ReplyPayload) => {
         await deliverMattermostReplyPayload({
           core,

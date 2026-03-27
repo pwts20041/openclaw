@@ -879,6 +879,11 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
         core.channel.reply.createReplyDispatcherWithTyping({
           ...prefixOptions,
           humanDelay: core.channel.reply.resolveHumanDelayConfig(cfg, _route.agentId),
+          hookContext: {
+            channelId: "matrix",
+            to: roomId,
+            accountId,
+          },
           deliver: async (payload: ReplyPayload) => {
             await deliverMatrixReplies({
               cfg,

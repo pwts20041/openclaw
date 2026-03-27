@@ -486,6 +486,11 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
           core.channel.reply.createReplyDispatcherWithTyping({
             ...replyPipeline,
             humanDelay: core.channel.reply.resolveHumanDelayConfig(cfg, route.agentId),
+            hookContext: {
+              channelId: "mattermost",
+              to,
+              accountId: account.accountId,
+            },
             deliver: async (payload: ReplyPayload) => {
               await deliverMattermostReplyPayload({
                 core,
@@ -681,6 +686,11 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
       core.channel.reply.createReplyDispatcherWithTyping({
         ...replyPipeline,
         // Picker-triggered confirmations should stay immediate.
+        hookContext: {
+          channelId: "mattermost",
+          to,
+          accountId: account.accountId,
+        },
         deliver: async (payload: ReplyPayload) => {
           const trimmedPayload = {
             ...payload,
@@ -1404,6 +1414,11 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
         ...replyPipeline,
         humanDelay: core.channel.reply.resolveHumanDelayConfig(cfg, route.agentId),
         typingCallbacks,
+        hookContext: {
+          channelId: "mattermost",
+          to,
+          accountId: account.accountId,
+        },
         deliver: async (payload: ReplyPayload) => {
           await deliverMattermostReplyPayload({
             core,
