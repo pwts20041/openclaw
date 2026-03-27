@@ -99,6 +99,11 @@ export async function buildStatusReply(params: {
     logVerbose(`Ignoring /status from unauthorized sender: ${command.senderId || "<unknown>"}`);
     return undefined;
   }
+
+  // Safe card for group chats - omit internals (model/auth, tokens, cache, session IDs, version hash).
+  if (isGroup) {
+    return { text: "Shoar is running." };
+  }
   const statusAgentId = sessionKey
     ? resolveSessionAgentId({ sessionKey, config: cfg })
     : resolveDefaultAgentId(cfg);

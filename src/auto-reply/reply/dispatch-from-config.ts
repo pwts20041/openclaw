@@ -43,6 +43,7 @@ import { INTERNAL_MESSAGE_CHANNEL, normalizeMessageChannel } from "../../utils/m
 import type { FinalizedMsgContext } from "../templating.js";
 import type { BlockReplyContext, GetReplyOptions, ReplyPayload } from "../types.js";
 import { shouldSkipDuplicateInbound } from "./inbound-dedupe.js";
+import { isPowernapDraining } from "./powernap-drain.js";
 import type { ReplyDispatcher, ReplyDispatchKind } from "./reply-dispatcher.js";
 import { resolveRunTypingPolicy } from "./typing-policy.js";
 
@@ -211,6 +212,12 @@ export async function dispatchReplyFromConfig(params: {
 
   if (shouldSkipDuplicateInbound(ctx)) {
     recordProcessed("skipped", { reason: "duplicate" });
+    return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
+  }
+
+  if (isPowernapDraining()) {
+    logVerbose("Skipping inbound message: powernap in progress");
+    recordProcessed("skipped", { reason: "powernap_drain" });
     return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
   }
 

@@ -66,6 +66,7 @@ export type ReplyDirectiveContinuation = {
     flushOnParagraph?: boolean;
   };
   resolvedBlockStreamingBreak: "text_end" | "message_end";
+  resolvedBlockReplyPolicy: "stream" | "final_only";
   provider: string;
   model: string;
   modelState: Awaited<ReturnType<typeof createModelSelectionState>>;
@@ -406,10 +407,11 @@ export async function resolveReplyDirectives(params: {
     agentCfg?.blockStreamingBreak === "message_end" ? "message_end" : "text_end";
   const blockStreamingEnabled =
     resolvedBlockStreaming === "on" && opts?.disableBlockStreaming !== true;
+  const resolvedBlockReplyPolicy: "stream" | "final_only" =
+    agentCfg?.blockReplyPolicy === "final_only" ? "final_only" : "stream";
   const blockReplyChunking = blockStreamingEnabled
     ? resolveBlockStreamingChunking(cfg, sessionCtx.Provider, sessionCtx.AccountId)
     : undefined;
-
   const modelState = await createModelSelectionState({
     cfg,
     agentId,
@@ -531,6 +533,7 @@ export async function resolveReplyDirectives(params: {
       blockStreamingEnabled,
       blockReplyChunking,
       resolvedBlockStreamingBreak,
+      resolvedBlockReplyPolicy,
       provider,
       model,
       modelState,

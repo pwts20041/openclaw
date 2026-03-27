@@ -106,6 +106,7 @@ Text + native (when enabled):
   - Discord: native command is `/voice` (Discord reserves `/tts`); text `/tts` still works.
 - `/stop`
 - `/restart`
+- `/powernap` (reset all sessions and restart gateway)
 - `/dock-telegram` (alias: `/dock_telegram`) (switch replies to Telegram)
 - `/dock-discord` (alias: `/dock_discord`) (switch replies to Discord)
 - `/dock-slack` (alias: `/dock_slack`) (switch replies to Slack)

@@ -18,9 +18,13 @@ export type WhatsAppActionConfig = {
 };
 
 export type WhatsAppGroupConfig = {
+  /** Friendly display name for target resolution (e.g. "Bot Bros"). */
+  name?: string;
   requireMention?: boolean;
   tools?: GroupToolPolicyConfig;
   toolsBySender?: GroupToolPolicyBySenderConfig;
+  /** Per-group system prompt injected into every API call for this group. */
+  systemPrompt?: string;
 };
 
 export type WhatsAppAckReactionConfig = {
@@ -43,6 +47,8 @@ type WhatsAppSharedConfig = {
   enabled?: boolean;
   /** Direct message access policy (default: pairing). */
   dmPolicy?: DmPolicy;
+  /** Controls the agent reaction behavior level. */
+  reactionLevel?: "off" | "ack" | "minimal" | "extensive";
   /** Same-phone setup (bot uses your personal WhatsApp number). */
   selfChatMode?: boolean;
   /** Optional allowlist for WhatsApp direct chats (E.164). */

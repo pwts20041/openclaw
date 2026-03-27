@@ -58,6 +58,56 @@ export type GroupHistoryEntry = {
   senderJid?: string;
 };
 
+/**
+ * Build a human-readable mention contact map so the model knows who was @mentioned.
+ * Resolves JIDs to names via the group roster, and marks the bot's own JID as "you (self)".
+ */
+function buildMentionedContacts(params: {
+  mentionedJids?: string[];
+  roster?: Map<string, string>;
+  selfJid?: string | null;
+  selfE164?: string | null;
+}): string | undefined {
+  const { mentionedJids, roster, selfJid, selfE164 } = params;
+  if (!mentionedJids?.length) {
+    return undefined;
+  }
+
+  // Normalize selfJid by stripping device suffix (e.g. :0, :14)
+  const normalizedSelf = selfJid ? selfJid.replace(/:\d+/, "") : null;
+
+  const entries: string[] = [];
+  for (const jid of mentionedJids) {
+    // Check if this is the bot's own JID/LID
+    if (normalizedSelf && jid === normalizedSelf) {
+      entries.push(`${jid} = you (self)`);
+      continue;
+    }
+    // Also check E164 match for self (handles standard JID format)
+    if (selfE164) {
+      const jidE164 = jidToE164(jid);
+      if (jidE164 && normalizeE164(jidE164) === normalizeE164(selfE164)) {
+        entries.push(`${jid} = you (self)`);
+        continue;
+      }
+    }
+    // Try to resolve via E164 + group roster
+    const e164 = jidToE164(jid);
+    if (e164 && roster) {
+      const normalized = normalizeE164(e164);
+      const name = normalized ? roster.get(normalized) : undefined;
+      if (name) {
+        entries.push(`${jid} = ${name}`);
+        continue;
+      }
+    }
+    // LID or unresolvable — include raw JID
+    entries.push(jid);
+  }
+
+  return entries.join(", ");
+}
+
 async function resolveWhatsAppCommandAuthorized(params: {
   cfg: ReturnType<typeof loadConfig>;
   msg: WebInboundMsg;
@@ -306,6 +356,14 @@ export async function processMessage(params: {
         )
       : undefined;
 
+  // Resolve per-group systemPrompt (specific JID entry, then wildcard "*" fallback).
+  const whatsAppGroups = params.cfg.channels?.whatsapp?.groups;
+  const groupEntry =
+    params.msg.chatType === "group"
+      ? (whatsAppGroups?.[params.msg.from] ?? whatsAppGroups?.["*"])
+      : undefined;
+  const groupSystemPrompt = groupEntry?.systemPrompt?.trim() || undefined;
+
   const ctxPayload = finalizeInboundContext({
     Body: combinedBody,
     BodyForAgent: params.msg.body,
@@ -326,6 +384,7 @@ export async function processMessage(params: {
     ChatType: params.msg.chatType,
     ConversationLabel: params.msg.chatType === "group" ? conversationId : params.msg.from,
     GroupSubject: params.msg.groupSubject,
+    GroupSystemPrompt: groupSystemPrompt,
     GroupMembers: formatGroupMembers({
       participants: params.msg.groupParticipants,
       roster: params.groupMemberNames.get(params.groupHistoryKey),
@@ -336,6 +395,15 @@ export async function processMessage(params: {
     SenderE164: sender.e164 ?? undefined,
     CommandAuthorized: commandAuthorized,
     WasMentioned: params.msg.wasMentioned,
+    MentionedJids: params.msg.mentionedJids,
+    SelfJid: params.msg.selfJid ?? undefined,
+    SelfE164: params.msg.selfE164 ?? undefined,
+    MentionedContacts: buildMentionedContacts({
+      mentionedJids: params.msg.mentionedJids,
+      roster: params.groupMemberNames.get(params.groupHistoryKey),
+      selfJid: params.msg.selfJid,
+      selfE164: params.msg.selfE164,
+    }),
     ...(params.msg.location ? toLocationContext(params.msg.location) : {}),
     Provider: "whatsapp",
     Surface: "whatsapp",

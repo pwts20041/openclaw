@@ -318,11 +318,20 @@ export function handleMessageUpdate(
     }
   }
 
-  if (ctx.params.onBlockReply && ctx.blockChunking && ctx.state.blockReplyBreak === "text_end") {
+  // Under final_only policy, skip all text_end flushes. Text will be held in
+  // blockBuffer/blockChunker and only emitted at message_end if the turn has no tool calls.
+  const isFinalOnly = ctx.params.blockReplyPolicy === "final_only";
+
+  if (
+    !isFinalOnly &&
+    ctx.params.onBlockReply &&
+    ctx.blockChunking &&
+    ctx.state.blockReplyBreak === "text_end"
+  ) {
     ctx.blockChunker?.drain({ force: false, emit: ctx.emitBlockChunk });
   }
 
-  if (evtType === "text_end" && ctx.state.blockReplyBreak === "text_end") {
+  if (!isFinalOnly && evtType === "text_end" && ctx.state.blockReplyBreak === "text_end") {
     ctx.flushBlockReplyBuffer();
   }
 }
@@ -342,6 +351,33 @@ export function handleMessageEnd(
   if (ctx.state.deterministicApprovalPromptSent) {
     return;
   }
+
+  // ── final_only policy: discard text from tool-use turns ──────────────────
+  // Detect tool-use turns via content blocks or the tracking flag set by
+  // handleToolExecutionStart. Text from these turns is narration ("let me
+  // check...", "found it...") and must not reach external messaging surfaces.
+  const isFinalOnly = ctx.params.blockReplyPolicy === "final_only";
+  const contentArray = (assistantMessage as { content?: Array<{ type?: string }> }).content;
+  const turnHasToolCall =
+    ctx.state.currentTurnHasToolCall ||
+    (Array.isArray(contentArray) && contentArray.some((c) => c.type === "toolCall"));
+
+  if (isFinalOnly && turnHasToolCall) {
+    // Discard buffered block reply text from this tool-use turn.
+    ctx.state.blockBuffer = "";
+    ctx.blockChunker?.reset();
+    ctx.state.deltaBuffer = "";
+    ctx.state.lastStreamedAssistant = undefined;
+    ctx.state.lastStreamedAssistantCleaned = undefined;
+    ctx.state.reasoningStreamOpen = false;
+    ctx.state.currentTurnHasToolCall = false;
+    // Do not add text to assistantTexts (prevents final payload pollution).
+    ctx.state.assistantTextBaseline = ctx.state.assistantTexts.length;
+    return;
+  }
+  // Reset for next turn.
+  ctx.state.currentTurnHasToolCall = false;
+
   promoteThinkingTagsToBlocks(assistantMessage);
 
   const rawText = extractAssistantText(assistantMessage);

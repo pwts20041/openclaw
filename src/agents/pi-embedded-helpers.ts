@@ -24,6 +24,7 @@ export {
   isBillingAssistantError,
   extractObservedOverflowTokenCount,
   parseApiErrorInfo,
+  redactInternalDetails,
   sanitizeUserFacingText,
   isBillingErrorMessage,
   isCloudflareOrHtmlErrorPage,

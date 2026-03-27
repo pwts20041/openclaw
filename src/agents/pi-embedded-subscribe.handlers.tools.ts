@@ -330,10 +330,19 @@ export async function handleToolExecutionStart(
   ctx: ToolHandlerContext,
   evt: AgentEvent & { toolName: string; toolCallId: string; args: unknown },
 ) {
-  // Flush pending block replies to preserve message boundaries before tool execution.
-  ctx.flushBlockReplyBuffer();
-  if (ctx.params.onBlockReplyFlush) {
-    await ctx.params.onBlockReplyFlush();
+  // Under final_only policy, do NOT flush block reply buffer before tool execution.
+  // Text preceding a tool call is narration and will be discarded at message_end.
+  const isFinalOnly =
+    (ctx.params as { blockReplyPolicy?: string }).blockReplyPolicy === "final_only";
+  if (isFinalOnly) {
+    // Mark this turn as having tool calls so message_end can discard buffered text.
+    (ctx.state as { currentTurnHasToolCall?: boolean }).currentTurnHasToolCall = true;
+  } else {
+    // Flush pending block replies to preserve message boundaries before tool execution.
+    ctx.flushBlockReplyBuffer();
+    if (ctx.params.onBlockReplyFlush) {
+      await ctx.params.onBlockReplyFlush();
+    }
   }
 
   const rawToolName = String(evt.toolName);

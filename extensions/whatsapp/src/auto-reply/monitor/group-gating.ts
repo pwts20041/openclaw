@@ -1,5 +1,5 @@
 import { resolveMentionGating } from "openclaw/plugin-sdk/channel-inbound";
-import { hasControlCommand } from "openclaw/plugin-sdk/command-auth";
+import { hasControlCommand, listSkillCommandsForAgents } from "openclaw/plugin-sdk/command-auth";
 import type { loadConfig } from "openclaw/plugin-sdk/config-runtime";
 import { recordPendingHistoryEntryIfEnabled } from "openclaw/plugin-sdk/reply-history";
 import { parseActivationCommand } from "openclaw/plugin-sdk/reply-runtime";
@@ -17,6 +17,21 @@ import type { WebInboundMsg } from "../types.js";
 import { stripMentionsForCommand } from "./commands.js";
 import { resolveGroupActivationFor, resolveGroupPolicyFor } from "./group-activation.js";
 import { noteGroupMember } from "./group-members.js";
+
+/**
+ * Cached skill commands for mention-bypass detection.
+ * Keyed by config reference - refreshes automatically on config reload.
+ */
+type SkillCommandsCacheEntry = ReturnType<typeof listSkillCommandsForAgents>;
+let _skillCmdCache: { ref: unknown; commands: SkillCommandsCacheEntry } | undefined;
+function resolveSkillCommandsCached(cfg: ReturnType<typeof loadConfig>): SkillCommandsCacheEntry {
+  if (_skillCmdCache?.ref === cfg) {
+    return _skillCmdCache.commands;
+  }
+  const commands = listSkillCommandsForAgents({ cfg });
+  _skillCmdCache = { ref: cfg, commands };
+  return commands;
+}
 
 export type GroupHistoryEntry = {
   sender: string;
@@ -114,7 +129,9 @@ export function applyGroupGating(params: ApplyGroupGatingParams) {
   );
   const activationCommand = parseActivationCommand(commandBody);
   const owner = isOwnerSender(params.baseMentionConfig, params.msg);
-  const shouldBypassMention = owner && hasControlCommand(commandBody, params.cfg);
+  const skillCommands = owner ? resolveSkillCommandsCached(params.cfg) : undefined;
+  const shouldBypassMention =
+    owner && hasControlCommand(commandBody, params.cfg, { skillCommands });
 
   if (activationCommand.hasCommand && !owner) {
     return skipGroupMessageAndStoreHistory(

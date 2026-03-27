@@ -13,6 +13,7 @@ import {
 } from "../../plugins/provider-runtime.runtime.js";
 import { resolveSecretRefString, type SecretRefResolveCache } from "../../secrets/resolve.js";
 import { refreshChutesTokens } from "../chutes-oauth.js";
+import { readClaudeCliCredentialsCached, writeClaudeCliCredentials } from "../cli-credentials.js";
 import { AUTH_STORE_LOCK_OPTIONS, log } from "./constants.js";
 import { resolveTokenExpiryState } from "./credential-state.js";
 import { formatAuthDoctorHint } from "./doctor.js";
@@ -112,6 +113,41 @@ function extractErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * Clear cooldown, disabled, and error state for a profile after a successful
+ * credential refresh or adoption. Without this, a prior 401/403 can leave the
+ * profile blocked (cooldownUntil or disabledUntil/disabledReason) even after
+ * fresh credentials are available.
+ */
+function clearProfileFailureStateInStore(store: AuthProfileStore, profileId: string): void {
+  const stats = store.usageStats?.[profileId];
+  if (!stats) {
+    return;
+  }
+  const hadState =
+    typeof stats.cooldownUntil === "number" ||
+    typeof stats.disabledUntil === "number" ||
+    stats.disabledReason !== undefined ||
+    (typeof stats.errorCount === "number" && stats.errorCount !== 0);
+  if (!hadState) {
+    return;
+  }
+  stats.cooldownUntil = undefined;
+  stats.disabledUntil = undefined;
+  stats.disabledReason = undefined;
+  stats.errorCount = 0;
+  stats.failureCounts = undefined;
+  log.info("cleared auth profile failure state after credential refresh", { profileId });
+}
+
+function readFreshAnthropicCliOAuthCredential(): OAuthCredential | null {
+  const cliCred = readClaudeCliCredentialsCached({ ttlMs: 0 });
+  if (!cliCred || cliCred.type !== "oauth" || cliCred.provider !== "anthropic") {
+    return null;
+  }
+  return cliCred;
+}
+
 type ResolveApiKeyForProfileParams = {
   cfg?: OpenClawConfig;
   store: AuthProfileStore;
@@ -179,6 +215,33 @@ async function refreshOAuthTokenWithLock(params: {
       };
     }
 
+    // Cheapest recovery path: check if Claude CLI has a newer valid credential
+    // before attempting expensive OAuth refresh. Zero network cost.
+    if (cred.provider === "anthropic") {
+      const cliCred = readFreshAnthropicCliOAuthCredential();
+      if (
+        cliCred &&
+        Date.now() < cliCred.expires &&
+        (cliCred.access !== cred.access ||
+          cliCred.refresh !== cred.refresh ||
+          !Number.isFinite(cred.expires) ||
+          cliCred.expires > cred.expires)
+      ) {
+        store.profiles[params.profileId] = cliCred;
+        clearProfileFailureStateInStore(store, params.profileId);
+        saveAuthProfileStore(store, params.agentDir);
+        log.info("adopted newer Anthropic OAuth credentials from claude cli", {
+          profileId: params.profileId,
+          recoveryPath: "cli-adoption",
+          expires: new Date(cliCred.expires).toISOString(),
+        });
+        return {
+          apiKey: await buildOAuthApiKey(cliCred.provider, cliCred),
+          newCredentials: cliCred,
+        };
+      }
+    }
+
     const pluginRefreshed = await refreshProviderOAuthCredentialWithPlugin({
       provider: cred.provider,
       context: cred,
@@ -212,14 +275,38 @@ async function refreshOAuthTokenWithLock(params: {
     if (!result) {
       return null;
     }
-    store.profiles[params.profileId] = {
+    // Preserve the prior refresh token if the refresh response omitted one.
+    // Anthropic's API may not always return a new refresh_token (the macOS
+    // Swift implementation already guards against this). Without this
+    // fallback the refresh chain silently breaks on the next cycle.
+    const preservedRefresh = result.newCredentials.refresh || cred.refresh;
+    const savedCredentials = {
       ...cred,
       ...result.newCredentials,
-      type: "oauth",
+      refresh: preservedRefresh,
+      type: "oauth" as const,
     };
+    store.profiles[params.profileId] = savedCredentials;
+    clearProfileFailureStateInStore(store, params.profileId);
     saveAuthProfileStore(store, params.agentDir);
+    log.info("refreshed OAuth credentials via network", {
+      profileId: params.profileId,
+      provider: cred.provider,
+      recoveryPath: "network-refresh",
+      refreshTokenPreserved: !result.newCredentials.refresh,
+      expires: new Date(savedCredentials.expires).toISOString(),
+    });
+    if (cred.provider === "anthropic") {
+      const credentialsToWrite = { ...result.newCredentials, refresh: preservedRefresh };
+      const writeOk = writeClaudeCliCredentials(credentialsToWrite);
+      if (!writeOk) {
+        log.warn("failed to write refreshed anthropic credentials back to claude cli", {
+          profileId: params.profileId,
+        });
+      }
+    }
 
-    return result;
+    return { ...result, newCredentials: savedCredentials };
   });
 }
 

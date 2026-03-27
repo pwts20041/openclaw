@@ -1,4 +1,5 @@
 import {
+  readClaudeCliCredentialsCached,
   readCodexCliCredentialsCached,
   readMiniMaxCliCredentialsCached,
 } from "../cli-credentials.js";
@@ -9,6 +10,8 @@ import {
   log,
 } from "./constants.js";
 import type { AuthProfileStore, OAuthCredential } from "./types.js";
+
+const ANTHROPIC_DEFAULT_PROFILE_ID = "anthropic:default";
 
 type ExternalCliSyncOptions = {
   log?: boolean;
@@ -67,7 +70,37 @@ export function shouldReplaceStoredOAuthCredential(
   return !hasNewerStoredOAuthCredential(existing, incoming);
 }
 
+function clearProfileFailureState(store: AuthProfileStore, profileId: string): boolean {
+  const stats = store.usageStats?.[profileId];
+  if (!stats) {
+    return false;
+  }
+  const hadFailureState =
+    typeof stats.cooldownUntil === "number" ||
+    typeof stats.disabledUntil === "number" ||
+    stats.disabledReason !== undefined ||
+    (typeof stats.errorCount === "number" && stats.errorCount !== 0) ||
+    stats.failureCounts !== undefined;
+  if (!hadFailureState) {
+    return false;
+  }
+  stats.cooldownUntil = undefined;
+  stats.disabledUntil = undefined;
+  stats.disabledReason = undefined;
+  stats.errorCount = 0;
+  stats.failureCounts = undefined;
+  return true;
+}
+
 const EXTERNAL_CLI_SYNC_PROVIDERS: ExternalCliSyncProvider[] = [
+  {
+    profileId: ANTHROPIC_DEFAULT_PROFILE_ID,
+    provider: "anthropic",
+    readCredentials: () => {
+      const creds = readClaudeCliCredentialsCached({ ttlMs: EXTERNAL_CLI_SYNC_TTL_MS });
+      return creds?.type === "oauth" ? creds : null;
+    },
+  },
   {
     profileId: MINIMAX_CLI_PROFILE_ID,
     provider: "minimax-portal",
@@ -94,18 +127,28 @@ function syncExternalCliCredentialsForProvider(
   }
 
   const existingOAuth = existing?.type === "oauth" ? existing : undefined;
-  if (!shouldReplaceStoredOAuthCredential(existingOAuth, creds)) {
-    if (options.log !== false) {
-      if (!areOAuthCredentialsEquivalent(existingOAuth, creds) && existingOAuth) {
-        log.debug(`kept newer stored ${provider} credentials over external cli sync`, {
-          profileId,
-          storedExpires: new Date(existingOAuth.expires).toISOString(),
-          externalExpires: Number.isFinite(creds.expires)
-            ? new Date(creds.expires).toISOString()
-            : null,
-        });
-      }
+
+  // Freshness guard: never overwrite store credentials that are newer than
+  // what the external CLI has. This prevents a stale Keychain entry from
+  // downgrading credentials that the gateway already refreshed successfully.
+  if (hasNewerStoredOAuthCredential(existingOAuth, creds)) {
+    if (options.log !== false && existingOAuth) {
+      log.debug(`kept newer stored ${provider} credentials over external cli sync`, {
+        profileId,
+        storedExpires: new Date(existingOAuth.expires).toISOString(),
+        externalExpires: Number.isFinite(creds.expires)
+          ? new Date(creds.expires).toISOString()
+          : null,
+      });
     }
+    // Store has fresher credentials; only clear failure state if needed.
+    const clearedFailureState = clearProfileFailureState(store, profileId);
+    return clearedFailureState;
+  }
+
+  const credentialChanged = !areOAuthCredentialsEquivalent(existingOAuth, creds);
+  const clearedFailureState = clearProfileFailureState(store, profileId);
+  if (!credentialChanged && !clearedFailureState) {
     return false;
   }
 
@@ -120,8 +163,8 @@ function syncExternalCliCredentialsForProvider(
 }
 
 /**
- * Sync OAuth credentials from external CLI tools (MiniMax CLI, Codex CLI)
- * into the store.
+ * Sync OAuth credentials from external CLI tools (Claude CLI, MiniMax CLI, Codex CLI)
+ * into the store. Also clears stale failure/lockout state when fresh credentials arrive.
  *
  * Returns true if any credentials were updated.
  */

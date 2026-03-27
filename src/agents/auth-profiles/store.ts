@@ -87,6 +87,23 @@ export function clearRuntimeAuthProfileStoreSnapshots(): void {
   loadedAuthStoreCache.clear();
 }
 
+/**
+ * Update a single runtime auth profile snapshot after a credential change (e.g. OAuth refresh).
+ *
+ * Without this, `ensureAuthProfileStore` returns a stale in-memory snapshot even though
+ * `saveAuthProfileStore` wrote fresh credentials to disk. This causes the next refresh
+ * attempt to use an old (rotated/invalidated) refresh token and fail.
+ */
+function updateRuntimeAuthProfileStoreSnapshot(
+  agentDir: string | undefined,
+  store: AuthProfileStore,
+): void {
+  const key = resolveRuntimeStoreKey(agentDir);
+  if (runtimeAuthStoreSnapshots.has(key)) {
+    runtimeAuthStoreSnapshots.set(key, cloneAuthProfileStore(store));
+  }
+}
+
 function readAuthStoreMtimeMs(authPath: string): number | null {
   try {
     return fs.statSync(authPath).mtimeMs;
@@ -302,6 +319,38 @@ function mergeRecord<T>(
   return { ...base, ...override };
 }
 
+/**
+ * Merge two profile maps, preferring the fresher OAuth credential when both
+ * stores contain the same profile ID. For non-OAuth profiles or profiles
+ * without a finite `expires`, the override (subagent) wins as before.
+ */
+function mergeProfiles(
+  base: AuthProfileStore["profiles"],
+  override: AuthProfileStore["profiles"],
+): AuthProfileStore["profiles"] {
+  const merged = { ...base, ...override };
+  // For any profile that exists in both stores as OAuth, pick the one with
+  // the later expiry so a stale subagent copy cannot override a freshly
+  // refreshed main-agent credential.
+  for (const key of Object.keys(base)) {
+    if (!(key in override)) {
+      continue;
+    }
+    const baseCred = base[key];
+    const overrideCred = override[key];
+    if (
+      baseCred?.type === "oauth" &&
+      overrideCred?.type === "oauth" &&
+      Number.isFinite(baseCred.expires) &&
+      Number.isFinite(overrideCred.expires) &&
+      baseCred.expires > overrideCred.expires
+    ) {
+      merged[key] = baseCred;
+    }
+  }
+  return merged;
+}
+
 function mergeAuthProfileStores(
   base: AuthProfileStore,
   override: AuthProfileStore,
@@ -316,7 +365,7 @@ function mergeAuthProfileStores(
   }
   return {
     version: Math.max(base.version, override.version ?? base.version),
-    profiles: { ...base.profiles, ...override.profiles },
+    profiles: mergeProfiles(base.profiles, override.profiles),
     order: mergeRecord(base.order, override.order),
     lastGood: mergeRecord(base.lastGood, override.lastGood),
     usageStats: mergeRecord(base.usageStats, override.usageStats),
@@ -586,4 +635,8 @@ export function saveAuthProfileStore(store: AuthProfileStore, agentDir?: string)
   } satisfies AuthProfileStore;
   saveJsonFile(authPath, payload);
   writeCachedAuthProfileStore(authPath, readAuthStoreMtimeMs(authPath), payload);
+  // Keep the in-memory runtime snapshot in sync so subsequent calls to
+  // ensureAuthProfileStore() see the freshly saved credentials (e.g. after an
+  // OAuth token refresh) instead of returning stale data from startup.
+  updateRuntimeAuthProfileStoreSnapshot(agentDir, payload);
 }

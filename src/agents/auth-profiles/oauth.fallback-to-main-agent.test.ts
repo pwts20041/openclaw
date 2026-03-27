@@ -187,15 +187,6 @@ describe("resolveApiKeyForProfile fallback to main agent", () => {
     expect(result).not.toBeNull();
     expect(result?.apiKey).toBe("fresh-access-token");
     expect(result?.provider).toBe("anthropic");
-
-    // Verify the credentials were copied to the secondary agent
-    const updatedSecondaryStore = JSON.parse(
-      await fs.readFile(path.join(secondaryAgentDir, "auth-profiles.json"), "utf8"),
-    ) as AuthProfileStore;
-    expect(updatedSecondaryStore.profiles[profileId]).toMatchObject({
-      access: "fresh-access-token",
-      expires: freshTime,
-    });
   });
 
   it("adopts newer OAuth token from main agent even when secondary token is still valid", async () => {
@@ -224,17 +215,11 @@ describe("resolveApiKeyForProfile fallback to main agent", () => {
       }),
     );
 
+    // The merge now prefers the fresher OAuth credential by expiry, so the
+    // main agent's newer token is used directly from the merged store.
     const result = await resolveFromSecondaryAgent(profileId);
 
     expect(result?.apiKey).toBe("main-newer-access-token");
-
-    const updatedSecondaryStore = JSON.parse(
-      await fs.readFile(path.join(secondaryAgentDir, "auth-profiles.json"), "utf8"),
-    ) as AuthProfileStore;
-    expect(updatedSecondaryStore.profiles[profileId]).toMatchObject({
-      access: "main-newer-access-token",
-      expires: mainExpiry,
-    });
   });
 
   it("adopts main token when secondary expires is NaN/malformed", async () => {
