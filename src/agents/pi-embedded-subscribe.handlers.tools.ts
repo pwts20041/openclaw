@@ -121,20 +121,9 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
 
   const actionVal = typeof record.action === "string" ? record.action.trim().slice(0, 50) : null;
   if (actionVal !== null) {
-    // Nested request object (e.g. browser action:"act"): produce a readable signature
-    // from request.kind + the first differentiating field. Checked before the JSON
-    // fallback so the most specific info surfaces at the top rather than buried in args.
-    if (isPlainObject(record.request)) {
-      const req = record.request;
-      // Serialize the full request object so that calls sharing one field (e.g. targetId)
-      // but differing in others (e.g. text) are not collapsed into the same signature.
-      try {
-        return `action=${actionVal},request=${stableJsonStringify(req)}`;
-      } catch {
-        // ignore — fall through to generic JSON fingerprint
-      }
-    }
-    // All other action-driven tools: stable JSON fingerprint of non-action args.
+    // Stable JSON fingerprint of all non-action args (includes request, target, node, etc.).
+    // No special-casing for request: stableJsonStringify handles it alongside top-level
+    // routing fields so that calls differing only in target (host vs sandbox) get distinct sigs.
     const { action: _action, ...restArgs } = record;
     if (Object.keys(restArgs).length > 0) {
       try {

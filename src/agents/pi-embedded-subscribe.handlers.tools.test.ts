@@ -1234,6 +1234,38 @@ describe("circuit breaker arg signature for browser act nested request fields", 
 
     expect(onError).toHaveBeenCalledTimes(1);
   });
+
+  it("does not trip circuit when act failures use the same request but different top-level target", async () => {
+    // top-level target selects the browser backend (host vs sandbox); calls that differ only
+    // in target must produce distinct signatures so they don't falsely trip the breaker.
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    const request = { kind: "click", targetId: "btn-submit" };
+
+    async function runActTarget(target: string, isError: boolean, id: string) {
+      await handleToolExecutionStart(ctx, {
+        type: "tool_execution_start",
+        toolName: "browser",
+        toolCallId: id,
+        args: { action: "act", target, request },
+      });
+      await handleToolExecutionEnd(ctx, {
+        type: "tool_execution_end",
+        toolName: "browser",
+        toolCallId: id,
+        isError,
+        result: isError ? { type: "text", text: "Error: act failed" } : { ok: true },
+      });
+    }
+
+    await runActTarget("host", true, "t1");
+    await runActTarget("sandbox", true, "t2");
+    await runActTarget("host", true, "t3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
 });
 
 describe("circuit breaker arg signature for cron wake text field", () => {
