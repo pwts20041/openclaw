@@ -24,7 +24,12 @@ function makeEntry(params: {
       description: `desc:${params.name}`,
       filePath: `/tmp/${params.name}/SKILL.md`,
       baseDir: `/tmp/${params.name}`,
-      source: params.source ?? "openclaw-workspace",
+      sourceInfo: {
+        source: params.source ?? "openclaw-workspace",
+        path: "",
+        scope: "user" as const,
+        origin: "top-level" as const,
+      },
       disableModelInvocation: false,
     },
     frontmatter: {},
