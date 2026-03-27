@@ -38,7 +38,7 @@ import {
 import { enqueueSystemEvent, MAX_EVENTS } from "../infra/system-events.js";
 import type { loadOpenClawPlugins } from "../plugins/loader.js";
 import { type PluginServicesHandle, startPluginServices } from "../plugins/services.js";
-
+import { deliveryContextFromSession, mergeDeliveryContext } from "../utils/delivery-context.js";
 import {
   scheduleRestartSentinelWake,
   shouldWakeFromRestartSentinel,
