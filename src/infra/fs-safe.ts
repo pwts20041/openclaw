@@ -415,7 +415,9 @@ export async function openWritableFileWithinRoot(params: {
     }
   }
 
-  const fileMode = params.mode ?? 0o600;
+  // Default to POSIX-conventional creation mode and let process umask/default ACLs apply.
+  // Callers can still override via params.mode for stricter files.
+  const fileMode = params.mode ?? 0o666;
 
   let handle: FileHandle;
   let createdForWrite = false;
@@ -693,7 +695,7 @@ async function resolvePinnedWriteTargetWithinRoot(params: {
   if (!basename || basename === "." || basename === "/") {
     throw new SafeOpenError("invalid-path", "invalid target path");
   }
-  let mode = 0o600;
+  let mode = 0o666;
   try {
     const opened = await openFileWithinRoot({
       rootDir: params.rootDir,
@@ -720,7 +722,7 @@ async function resolvePinnedWriteTargetWithinRoot(params: {
     relativeParentPath:
       path.posix.dirname(relativePosix) === "." ? "" : path.posix.dirname(relativePosix),
     basename,
-    mode: mode || 0o600,
+    mode: mode || 0o666,
   };
 }
 
@@ -756,7 +758,7 @@ async function writeFileWithinRootLegacy(params: {
       tempPath,
       data: params.data,
       encoding: params.encoding,
-      mode: targetMode || 0o600,
+      mode: targetMode ?? 0o666,
     });
     await fs.rename(tempPath, destinationPath);
     tempPath = null;
