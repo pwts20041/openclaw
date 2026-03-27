@@ -575,27 +575,16 @@ async function dispatchDiscordCommandInteraction(params: {
     threadParentName = parentInfo.name;
     threadParentSlug = threadParentName ? normalizeDiscordSlug(threadParentName) : "";
   }
-  const claimOwnership = await resolveDiscordClaimOwnership({
-    cfg,
-    accountId,
-    botId: interaction.applicationId ?? interaction.client?.application?.id,
-    channelId: rawChannelId,
-    parentId: threadParentId,
-  });
-  if (
-    interaction.guild &&
-    (claimOwnership.status === "not-owned" || claimOwnership.status === "claimed-by-other")
-  ) {
-    console.error(
-      "[DISCORD CLAIM SKIP:slash-dispatch]",
-      JSON.stringify({
+  const claimOwnership = interaction.guild
+    ? await resolveDiscordClaimOwnership({
+        cfg,
+        accountId,
+        botId: interaction.applicationId ?? interaction.client?.application?.id,
         channelId: rawChannelId,
         parentId: threadParentId,
-        instanceKey: claimOwnership.instanceKey,
-        ownerInstanceKey: claimOwnership.ownerInstanceKey ?? null,
-        botId: claimOwnership.botId ?? interaction.applicationId ?? interaction.client?.application?.id ?? "",
-      }),
-    );
+      })
+    : { status: "owned" as const, instanceKey: "" };
+  if (claimOwnership.status === "not-owned" || claimOwnership.status === "claimed-by-other") {
     return;
   }
   const channelConfig = interaction.guild

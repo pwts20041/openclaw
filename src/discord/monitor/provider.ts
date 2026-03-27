@@ -684,6 +684,10 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
     });
   } finally {
     stopGatewayLogging();
+    if (claimsRefreshTimer) {
+      clearInterval(claimsRefreshTimer);
+      claimsRefreshTimer = undefined;
+    }
     if (helloTimeoutId) {
       clearTimeout(helloTimeoutId);
     }

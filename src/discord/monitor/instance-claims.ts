@@ -221,17 +221,16 @@ export async function resolveDiscordClaimOwnership(params: {
   const data = pruneClaimsFile(await loadDiscordClaimsFile(), Date.now());
   const requestedBotId = String(params.botId ?? "").trim();
   const collectBotKeys = (bots: Record<string, DiscordClaimBotEntry>) =>
-    requestedBotId
-      ? [requestedBotId, ...Object.keys(bots).filter((key) => key !== requestedBotId)]
-      : Object.keys(bots);
+    requestedBotId ? [requestedBotId] : Object.keys(bots);
   const instanceEntry = data.instances[instanceKey];
   if (instanceEntry) {
-    let sawBotEntry = false;
+    let sawChannels = false;
     for (const botKey of collectBotKeys(instanceEntry.bots)) {
       const botEntry = instanceEntry.bots[botKey];
       if (!botEntry) continue;
-      sawBotEntry = true;
       const channels = pruneClaimChannels(botEntry.channels, Date.now());
+      if (Object.keys(channels).length === 0) continue;
+      sawChannels = true;
       for (const lookupId of lookupIds) {
         if (channels[lookupId]) {
           return {
@@ -243,7 +242,7 @@ export async function resolveDiscordClaimOwnership(params: {
         }
       }
     }
-    if (sawBotEntry) {
+    if (sawChannels) {
       return {
         status: "not-owned",
         instanceKey,
