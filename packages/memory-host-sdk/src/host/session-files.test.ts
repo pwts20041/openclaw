@@ -227,4 +227,117 @@ describe("buildSessionEntry", () => {
       "Assistant: TypeScript generics allow you to write reusable typed code.",
     );
   });
+
+  it("strips DOW-prefixed timestamp envelope from indexed user text", async () => {
+    // `injectTimestamp` produces "[Wed 2026-03-27 14:47 EDT] …"
+    // The DOW abbreviation comes BEFORE the year, so the former "[20" sentinel
+    // never matched this format.  The fast-path must use the regex instead.
+    const userContent = "[Wed 2026-03-27 14:47 EDT] What is the status of the deployment?";
+    const jsonlLines = [makeUserMessageLine(userContent)];
+    const filePath = path.join(tmpDir, "dow-timestamp.jsonl");
+    await fs.writeFile(filePath, jsonlLines.join("\n"));
+
+    const entry = await buildSessionEntry(filePath);
+    expect(entry).not.toBeNull();
+
+    // The timestamp envelope should be stripped from the index
+    expect(entry!.content).not.toContain("[Wed 2026-03-27 14:47 EDT]");
+    // The actual user message should be preserved
+    expect(entry!.content).toContain("What is the status of the deployment?");
+    const userLine = entry!.content.split("\n")[0];
+    expect(userLine).toMatch(/^User: What is the status/);
+  });
+
+  it("preserves assistant messages that begin with [[reply_to_current]] verbatim", async () => {
+    // Assistant messages may legitimately begin with [[reply_to_current]] or
+    // [[reply_to:...]] (e.g. structured reply formatting or quoting the directive
+    // protocol in a response). Stripping them would corrupt the searchable index.
+    const assistantContent = "[[reply_to_current]] Here is the information you requested.";
+    const jsonlLines = [
+      JSON.stringify({
+        type: "message",
+        message: { role: "assistant", content: assistantContent },
+      }),
+    ];
+    const filePath = path.join(tmpDir, "assistant-reply-to-current.jsonl");
+    await fs.writeFile(filePath, jsonlLines.join("\n"));
+
+    const entry = await buildSessionEntry(filePath);
+    expect(entry).not.toBeNull();
+
+    // The leading directive tag must NOT be stripped from assistant content
+    expect(entry!.content).toContain("[[reply_to_current]]");
+    expect(entry!.content).toContain("Here is the information you requested.");
+    const assistantLine = entry!.content.split("\n")[0];
+    expect(assistantLine).toMatch(/^Assistant: \[\[reply_to_current\]\]/);
+  });
+
+  it("preserves assistant messages that begin with [[reply_to:...]] verbatim", async () => {
+    // Same gating check for the reply_to:<id> variant.
+    const assistantContent = "[[reply_to:msg-456]] I am responding to that specific message.";
+    const jsonlLines = [
+      JSON.stringify({
+        type: "message",
+        message: { role: "assistant", content: assistantContent },
+      }),
+    ];
+    const filePath = path.join(tmpDir, "assistant-reply-to-id.jsonl");
+    await fs.writeFile(filePath, jsonlLines.join("\n"));
+
+    const entry = await buildSessionEntry(filePath);
+    expect(entry).not.toBeNull();
+
+    // The leading directive tag must NOT be stripped from assistant content
+    expect(entry!.content).toContain("[[reply_to:msg-456]]");
+    expect(entry!.content).toContain("I am responding to that specific message.");
+    const assistantLine = entry!.content.split("\n")[0];
+    expect(assistantLine).toMatch(/^Assistant: \[\[reply_to:msg-456\]\]/);
+  });
+
+  it("preserves assistant messages that begin with a timestamp-like prefix verbatim", async () => {
+    // Assistant responses may legitimately start with timestamp-formatted content,
+    // e.g. quoting log lines, schedule entries, or cron expressions. The timestamp
+    // envelope stripping must be gated to user messages only; assistant content
+    // must be indexed verbatim.
+    const assistantContent =
+      "[Wed 2026-03-27 14:47 EDT] The deployment started at this time and completed successfully.";
+    const jsonlLines = [
+      JSON.stringify({
+        type: "message",
+        message: { role: "assistant", content: assistantContent },
+      }),
+    ];
+    const filePath = path.join(tmpDir, "assistant-timestamp-prefix.jsonl");
+    await fs.writeFile(filePath, jsonlLines.join("\n"));
+
+    const entry = await buildSessionEntry(filePath);
+    expect(entry).not.toBeNull();
+
+    // The timestamp-like prefix must NOT be stripped from assistant content
+    expect(entry!.content).toContain("[Wed 2026-03-27 14:47 EDT]");
+    expect(entry!.content).toContain("The deployment started at this time");
+    const assistantLine = entry!.content.split("\n")[0];
+    expect(assistantLine).toMatch(/^Assistant: \[Wed 2026-03-27 14:47 EDT\]/);
+  });
+
+  it("strips both DOW timestamp and leading directive tag when both are present", async () => {
+    // Channel messages can carry "[DOW YYYY-MM-DD HH:MM TZ] [[reply_to_current]] text".
+    // The timestamp must be removed first so the directive-tag regex sees [[…]] at
+    // position 0 of the remaining string.
+    const userContent = "[Wed 2026-03-27 14:47 EDT] [[reply_to_current]] Please clarify that.";
+    const jsonlLines = [makeUserMessageLine(userContent)];
+    const filePath = path.join(tmpDir, "dow-timestamp-and-directive.jsonl");
+    await fs.writeFile(filePath, jsonlLines.join("\n"));
+
+    const entry = await buildSessionEntry(filePath);
+    expect(entry).not.toBeNull();
+
+    // Both the timestamp envelope and the leading directive tag must be stripped
+    expect(entry!.content).not.toContain("[Wed 2026-03-27 14:47 EDT]");
+    expect(entry!.content).not.toContain("[[reply_to_current]]");
+    // The actual message body should be preserved
+    expect(entry!.content).toContain("Please clarify that.");
+    const userLine = entry!.content.split("\n")[0];
+    expect(userLine).toMatch(/^User: Please clarify that\./);
+  });
 });
