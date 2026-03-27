@@ -9,6 +9,24 @@ import type { OutboundChannel } from "./targets.js";
 const QUEUE_DIRNAME = "delivery-queue";
 const FAILED_DIRNAME = "failed";
 
+/**
+ * Tracks delivery IDs that are currently in-flight (between enqueue and ack/fail).
+ * The periodic recovery timer skips these to avoid replaying a send that is still
+ * being attempted by the original caller.  After a crash the set is empty, so
+ * crash-leftover entries are correctly recovered.
+ */
+const inFlightDeliveryIds = new Set<string>();
+
+/** Reset in-flight tracking — test-only. Simulates process restart. */
+export function _resetInFlightTracking(): void {
+  inFlightDeliveryIds.clear();
+}
+
+/** Check whether a delivery ID is currently in-flight. */
+export function isDeliveryInFlight(id: string): boolean {
+  return inFlightDeliveryIds.has(id);
+}
+
 export type QueuedDeliveryPayload = {
   channel: Exclude<OutboundChannel, "none">;
   to: string;
@@ -147,6 +165,7 @@ export async function enqueueDelivery(
     gatewayClientScopes: params.gatewayClientScopes,
     retryCount: 0,
   });
+  inFlightDeliveryIds.add(id);
   return id;
 }
 
@@ -170,16 +189,22 @@ export async function ackDelivery(id: string, stateDir?: string): Promise<void> 
       // .json already gone — may have been renamed by a previous ack attempt.
       // Try to clean up a leftover .delivered marker if present.
       await unlinkBestEffort(deliveredPath);
+      inFlightDeliveryIds.delete(id);
       return;
     }
     throw err;
   }
   // Phase 2: remove the marker file.
   await unlinkBestEffort(deliveredPath);
+  // Clear in-flight only after the queue entry is successfully removed.
+  // If the rename fails transiently, the entry stays protected from the
+  // recovery timer so it won't be resent while the original send succeeded.
+  inFlightDeliveryIds.delete(id);
 }
 
 /** Update a queue entry after a failed delivery attempt. */
 export async function failDelivery(id: string, error: string, stateDir?: string): Promise<void> {
+  inFlightDeliveryIds.delete(id);
   const filePath = path.join(resolveQueueDir(stateDir), `${id}.json`);
   const entry = await readQueueEntry(filePath);
   entry.retryCount += 1;
