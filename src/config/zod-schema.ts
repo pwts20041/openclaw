@@ -560,6 +560,13 @@ export const OpenClawSchema = z
           })
           .strict()
           .optional(),
+        webhookSsrfPolicy: z
+          .object({
+            dangerouslyAllowPrivateNetwork: z.boolean().optional(),
+            allowedHostnames: z.array(z.string()).optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .superRefine((val, ctx) => {
