@@ -13,8 +13,10 @@ import {
   OPENAI_TTS_VOICES,
   resolveOpenAITtsInstructions,
 } from "../../extensions/openai/tts.ts";
-import { buildCliSpeechProvider } from "../../extensions/tts-local-cli/speech-provider.ts";
-import { stripEmojis } from "../../extensions/tts-local-cli/speech-provider.ts";
+import {
+  buildCliSpeechProvider,
+  stripEmojis,
+} from "../../extensions/tts-local-cli/speech-provider.ts";
 import type { OpenClawConfig } from "../config/config.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
