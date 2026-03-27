@@ -40,7 +40,7 @@ function renderExecBody(request: ExecApprovalRequestPayload) {
 
 function renderPluginBody(active: ExecApprovalRequest) {
   return html`
-    ${
+${
       active.pluginDescription
         ? html`<pre class="exec-approval-command mono" style="white-space:pre-wrap">
 ${active.pluginDescription}</pre
@@ -83,11 +83,9 @@ export function renderExecApprovalPrompt(state: AppViewState) {
           }
         </div>
         ${isPlugin ? renderPluginBody(active) : renderExecBody(request)}
-        ${
-          state.execApprovalError
-            ? html`<div class="exec-approval-error">${state.execApprovalError}</div>`
-            : nothing
-        }
+        ${state.execApprovalError
+          ? html`<div class="exec-approval-error">${state.execApprovalError}</div>`
+          : nothing}
         <div class="exec-approval-actions">
           <button
             class="btn primary"
