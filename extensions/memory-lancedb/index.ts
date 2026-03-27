@@ -479,11 +479,15 @@ export default definePluginEntry({
           const { query, memoryId } = params as { query?: string; memoryId?: string };
 
           if (memoryId) {
-            await db.delete(memoryId);
-            return {
-              content: [{ type: "text", text: `Memory ${memoryId} forgotten.` }],
-              details: { action: "deleted", id: memoryId },
-            };
+            // Acquire per-ID lock so that a concurrent memory_refresh replace
+            // on the same ID cannot race with this delete (review comment #2998636743).
+            return withMemoryLock(memoryId, async () => {
+              await db.delete(memoryId);
+              return {
+                content: [{ type: "text", text: `Memory ${memoryId} forgotten.` }],
+                details: { action: "deleted", id: memoryId },
+              };
+            });
           }
 
           if (query) {
@@ -498,11 +502,17 @@ export default definePluginEntry({
             }
 
             if (results.length === 1 && results[0].score > 0.9) {
-              await db.delete(results[0].entry.id);
-              return {
-                content: [{ type: "text", text: `Forgotten: "${results[0].entry.text}"` }],
-                details: { action: "deleted", id: results[0].entry.id },
-              };
+              const targetId = results[0].entry.id;
+              // Acquire per-ID lock before the auto-delete so that a concurrent
+              // memory_refresh replace cannot interleave its delete/insert between
+              // our search result selection and delete (review comment #2998636743).
+              return withMemoryLock(targetId, async () => {
+                await db.delete(targetId);
+                return {
+                  content: [{ type: "text", text: `Forgotten: "${results[0].entry.text}"` }],
+                  details: { action: "deleted", id: targetId },
+                };
+              });
             }
 
             const list = results
@@ -679,7 +689,8 @@ export default definePluginEntry({
               similarity = 1 / (1 + Math.sqrt(l2sq));
             }
 
-            // Append to audit log
+            // Append to audit log (metadata only — memory text is private user data
+            // and must never be written to audit logs, per review comment #2985311917).
             const auditLogPath = path.join(homedir(), ".openclaw", "memory", "refresh-audit.jsonl");
             try {
               await mkdir(path.dirname(auditLogPath), { recursive: true });
@@ -689,8 +700,6 @@ export default definePluginEntry({
                 old_id: memoryId,
                 new_id: newEntry.id,
                 similarity,
-                old_text: oldTextPreview,
-                new_text: text.slice(0, 80),
               };
               await appendFile(auditLogPath, JSON.stringify(auditEntry) + "\n", "utf8");
             } catch (auditErr) {

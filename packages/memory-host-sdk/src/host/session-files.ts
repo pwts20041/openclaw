@@ -60,11 +60,14 @@ function normalizeSessionText(value: string): string {
 function stripRawContentMeta(raw: string, role: "user" | "assistant"): string {
   // Only strip inbound metadata for user messages — assistant responses may
   // legitimately quote or discuss metadata headers (e.g. troubleshooting output).
-  // Fast-path: skip stripping entirely when the text clearly
-  // contains no injected metadata. We check for both '<' (XML-style tag blocks)
-  // and "untrusted metadata" (plain-text sentinel prefix) to cover all formats.
+  // Fast-path: skip stripping entirely when the text clearly contains no injected
+  // metadata. We check for '<' (XML-style tag blocks) and both cases of "untrusted"
+  // to cover all sentinel variants (review comments #2998605546, #3000971886):
+  //   INBOUND_META_SENTINELS  → all contain "untrusted" (lowercase)
+  //   UNTRUSTED_CONTEXT_HEADER → starts with "Untrusted" (capital U)
   const mightHaveMeta =
-    role === "user" && (raw.includes("<") || raw.includes("untrusted metadata"));
+    role === "user" &&
+    (raw.includes("<") || raw.includes("untrusted") || raw.includes("Untrusted"));
   const afterMeta = mightHaveMeta ? stripLeadingInboundMetadata(raw) : raw;
   if (!afterMeta.includes("[[")) {
     return afterMeta;

@@ -40,6 +40,7 @@ vi.mock("openclaw/plugin-sdk/infra-runtime", () => ({
   ensureGlobalUndiciEnvProxyDispatcher: vi.fn(),
 }));
 
+import type { OpenClawPluginApi } from "./api.js";
 import { createLanceDbRuntimeLoader, type LanceDbRuntimeLogger } from "./lancedb-runtime.js";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "test-key";
@@ -69,6 +70,19 @@ const TEST_RUNTIME_MANIFEST = {
 };
 
 type LanceDbModule = typeof import("@lancedb/lancedb");
+
+/** Minimal interface for a registered plugin tool, scoped to what test code needs. */
+type RegisteredTool = {
+  tool: { execute: (toolCallId: string, params: Record<string, unknown>) => Promise<ToolResult> };
+  opts: Parameters<OpenClawPluginApi["registerTool"]>[1];
+};
+
+/** Typed result from a plugin tool execute call. */
+type ToolResult = {
+  content: Array<{ type: string; text: string }>;
+  details: Record<string, unknown>;
+};
+
 type RuntimeManifest = {
   name: string;
   private: true;
@@ -267,8 +281,7 @@ describe("memory plugin e2e", () => {
 
     try {
       const { default: memoryPlugin } = await import("./index.js");
-      // oxlint-disable-next-line typescript/no-explicit-any
-      const registeredTools: any[] = [];
+      const registeredTools: RegisteredTool[] = [];
       const mockApi = {
         id: "memory-lancedb",
         name: "Memory (LanceDB)",
@@ -291,21 +304,19 @@ describe("memory plugin e2e", () => {
           error: vi.fn(),
           debug: vi.fn(),
         },
-        // oxlint-disable-next-line typescript/no-explicit-any
-        registerTool: (tool: any, opts: any) => {
-          registeredTools.push({ tool, opts });
+        registerTool: (
+          tool: Parameters<OpenClawPluginApi["registerTool"]>[0],
+          opts: Parameters<OpenClawPluginApi["registerTool"]>[1],
+        ) => {
+          registeredTools.push({ tool: tool as RegisteredTool["tool"], opts });
         },
-        // oxlint-disable-next-line typescript/no-explicit-any
         registerCli: vi.fn(),
-        // oxlint-disable-next-line typescript/no-explicit-any
         registerService: vi.fn(),
-        // oxlint-disable-next-line typescript/no-explicit-any
         on: vi.fn(),
         resolvePath: (p: string) => p,
       };
 
-      // oxlint-disable-next-line typescript/no-explicit-any
-      memoryPlugin.register(mockApi as any);
+      memoryPlugin.register(mockApi as OpenClawPluginApi);
       const recallTool = registeredTools.find((t) => t.opts?.name === "memory_recall")?.tool;
       if (!recallTool) {
         throw new Error("memory_recall tool was not registered");
@@ -398,8 +409,7 @@ describe("memory plugin e2e", () => {
     queryWhere: ReturnType<typeof vi.fn>;
     tableAdd: ReturnType<typeof vi.fn>;
     tableDelete: ReturnType<typeof vi.fn>;
-    // oxlint-disable-next-line typescript/no-explicit-any
-    registeredTools: any[];
+    registeredTools: RegisteredTool[];
   }) {
     return {
       id: "memory-lancedb",
@@ -422,9 +432,11 @@ describe("memory plugin e2e", () => {
         error: vi.fn(),
         debug: vi.fn(),
       },
-      // oxlint-disable-next-line typescript/no-explicit-any
-      registerTool: (tool: any, opts: any) => {
-        overrides.registeredTools.push({ tool, opts });
+      registerTool: (
+        tool: Parameters<OpenClawPluginApi["registerTool"]>[0],
+        opts: Parameters<OpenClawPluginApi["registerTool"]>[1],
+      ) => {
+        overrides.registeredTools.push({ tool: tool as RegisteredTool["tool"], opts });
       },
       registerCli: vi.fn(),
       registerService: vi.fn(),
@@ -496,8 +508,7 @@ describe("memory plugin e2e", () => {
 
     try {
       const { default: memoryPlugin } = await import("./index.js");
-      // oxlint-disable-next-line typescript/no-explicit-any
-      const registeredTools: any[] = [];
+      const registeredTools: RegisteredTool[] = [];
       const mockApi = buildMockApi({
         dbPath: getDbPath(),
         embeddingsCreate,
@@ -507,10 +518,9 @@ describe("memory plugin e2e", () => {
         tableDelete,
         registeredTools,
       });
-      // oxlint-disable-next-line typescript/no-explicit-any
-      memoryPlugin.register(mockApi as any);
+      memoryPlugin.register(mockApi as OpenClawPluginApi);
 
-      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")!.tool;
       expect(refreshTool).toBeDefined();
 
       // Call without memoryId → search-only mode
@@ -520,8 +530,9 @@ describe("memory plugin e2e", () => {
 
       expect(result.details.operation).toBe("search_only");
       expect(result.details.matches).toHaveLength(3);
-      expect(result.details.matches[0]).toHaveProperty("similarity");
-      expect(result.details.matches[0].similarity).toBeGreaterThan(0);
+      const matches = result.details.matches as Array<Record<string, unknown>>;
+      expect(matches[0]).toHaveProperty("similarity");
+      expect(matches[0].similarity).toBeGreaterThan(0);
 
       // Verify nothing was written to the DB
       expect(tableAdd).not.toHaveBeenCalled();
@@ -578,15 +589,13 @@ describe("memory plugin e2e", () => {
 
     try {
       const { default: memoryPlugin } = await import("./index.js");
-      // oxlint-disable-next-line typescript/no-explicit-any
-      const registeredTools: any[] = [];
+      const registeredTools: RegisteredTool[] = [];
 
       // Use tmpDir for audit log by temporarily pointing homedir there
       const originalHome = process.env.HOME;
       process.env.HOME = getTmpDir();
 
-      // oxlint-disable-next-line typescript/no-explicit-any
-      let result: any;
+      let result: ToolResult | undefined;
       try {
         const mockApi = buildMockApi({
           dbPath: getDbPath(),
@@ -597,10 +606,9 @@ describe("memory plugin e2e", () => {
           tableDelete,
           registeredTools,
         });
-        // oxlint-disable-next-line typescript/no-explicit-any
-        memoryPlugin.register(mockApi as any);
+        memoryPlugin.register(mockApi as OpenClawPluginApi);
 
-        const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+        const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")!.tool;
         expect(refreshTool).toBeDefined();
 
         result = await refreshTool.execute("test-refresh-replace", {
@@ -619,18 +627,23 @@ describe("memory plugin e2e", () => {
         }
       }
 
-      expect(result.details.operation).toBe("replaced");
-      expect(result.details.old_id).toBe(existingId);
-      expect(result.details.new_id).toBeDefined();
-      expect(result.details.old_text_preview).toContain("Old memory");
+      // result is guaranteed to be set after the try block (execute() throws on failure).
+      expect(result).toBeDefined();
+      const r = result!;
+      expect(r.details.operation).toBe("replaced");
+      expect(r.details.old_id).toBe(existingId);
+      expect(r.details.new_id).toBeDefined();
+      expect(r.details.old_text_preview).toContain("Old memory");
 
       // Verify delete was called for old entry
       expect(tableDelete).toHaveBeenCalledWith(`id = '${existingId}'`);
 
       // Verify add was called for new entry
       expect(tableAdd).toHaveBeenCalledTimes(1);
-      // oxlint-disable-next-line typescript/no-explicit-any
-      const addCall = (tableAdd.mock.calls as any[][][])[0][0][0];
+      const addCall = (tableAdd.mock.calls as unknown[][][])[0]?.[0]?.[0] as Record<
+        string,
+        unknown
+      >;
       expect(addCall.text).toBe("Updated memory text with new information");
       expect(addCall.importance).toBe(0.9);
 
@@ -644,8 +657,10 @@ describe("memory plugin e2e", () => {
       expect(auditLine.operation).toBe("replaced");
       expect(auditLine.old_id).toBe(existingId);
       expect(auditLine.new_id).toBeDefined();
-      expect(auditLine.old_text).toContain("Old memory");
-      expect(auditLine.new_text).toContain("Updated memory");
+      // Memory text (old_text, new_text) is intentionally NOT written to audit logs
+      // to protect user privacy — only metadata is logged (review comment #2985311917).
+      expect(auditLine.old_text).toBeUndefined();
+      expect(auditLine.new_text).toBeUndefined();
       expect(auditLine.ts).toBeGreaterThan(0);
     } finally {
       vi.doUnmock("openai");
@@ -689,8 +704,7 @@ describe("memory plugin e2e", () => {
 
     try {
       const { default: memoryPlugin } = await import("./index.js");
-      // oxlint-disable-next-line typescript/no-explicit-any
-      const registeredTools: any[] = [];
+      const registeredTools: RegisteredTool[] = [];
       const mockApi = buildMockApi({
         dbPath: getDbPath(),
         embeddingsCreate,
@@ -700,10 +714,9 @@ describe("memory plugin e2e", () => {
         tableDelete,
         registeredTools,
       });
-      // oxlint-disable-next-line typescript/no-explicit-any
-      memoryPlugin.register(mockApi as any);
+      memoryPlugin.register(mockApi as OpenClawPluginApi);
 
-      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")!.tool;
       expect(refreshTool).toBeDefined();
 
       const result = await refreshTool.execute("test-refresh-notfound", {
@@ -781,8 +794,7 @@ describe("memory plugin e2e", () => {
 
     try {
       const { default: memoryPlugin } = await import("./index.js");
-      // oxlint-disable-next-line typescript/no-explicit-any
-      const registeredTools: any[] = [];
+      const registeredTools: RegisteredTool[] = [];
       const mockApi = buildMockApi({
         dbPath: getDbPath(),
         embeddingsCreate,
@@ -792,10 +804,9 @@ describe("memory plugin e2e", () => {
         tableDelete,
         registeredTools,
       });
-      // oxlint-disable-next-line typescript/no-explicit-any
-      memoryPlugin.register(mockApi as any);
+      memoryPlugin.register(mockApi as OpenClawPluginApi);
 
-      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")!.tool;
       expect(refreshTool).toBeDefined();
 
       const result = await refreshTool.execute("test-refresh-rollback", {
@@ -814,8 +825,10 @@ describe("memory plugin e2e", () => {
       expect(tableAdd).toHaveBeenCalledTimes(2);
 
       // Second add call should restore original content with original ID (Fix 1)
-      // oxlint-disable-next-line typescript/no-explicit-any
-      const rollbackAddCall = (tableAdd.mock.calls as any[][][])[1][0][0];
+      const rollbackAddCall = (tableAdd.mock.calls as unknown[][][])[1]?.[0]?.[0] as Record<
+        string,
+        unknown
+      >;
       expect(rollbackAddCall.text).toBe(existingEntry.text);
       expect(rollbackAddCall.importance).toBe(existingEntry.importance);
       expect(rollbackAddCall.category).toBe(existingEntry.category);
@@ -879,8 +892,7 @@ describe("memory plugin e2e", () => {
 
     try {
       const { default: memoryPlugin } = await import("./index.js");
-      // oxlint-disable-next-line typescript/no-explicit-any
-      const registeredTools: any[] = [];
+      const registeredTools: RegisteredTool[] = [];
       const mockApi = buildMockApi({
         dbPath: getDbPath(),
         embeddingsCreate,
@@ -890,10 +902,9 @@ describe("memory plugin e2e", () => {
         tableDelete,
         registeredTools,
       });
-      // oxlint-disable-next-line typescript/no-explicit-any
-      memoryPlugin.register(mockApi as any);
+      memoryPlugin.register(mockApi as OpenClawPluginApi);
 
-      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")!.tool;
       expect(refreshTool).toBeDefined();
 
       const result = await refreshTool.execute("test-double-fail", {
@@ -958,8 +969,7 @@ describe("memory plugin e2e", () => {
 
     try {
       const { default: memoryPlugin } = await import("./index.js");
-      // oxlint-disable-next-line typescript/no-explicit-any
-      const registeredTools: any[] = [];
+      const registeredTools: RegisteredTool[] = [];
       const mockApi = buildMockApi({
         dbPath: getDbPath(),
         embeddingsCreate,
@@ -969,10 +979,9 @@ describe("memory plugin e2e", () => {
         tableDelete,
         registeredTools,
       });
-      // oxlint-disable-next-line typescript/no-explicit-any
-      memoryPlugin.register(mockApi as any);
+      memoryPlugin.register(mockApi as OpenClawPluginApi);
 
-      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")!.tool;
       expect(refreshTool).toBeDefined();
 
       // Call with only text — omit category and importance entirely (Fix 2).
@@ -984,8 +993,10 @@ describe("memory plugin e2e", () => {
       expect(result.details.operation).toBe("replaced");
 
       // The new entry must carry over the original category and importance.
-      // oxlint-disable-next-line typescript/no-explicit-any
-      const addCall = (tableAdd.mock.calls as any[][][])[0][0][0];
+      const addCall = (tableAdd.mock.calls as unknown[][][])[0]?.[0]?.[0] as Record<
+        string,
+        unknown
+      >;
       expect(addCall.text).toBe("Updated text only — no category or importance supplied");
       expect(addCall.category).toBe("decision"); // inherited from existingEntry
       expect(addCall.importance).toBe(0.9); // inherited from existingEntry
@@ -1055,8 +1066,7 @@ describe("memory plugin e2e", () => {
 
     try {
       const { default: memoryPlugin } = await import("./index.js");
-      // oxlint-disable-next-line typescript/no-explicit-any
-      const registeredTools: any[] = [];
+      const registeredTools: RegisteredTool[] = [];
       const mockApi = buildMockApi({
         dbPath: getDbPath(),
         embeddingsCreate,
@@ -1066,10 +1076,9 @@ describe("memory plugin e2e", () => {
         tableDelete,
         registeredTools,
       });
-      // oxlint-disable-next-line typescript/no-explicit-any
-      memoryPlugin.register(mockApi as any);
+      memoryPlugin.register(mockApi as OpenClawPluginApi);
 
-      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")!.tool;
       expect(refreshTool).toBeDefined();
 
       // Fire two replace calls simultaneously on the same memoryId.
@@ -1223,14 +1232,12 @@ describeLive("memory plugin live tests", () => {
     const liveApiKey = process.env.OPENAI_API_KEY ?? "";
 
     // Mock plugin API
-    // oxlint-disable-next-line typescript/no-explicit-any
-    const registeredTools: any[] = [];
-    // oxlint-disable-next-line typescript/no-explicit-any
-    const registeredClis: any[] = [];
-    // oxlint-disable-next-line typescript/no-explicit-any
-    const registeredServices: any[] = [];
-    // oxlint-disable-next-line typescript/no-explicit-any
-    const registeredHooks: Record<string, any[]> = {};
+    const registeredTools: RegisteredTool[] = [];
+    // registerCli and registerService types reference deeply internal plugin SDK types;
+    // use opaque unknown[] arrays since the live test only checks .length on these.
+    const registeredClis: unknown[][] = [];
+    const registeredServices: Parameters<OpenClawPluginApi["registerService"]>[0][] = [];
+    const registeredHooks: Record<string, ((event: unknown) => unknown)[]> = {};
     const logs: string[] = [];
 
     const mockApi = {
@@ -1254,20 +1261,19 @@ describeLive("memory plugin live tests", () => {
         error: (msg: string) => logs.push(`[error] ${msg}`),
         debug: (msg: string) => logs.push(`[debug] ${msg}`),
       },
-      // oxlint-disable-next-line typescript/no-explicit-any
-      registerTool: (tool: any, opts: any) => {
-        registeredTools.push({ tool, opts });
+      registerTool: (
+        tool: Parameters<OpenClawPluginApi["registerTool"]>[0],
+        opts: Parameters<OpenClawPluginApi["registerTool"]>[1],
+      ) => {
+        registeredTools.push({ tool: tool as RegisteredTool["tool"], opts });
       },
-      // oxlint-disable-next-line typescript/no-explicit-any
-      registerCli: (registrar: any, opts: any) => {
-        registeredClis.push({ registrar, opts });
+      registerCli: (...args: Parameters<OpenClawPluginApi["registerCli"]>) => {
+        registeredClis.push([...args]);
       },
-      // oxlint-disable-next-line typescript/no-explicit-any
-      registerService: (service: any) => {
+      registerService: (service: Parameters<OpenClawPluginApi["registerService"]>[0]) => {
         registeredServices.push(service);
       },
-      // oxlint-disable-next-line typescript/no-explicit-any
-      on: (hookName: string, handler: any) => {
+      on: (hookName: string, handler: (event: unknown) => unknown) => {
         if (!registeredHooks[hookName]) {
           registeredHooks[hookName] = [];
         }
@@ -1277,8 +1283,7 @@ describeLive("memory plugin live tests", () => {
     };
 
     // Register plugin
-    // oxlint-disable-next-line typescript/no-explicit-any
-    memoryPlugin.register(mockApi as any);
+    memoryPlugin.register(mockApi as OpenClawPluginApi);
 
     // Check registration
     expect(registeredTools.length).toBe(4);
@@ -1289,10 +1294,14 @@ describeLive("memory plugin live tests", () => {
     expect(registeredClis.length).toBe(1);
     expect(registeredServices.length).toBe(1);
 
-    // Get tool functions
-    const storeTool = registeredTools.find((t) => t.opts?.name === "memory_store")?.tool;
-    const recallTool = registeredTools.find((t) => t.opts?.name === "memory_recall")?.tool;
-    const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
+    // Get tool functions — non-null assertion is safe since we just asserted the tool count
+    // and the registrations above confirmed all tool names are present.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const storeTool = registeredTools.find((t) => t.opts?.name === "memory_store")!.tool;
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const recallTool = registeredTools.find((t) => t.opts?.name === "memory_recall")!.tool;
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")!.tool;
 
     // Test store
     const storeResult = await storeTool.execute("test-call-1", {
@@ -1301,8 +1310,8 @@ describeLive("memory plugin live tests", () => {
       category: "preference",
     });
 
-    expect(storeResult.details?.action).toBe("created");
-    const storedId = storeResult.details?.id;
+    expect(storeResult.details.action).toBe("created");
+    const storedId = storeResult.details.id as string;
     expect(storedId).toMatch(/.+/);
 
     // Test recall
@@ -1311,22 +1320,23 @@ describeLive("memory plugin live tests", () => {
       limit: 5,
     });
 
-    expect(recallResult.details?.count).toBeGreaterThan(0);
-    expect(recallResult.details?.memories?.[0]?.text).toContain("dark mode");
+    expect(recallResult.details.count).toBeGreaterThan(0);
+    const memories = recallResult.details.memories as Array<{ text: string }>;
+    expect(memories[0]?.text).toContain("dark mode");
 
     // Test duplicate detection
     const duplicateResult = await storeTool.execute("test-call-3", {
       text: "The user prefers dark mode for all applications",
     });
 
-    expect(duplicateResult.details?.action).toBe("duplicate");
+    expect(duplicateResult.details.action).toBe("duplicate");
 
     // Test forget
     const forgetResult = await forgetTool.execute("test-call-4", {
       memoryId: storedId,
     });
 
-    expect(forgetResult.details?.action).toBe("deleted");
+    expect(forgetResult.details.action).toBe("deleted");
 
     // Verify it's gone
     const recallAfterForget = await recallTool.execute("test-call-5", {
@@ -1334,6 +1344,6 @@ describeLive("memory plugin live tests", () => {
       limit: 5,
     });
 
-    expect(recallAfterForget.details?.count).toBe(0);
+    expect(recallAfterForget.details.count).toBe(0);
   }, 60000); // 60s timeout for live API calls
 });
