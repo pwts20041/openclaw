@@ -176,6 +176,7 @@ import {
 } from "./compaction-timeout.js";
 import { pruneProcessedHistoryImages } from "./history-image-prune.js";
 import { detectAndLoadPromptImages } from "./images.js";
+import { resolveLlmIdleTimeoutMs, streamWithIdleTimeout } from "./llm-idle-timeout.js";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 
 export {
@@ -1029,6 +1030,16 @@ export async function runEmbeddedAttempt(
         );
       }
 
+      // Wrap stream with idle timeout detection
+      const idleTimeoutMs = resolveLlmIdleTimeoutMs(params.config);
+      if (idleTimeoutMs > 0) {
+        activeSession.agent.streamFn = streamWithIdleTimeout(
+          activeSession.agent.streamFn,
+          idleTimeoutMs,
+          runAbortController,
+        );
+      }
+
       try {
         const prior = await sanitizeSessionHistory({
           messages: activeSession.messages,
@@ -1119,6 +1130,12 @@ export async function runEmbeddedAttempt(
       };
       const makeAbortError = (signal: AbortSignal): Error => {
         const reason = getAbortReason(signal);
+        // If the reason is already an Error, preserve it to keep the original message
+        // (e.g., "LLM idle timeout (60s): no response from model" instead of "aborted")
+        if (reason instanceof Error) {
+          reason.name = "AbortError";
+          return reason;
+        }
         const err = reason ? new Error("aborted", { cause: reason }) : new Error("aborted");
         err.name = "AbortError";
         return err;
