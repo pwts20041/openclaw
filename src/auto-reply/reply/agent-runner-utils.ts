@@ -76,6 +76,7 @@ export function buildThreadingToolContext(params: {
     ...context,
     currentChannelProvider: provider!, // guaranteed non-null since threading exists
     currentMessageId: context.currentMessageId ?? currentMessageId,
+    currentMessageTs: context.currentMessageTs,
   };
 }
 
