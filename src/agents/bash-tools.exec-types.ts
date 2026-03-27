@@ -28,6 +28,7 @@ export type ExecToolDefaults = {
   notifyOnExit?: boolean;
   notifyOnExitEmptySuccess?: boolean;
   cwd?: string;
+  shell?: string;
 };
 
 export type ExecElevatedDefaults = {

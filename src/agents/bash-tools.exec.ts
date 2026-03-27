@@ -547,6 +547,7 @@ export function createExecTool(
         scopeKey: defaults?.scopeKey,
         sessionKey: notifySessionKey,
         timeoutSec: effectiveTimeout,
+        shell: defaults?.shell,
         onUpdate,
       });
 
