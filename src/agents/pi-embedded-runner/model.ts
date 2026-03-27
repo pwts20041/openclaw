@@ -33,6 +33,7 @@ type InlineProviderConfig = {
   api?: ModelDefinitionConfig["api"];
   models?: ModelDefinitionConfig[];
   headers?: unknown;
+  authHeader?: boolean;
 };
 
 type ProviderRuntimeHooks = {
