@@ -157,6 +157,41 @@ describe("createSessionVisibilityGuard", () => {
     });
   });
 
+  it("tree visibility allows spawned child with a different agent id", async () => {
+    const childKey = "agent:opencode:acp:aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee";
+    sessionsResolutionTesting.setDepsForTest({
+      callGateway: vi.fn(async (request: { method?: string; params?: { key?: string } }) => {
+        if (request.method === "sessions.resolve") {
+          return { key: request.params?.key };
+        }
+        if (request.method === "sessions.list") {
+          return {
+            sessions: [{ key: childKey }],
+          };
+        }
+        return {};
+      }) as never,
+    });
+
+    const guard = await createSessionVisibilityGuard({
+      action: "history",
+      requesterSessionKey: "agent:main:main",
+      visibility: "tree",
+      a2aPolicy: createAgentToAgentPolicy({} as unknown as OpenClawConfig),
+    });
+
+    expect(guard.check(childKey)).toEqual({ allowed: true });
+
+    expect(guard.check("agent:other:main")).toEqual({
+      allowed: false,
+      status: "forbidden",
+      error:
+        "Session history visibility is restricted. Set tools.sessions.visibility=all to allow cross-agent access.",
+    });
+
+    sessionsResolutionTesting.setDepsForTest();
+  });
+
   it("enforces self visibility for same-agent sessions", async () => {
     const guard = await createSessionVisibilityGuard({
       action: "history",
