@@ -148,3 +148,9 @@ class I18nManager {
 
 export const i18n = new I18nManager();
 export const t = (key: string, params?: Record<string, string>) => i18n.t(key, params);
+
+// Test-only helper so startup behavior can be exercised without mutating the
+// singleton's private internals.
+export function createI18nManagerForTests() {
+  return new I18nManager();
+}

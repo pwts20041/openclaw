@@ -5,15 +5,13 @@ import { zh_CN } from "../locales/zh-CN.ts";
 import { zh_TW } from "../locales/zh-TW.ts";
 
 type TranslateModule = typeof import("../lib/translate.ts");
+type TestI18nManager = ReturnType<TranslateModule["createI18nManagerForTests"]>;
 
 describe("i18n", () => {
   let translate: TranslateModule;
 
   beforeEach(async () => {
-    vi.resetModules();
-    vi.stubGlobal("localStorage", createStorageMock());
-    vi.stubGlobal("navigator", { language: "en-US" } as Navigator);
-    translate = await import("../lib/translate.ts");
+    translate = await importFreshI18n();
     localStorage.clear();
     // Reset to English
     await translate.i18n.setLocale("en");
@@ -57,32 +55,45 @@ describe("i18n", () => {
   });
 
   it("loads saved non-English locale on startup", async () => {
-    vi.resetModules();
-    vi.stubGlobal("localStorage", createStorageMock());
-    vi.stubGlobal("navigator", { language: "en-US" } as Navigator);
-    localStorage.setItem("openclaw.i18n.locale", "zh-CN");
-    const fresh = await import("../lib/translate.ts");
-    await vi.waitFor(() => {
-      expect(fresh.i18n.getLocale()).toBe("zh-CN");
-    });
-    expect(fresh.i18n.getLocale()).toBe("zh-CN");
+    const fresh = await createFreshManagerWithSavedLocale("zh-CN");
+    expect(fresh.getLocale()).toBe("zh-CN");
     expect(fresh.t("common.health")).toBe("健康状况");
+  });
+
+  it("loads saved Turkish locale on startup", async () => {
+    const fresh = await createFreshManagerWithSavedLocale("tr");
+    expect(fresh.getLocale()).toBe("tr");
+    expect(fresh.t("common.health")).toBe("Durum");
+  });
+
+  it("lazy loads Turkish translations", async () => {
+    const translation = await loadLazyLocaleTranslation("tr");
+
+    expect(translation).not.toBeNull();
+    expect((translation as { common: { health: string } }).common.health).toBe("Durum");
+  });
+
+  it("resolves Turkish navigator locales", () => {
+    expect(resolveNavigatorLocale("tr-TR")).toBe("tr");
+  });
+
+  it("resolves the Turkish language label used by the picker", async () => {
+    await translate.i18n.setLocale("tr");
+
+    expect(translate.t("languages.tr")).toBe("Türkçe");
   });
 
   it("skips node localStorage accessors that warn without a storage file", async () => {
     vi.resetModules();
     vi.unstubAllGlobals();
     vi.stubGlobal("navigator", { language: "en-US" } as Navigator);
-    const warningSpy = vi.spyOn(process, "emitWarning");
+    const emitWarning = vi.fn();
+    vi.stubGlobal("process", { env: { VITEST: "1" }, emitWarning } as unknown as NodeJS.Process);
 
     const fresh = await import("../lib/translate.ts");
 
     expect(fresh.i18n.getLocale()).toBe("en");
-    expect(warningSpy).not.toHaveBeenCalledWith(
-      "`--localstorage-file` was provided without a valid path",
-      expect.anything(),
-      expect.anything(),
-    );
+    expect(emitWarning).not.toHaveBeenCalled();
   });
 
   it("keeps the version label available in shipped locales", () => {
