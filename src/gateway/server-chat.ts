@@ -207,6 +207,9 @@ export type ChatRunState = {
   /** Length of text at the time of the last broadcast, used to avoid duplicate flushes. */
   deltaLastBroadcastLen: Map<string, number>;
   abortedRuns: Map<string, number>;
+  /** Stashed sourceRunId → ChatRunEntry for runs that have ended, so late usage
+   *  events can still resolve clientRunId after the registry entry is removed. */
+  finishedRunLinks: Map<string, ChatRunEntry>;
   clear: () => void;
 };
 
@@ -216,6 +219,7 @@ export function createChatRunState(): ChatRunState {
   const deltaSentAt = new Map<string, number>();
   const deltaLastBroadcastLen = new Map<string, number>();
   const abortedRuns = new Map<string, number>();
+  const finishedRunLinks = new Map<string, ChatRunEntry>();
 
   const clear = () => {
     registry.clear();
@@ -223,6 +227,7 @@ export function createChatRunState(): ChatRunState {
     deltaSentAt.clear();
     deltaLastBroadcastLen.clear();
     abortedRuns.clear();
+    finishedRunLinks.clear();
   };
 
   return {
@@ -231,6 +236,7 @@ export function createChatRunState(): ChatRunState {
     deltaSentAt,
     deltaLastBroadcastLen,
     abortedRuns,
+    finishedRunLinks,
     clear,
   };
 }
@@ -709,7 +715,8 @@ export function createAgentEventHandler({
   };
 
   return (evt: AgentEventPayload) => {
-    const chatLink = chatRunState.registry.peek(evt.runId);
+    const chatLink =
+      chatRunState.registry.peek(evt.runId) ?? chatRunState.finishedRunLinks.get(evt.runId);
     const eventSessionKey =
       typeof evt.sessionKey === "string" && evt.sessionKey.trim() ? evt.sessionKey : undefined;
     const isControlUiVisible = getAgentRunContext(evt.runId)?.isControlUiVisible ?? true;
@@ -801,6 +808,8 @@ export function createAgentEventHandler({
             clearAgentRunContext(evt.runId);
             return;
           }
+          // Stash the link so late usage events can still resolve clientRunId.
+          chatRunState.finishedRunLinks.set(evt.runId, finished);
           emitChatFinal(
             finished.sessionKey,
             finished.clientRunId,
@@ -845,6 +854,7 @@ export function createAgentEventHandler({
       clearAgentRunContext(evt.runId);
       agentRunSeq.delete(evt.runId);
       agentRunSeq.delete(clientRunId);
+      chatRunState.finishedRunLinks.delete(evt.runId);
     }
 
     if (

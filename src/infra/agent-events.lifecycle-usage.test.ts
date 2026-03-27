@@ -15,7 +15,7 @@ import {
  */
 describe("lifecycle usage event", () => {
   let events: AgentEventPayload[];
-  let unsubscribe: () => boolean;
+  let unsubscribe: () => void;
 
   beforeEach(() => {
     events = [];
