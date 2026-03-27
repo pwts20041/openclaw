@@ -1514,11 +1514,19 @@ export function renderApp(state: AppViewState) {
                 void state.client
                   .request<{ truncated: boolean }>("sessions.truncate", { key: truncatingKey, seq })
                   .then(async (result) => {
+                    // Always restore the optimistic hide when truncation did not happen,
+                    // regardless of which session is now active; the onFail closure captures
+                    // the originating session's deleted-messages state.
+                    if (!result.truncated) {
+                      onFail();
+                    }
                     if (state.sessionKey !== truncatingKey) {
                       return;
                     }
-                    // A brand-new run started during the RPC flight — do not wipe its state.
+                    // A brand-new run started during the RPC flight — do not wipe its state,
+                    // but still reload so truncated messages are reconciled with backend.
                     if (state.chatRunId !== null && state.chatRunId !== truncatingRunId) {
+                      await loadChatHistory(state);
                       return;
                     }
                     // Only clear run state when truncation actually happened. If the server
@@ -1528,25 +1536,22 @@ export function renderApp(state: AppViewState) {
                       state.chatMessages = [];
                       state.chatStream = null;
                       state.chatRunId = null;
-                    } else {
-                      // Truncation was a no-op; restore the optimistically-hidden message
-                      // so the UI stays in sync with the unchanged backend transcript.
-                      onFail();
                     }
                     // Always reload so the UI reflects the actual backend state.
                     await loadChatHistory(state);
                   })
                   .catch((err: unknown) => {
+                    // Always restore the optimistic hide on RPC failure regardless of session.
+                    onFail();
                     if (state.sessionKey !== truncatingKey) {
                       return;
                     }
-                    // Same guard: skip if a new run started while the failed RPC was in flight.
+                    // Same guard: skip state wipe if a new run started while the failed RPC
+                    // was in flight.
                     if (state.chatRunId !== null && state.chatRunId !== truncatingRunId) {
                       return;
                     }
                     state.lastError = String(err);
-                    // Restore the optimistically-hidden message on RPC failure.
-                    onFail();
                     state.chatMessages = [];
                     void loadChatHistory(state);
                   });

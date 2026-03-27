@@ -1294,74 +1294,29 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
 
-    // Phase 3a: re-confirm the cut point under a write lock BEFORE aborting any runs.
-    // sessions.compact can rewrite the transcript without holding acquireSessionWriteLock,
-    // so the seq found in Phase 1 may no longer exist. By confirming here — before Phase 2
-    // cleanup — a concurrent compact that makes this request a no-op will not cause active
-    // runs to be aborted unnecessarily.
-    let seqFoundInPhase3a = false;
-    {
-      const confirmLock = await acquireSessionWriteLock({ sessionFile: filePath });
-      try {
-        const raw = fs.readFileSync(filePath, "utf-8");
-        const allLines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
-        let seqCount = 0;
-        for (let i = 0; i < allLines.length; i++) {
-          try {
-            const parsed = JSON.parse(allLines[i]) as Record<string, unknown>;
-            if (parsed?.message || parsed?.type === "compaction") {
-              seqCount += 1;
-              if (seqCount === p.seq) {
-                seqFoundInPhase3a = true;
-                break;
-              }
-            }
-          } catch {
-            // skip malformed lines
-          }
-        }
-      } finally {
-        await confirmLock.release();
-      }
-    }
-
-    if (!seqFoundInPhase3a) {
-      // The seq was present in Phase 1 but is gone now — sessions.compact likely rewrote
-      // the transcript between Phase 1 and Phase 3a. Treat as a no-op without aborting
-      // any active runs.
-      respond(
-        true,
-        { ok: true, key: target.canonicalKey, truncated: false, reason: "seq not found" },
-        undefined,
-      );
-      return;
-    }
-
-    // Phase 2: abort active runs — only now that Phase 3a confirmed the cut still exists.
-    const mutationCleanupError = await cleanupSessionBeforeMutation({
-      cfg,
-      key,
-      target,
-      entry,
-      legacyKey,
-      canonicalKey,
-      reason: "session-delete",
-    });
-    if (mutationCleanupError) {
-      respond(false, undefined, mutationCleanupError);
-      return;
-    }
-
     // Phase 3c: re-acquire the write lock and perform the actual file write.
     // Re-scan for p.seq under the lock: sessions.compact can rewrite the transcript
-    // (without holding acquireSessionWriteLock) between phases 3a and 3c, which would
-    // shift line indices. We re-scan to get the fresh cut point.
+    // (without holding acquireSessionWriteLock) so line indices from Phase 1 may be stale.
+    // We do NOT abort active runs before the file write; runs are only aborted after the
+    // truncation is on disk (Phase 2 below), so a concurrent compact that makes this request
+    // a no-op will never cause runs to be aborted unnecessarily.
     let keptLines: string[] = [];
     let archived = "";
     let seqFoundInPhase3c = false;
     const writeLock = await acquireSessionWriteLock({ sessionFile: filePath });
     try {
-      const raw = fs.readFileSync(filePath, "utf-8");
+      let raw: string;
+      try {
+        raw = fs.readFileSync(filePath, "utf-8");
+      } catch (readErr: unknown) {
+        if (readErr instanceof Error && "code" in readErr && readErr.code === "ENOENT") {
+          // File was removed or moved by a concurrent operation (e.g. sessions.delete).
+          // Nothing to truncate; treat as a no-op and fall through to the not-found return.
+          raw = "";
+        } else {
+          throw readErr;
+        }
+      }
       const allLines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
       // Re-walk lines to find the fresh cut point for the requested seq.
       let freshCutLineIndex = -1;
@@ -1401,13 +1356,30 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
 
     if (!seqFoundInPhase3c) {
-      // Extremely unlikely: a second compact ran between Phase 3a and Phase 3c and removed
-      // the seq again. Runs were already aborted in Phase 2, but the transcript is unchanged.
+      // seq is gone (compact rewrote the transcript, or sessions.delete removed the file
+      // between Phase 1 and Phase 3c). No write was performed; no runs were aborted.
       respond(
         true,
         { ok: true, key: target.canonicalKey, truncated: false, reason: "seq not found" },
         undefined,
       );
+      return;
+    }
+
+    // Phase 2: abort active runs — only after the truncated file has been written above.
+    // This ensures a concurrent compact that makes this RPC a no-op (seqFoundInPhase3c false)
+    // never causes runs to be aborted without a matching transcript mutation.
+    const mutationCleanupError = await cleanupSessionBeforeMutation({
+      cfg,
+      key,
+      target,
+      entry,
+      legacyKey,
+      canonicalKey,
+      reason: "session-delete",
+    });
+    if (mutationCleanupError) {
+      respond(false, undefined, mutationCleanupError);
       return;
     }
 
