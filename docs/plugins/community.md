@@ -21,6 +21,19 @@ OpenClaw checks ClawHub first and falls back to npm automatically.
 
 ## Listed plugins
 
+### ClawCollect
+
+Hosted form collection bridge for OpenClaw with public links, collector
+results pages, and chat summaries. Supports both managed and self-hosted
+backends.
+
+- **npm:** `@clawcollect/clawcollect`
+- **repo:** [github.com/ruan11223344/clawcollect](https://github.com/ruan11223344/clawcollect)
+
+```bash
+openclaw plugins install @clawcollect/clawcollect
+```
+
 ### Codex App Server Bridge
 
 Independent OpenClaw bridge for Codex App Server conversations. Bind a chat to
@@ -82,6 +95,18 @@ and files.
 
 ```bash
 openclaw plugins install @sliverp/qqbot
+```
+
+### WeChat
+
+Connect OpenClaw to WeChat personal accounts via WeChatPadPro (iPad protocol).
+Supports text, image, and file exchange with keyword-triggered conversations.
+
+- **npm:** `@icesword760/openclaw-wechat`
+- **repo:** [github.com/icesword0760/openclaw-wechat](https://github.com/icesword0760/openclaw-wechat)
+
+```bash
+openclaw plugins install @icesword760/openclaw-wechat
 ```
 
 ### wecom
