@@ -309,7 +309,7 @@ describe("buildStatusMessage", () => {
     });
 
     const normalized = normalizeTestText(text);
-    expect(normalized).toContain("Fallback: minimax-portal/MiniMax-M2.7");
+    expect(normalized).toContain("Active via fallback: minimax-portal/MiniMax-M2.7");
     expect(normalized).toContain("Context: 49k/123k");
     expect(normalized).not.toContain("Context: 49k/1.0m");
     expect(normalized).not.toContain("Context: 49k/200k");
@@ -353,7 +353,7 @@ describe("buildStatusMessage", () => {
     });
 
     const normalized = normalizeTestText(text);
-    expect(normalized).toContain("Fallback: minimax-portal/MiniMax-M2.7");
+    expect(normalized).toContain("Active via fallback: minimax-portal/MiniMax-M2.7");
     expect(normalized).toContain("Context: 49k/123k");
     expect(normalized).not.toContain("Context: 49k/1.0m");
     expect(normalized).not.toContain("Context: 49k/200k");
@@ -398,7 +398,7 @@ describe("buildStatusMessage", () => {
     });
 
     const normalized = normalizeTestText(text);
-    expect(normalized).toContain("Fallback: minimax-portal/MiniMax-M2.7");
+    expect(normalized).toContain("Active via fallback: minimax-portal/MiniMax-M2.7");
     expect(normalized).toContain("Context: 49k/120k");
     expect(normalized).not.toContain("Context: 49k/200k");
     expect(normalized).not.toContain("Context: 49k/1.0m");
@@ -443,7 +443,7 @@ describe("buildStatusMessage", () => {
     });
 
     const normalized = normalizeTestText(text);
-    expect(normalized).toContain("Fallback: minimax-portal/MiniMax-M2.7");
+    expect(normalized).toContain("Active via fallback: minimax-portal/MiniMax-M2.7");
     expect(normalized).toContain("Context: 49k/128k");
     expect(normalized).not.toContain("Context: 49k/200k");
   });
@@ -487,7 +487,7 @@ describe("buildStatusMessage", () => {
     });
 
     const normalized = normalizeTestText(text);
-    expect(normalized).toContain("Fallback: minimax-portal/MiniMax-M2.7");
+    expect(normalized).toContain("Active via fallback: minimax-portal/MiniMax-M2.7");
     expect(normalized).toContain("Context: 49k/200k");
     expect(normalized).not.toContain("Context: 49k/1.0m");
   });
@@ -529,7 +529,7 @@ describe("buildStatusMessage", () => {
     });
 
     const normalized = normalizeTestText(text);
-    expect(normalized).toContain("Fallback: custom-runtime/unknown-fallback-model");
+    expect(normalized).toContain("Active via fallback: custom-runtime/unknown-fallback-model");
     expect(normalized).toContain("Context: 49k/128k");
     expect(normalized).not.toContain("Context: 49k/1.0m");
   });
@@ -661,7 +661,7 @@ describe("buildStatusMessage", () => {
 
     const normalized = normalizeTestText(text);
     expect(normalized).toContain("Model: openai/gpt-4.1-mini");
-    expect(normalized).toContain("Fallback: anthropic/claude-haiku-4-5");
+    expect(normalized).toContain("Active via fallback: anthropic/claude-haiku-4-5");
     expect(normalized).toContain("(rate limit)");
     expect(normalized).not.toContain(" - Reason:");
     expect(normalized).not.toContain("Active:");
@@ -1118,7 +1118,7 @@ describe("buildStatusMessage", () => {
     });
 
     const normalized = normalizeTestText(text);
-    expect(normalized).toContain("Fallback: fake-minimax/FakeMiniMax-M2.5");
+    expect(normalized).toContain("Active via fallback: fake-minimax/FakeMiniMax-M2.5");
     expect(normalized).toContain("Context: 49k/777k");
     expect(normalized).not.toContain("Context: 49k/200k");
   });
@@ -1261,7 +1261,7 @@ describe("buildStatusMessage", () => {
     });
 
     const normalized = normalizeTestText(text);
-    expect(normalized).toContain("Fallback: custom-runtime/unknown-fallback-model");
+    expect(normalized).toContain("Active via fallback: custom-runtime/unknown-fallback-model");
     expect(normalized).toContain("Context: 49k/128k");
     expect(normalized).not.toContain("Context: 49k/32k");
   });
