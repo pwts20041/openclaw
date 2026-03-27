@@ -17026,6 +17026,28 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
     },
   },
   {
+    dirName: "typecast",
+    idHint: "typecast",
+    source: {
+      source: "./index.ts",
+      built: "index.js",
+    },
+    packageName: "@openclaw/typecast-speech",
+    packageVersion: "2026.3.24",
+    packageDescription: "OpenClaw Typecast speech plugin",
+    packageManifest: {
+      extensions: ["./index.ts"],
+    },
+    manifest: {
+      id: "typecast",
+      configSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {},
+      },
+    },
+  },
+  {
     dirName: "venice",
     idHint: "venice",
     source: {
