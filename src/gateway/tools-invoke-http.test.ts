@@ -115,6 +115,12 @@ vi.mock("../agents/openclaw-tools.js", () => {
       },
     },
     {
+      name: "nodes",
+      ownerOnly: true,
+      parameters: { type: "object", properties: {} },
+      execute: async () => ({ ok: true, result: ["node-1"] }),
+    },
+    {
       name: "tools_invoke_test",
       parameters: {
         type: "object",
@@ -570,7 +576,25 @@ describe("POST /tools/invoke", () => {
     expect(res.status).toBe(404);
   });
 
-  it("allows gateway tool via HTTP when explicitly enabled in gateway.tools.allow", async () => {
+  it("denies ownerOnly tools via HTTP even when allowlisted", async () => {
+    setMainAllowedTools({ allow: ["nodes"] });
+
+    const res = await invokeToolAuthed({
+      tool: "nodes",
+      sessionKey: "main",
+    });
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: {
+        type: "not_found",
+        message: "Tool not available: nodes",
+      },
+    });
+  });
+
+  it("does not let gateway.tools.allow bypass ownerOnly HTTP restrictions", async () => {
     setMainAllowedTools({ allow: ["gateway"], gatewayAllow: ["gateway"] });
 
     const res = await invokeToolAuthed({
@@ -578,11 +602,14 @@ describe("POST /tools/invoke", () => {
       sessionKey: "main",
     });
 
-    // Ensure we didn't hit the HTTP deny list (404). Invalid args should map to 400.
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.ok).toBe(false);
-    expect(body.error?.type).toBe("tool_error");
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: {
+        type: "not_found",
+        message: "Tool not available: gateway",
+      },
+    });
   });
 
   it("treats gateway.tools.deny as higher priority than gateway.tools.allow", async () => {
