@@ -112,6 +112,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Providers/Anthropic: use Bearer authentication for OAuth tokens (sk-ant-oat01-) instead of x-api-key header, fixing 401 authentication errors when using Anthropic setup-token credentials. (#54350)
 - Outbound media/local files: align outbound media access with the configured fs policy so host-local files and inbound-media paths keep sending when `workspaceOnly` is off, while strict workspace-only agents remain sandboxed.
 - Security/sandbox media dispatch: close the `mediaUrl`/`fileUrl` alias bypass so outbound tool and message actions cannot escape media-root restrictions. (#54034)
 - Gateway/restart sentinel: wake the interrupted agent session via heartbeat after restart instead of only sending a best-effort restart note, retry outbound delivery once on transient failure, and preserve explicit thread/topic routing through the wake path so replies land in the correct Telegram topic or Slack thread. (#53940) Thanks @VACInc.
