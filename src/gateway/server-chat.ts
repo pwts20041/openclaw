@@ -813,7 +813,13 @@ export function createAgentEventHandler({
         if (chatLink) {
           const finished = chatRunState.registry.shift(evt.runId);
           if (!finished) {
+            // Duplicate terminal event (e.g. fallback retry reusing the same
+            // runId).  Still clean up sequence/context tracking so stale
+            // entries don't accumulate on long-lived gateways.
+            toolEventRecipients.markFinal(evt.runId);
             clearAgentRunContext(evt.runId);
+            agentRunSeq.delete(evt.runId);
+            agentRunSeq.delete(clientRunId);
             return;
           }
           // Stash the link so late usage events can still resolve clientRunId.
