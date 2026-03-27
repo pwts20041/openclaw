@@ -81,54 +81,32 @@ function extendExecMeta(toolName: string, args: unknown, meta?: string): string 
 
 /**
  * Build a circuit-breaker arg signature from raw tool args.
- * Keys off command text for exec/bash.
- * For tools with an "action" field, appends the first routing-destination field so that
- * calls to different recipients (to/target/channelId) are not collapsed under the same signature.
- * Falls back to the first stable string field for other tools.
+ *
+ * Three paths:
+ *   1. exec/bash  — full command text (the only meaningful field).
+ *   2. action present — nested request object gets a readable key
+ *      (browser action:"act"), then a stable JSON fingerprint of all
+ *      non-action args covers everything else (strings, arrays, objects).
+ *   3. no action  — stable JSON fingerprint of all args.
+ *
+ * JSON fingerprints handle any field type and any future tool without
+ * requiring individual whitelisting.
  */
 function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
   const record = isPlainObject(args) ? args : {};
   const norm = toolName.trim().toLowerCase();
+
+  // exec/bash: key off the full command text so distinct commands are never collapsed.
   if (norm === "exec" || norm === "bash") {
     const cmd = record.command ?? record.cmd;
-    // Use the full command text — truncating would collapse distinct long commands
-    // (e.g. heredoc/script invocations) that share a common prefix into the same signature.
     return typeof cmd === "string" ? cmd : "";
   }
-  // When an action field is present, build a composite signature that also captures the
-  // primary argument so that calls with the same action but different targets/content are
-  // not collapsed into the same signature.
-  // Priority order:
-  //   1. Specific routing fields (to/channelId/userId/…)
-  //   2. Precise target identifiers (url/targetUrl/targetId)
-  //   3. Nested request object — checked BEFORE top-level "target" because browser passes
-  //      target="host"/"sandbox" (a constant window selector) alongside a request payload
-  //      that carries the real differentiator (request.kind + request.targetId/ref/selector).
-  //      If we checked "target" first, all browser act calls would collapse to
-  //      action=act,target=host regardless of what the request contains.
-  //   4. Remaining top-level fields (target, path, id, content fields…)
+
   const actionVal = typeof record.action === "string" ? record.action.trim().slice(0, 50) : null;
   if (actionVal !== null) {
-    for (const argKey of [
-      "to",
-      "channelId",
-      "userId",
-      "threadId",
-      "node",
-      "requestId",
-      "sessionId",
-      "jobId",
-      "url",
-      "targetUrl",
-      "targetId",
-    ]) {
-      const val = record[argKey];
-      if (typeof val === "string" && val.trim()) {
-        return `action=${actionVal},${argKey}=${val.trim()}`;
-      }
-    }
-    // Nested request object (e.g. browser action:"act") — checked before top-level "target"
-    // so a constant window selector like target="host" does not shadow request.kind/targetId.
+    // Nested request object (e.g. browser action:"act"): produce a readable signature
+    // from request.kind + the first differentiating field. Checked before the JSON
+    // fallback so the most specific info surfaces at the top rather than buried in args.
     if (isPlainObject(record.request)) {
       const req = record.request;
       const kindVal = typeof req.kind === "string" ? req.kind.trim() : null;
@@ -142,37 +120,7 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
         return `action=${actionVal},request.kind=${kindVal}`;
       }
     }
-    for (const argKey of [
-      "target",
-      "path",
-      "file_path",
-      "filePath",
-      "file",
-      "id",
-      "label",
-      "query",
-      "sessionKey",
-      // Content/payload fields: cron wake uses text, canvas eval uses javaScript,
-      // image-generate uses prompt/image, nodes notifications use body. These are the
-      // primary differentiators when no routing/path field is present, so we fall through
-      // to them rather than returning a bare action=<...> signature.
-      "text",
-      "javaScript",
-      "prompt",
-      "image",
-      "body",
-      "jsonl",
-      "jsonlPath",
-    ]) {
-      const val = record[argKey];
-      if (typeof val === "string" && val.trim()) {
-        return `action=${actionVal},${argKey}=${val.trim()}`;
-      }
-    }
-    // Generic fallback: stable JSON fingerprint of all non-action args so that
-    // calls keyed by arrays/objects (e.g. broadcast targets:[...]) are not
-    // collapsed into the same bare action=<...> signature. This covers any future
-    // non-string field without needing individual whitelisting.
+    // All other action-driven tools: stable JSON fingerprint of non-action args.
     const { action: _action, ...restArgs } = record;
     if (Object.keys(restArgs).length > 0) {
       try {
@@ -183,20 +131,13 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
     }
     return `action=${actionVal}`;
   }
-  for (const key of [
-    "path",
-    "file_path",
-    "filePath",
-    "file",
-    "url",
-    "id",
-    "label",
-    "query",
-    "sessionKey",
-  ]) {
-    const val = record[key];
-    if (typeof val === "string" && val.trim()) {
-      return `${key}=${val.trim()}`;
+
+  // Non-action tools: stable JSON fingerprint of all args.
+  if (Object.keys(record).length > 0) {
+    try {
+      return JSON.stringify(record, Object.keys(record).toSorted());
+    } catch {
+      // ignore
     }
   }
   return "";
