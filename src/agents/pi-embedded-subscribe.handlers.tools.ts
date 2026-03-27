@@ -152,10 +152,11 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
       "label",
       "query",
       "sessionKey",
-      // Content/payload fields: canvas eval uses javaScript, image-generate uses prompt/image,
-      // nodes notifications use body. These are the primary differentiators when no
-      // routing/path field is present, so we fall through to them rather than returning a bare
-      // action=<...> signature that would collapse all distinct calls into one key.
+      // Content/payload fields: cron wake uses text, canvas eval uses javaScript,
+      // image-generate uses prompt/image, nodes notifications use body. These are the
+      // primary differentiators when no routing/path field is present, so we fall through
+      // to them rather than returning a bare action=<...> signature.
+      "text",
       "javaScript",
       "prompt",
       "image",

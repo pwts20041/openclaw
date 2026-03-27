@@ -1209,3 +1209,45 @@ describe("circuit breaker arg signature for browser act nested request fields", 
     expect(onError).not.toHaveBeenCalled();
   });
 });
+
+describe("circuit breaker arg signature for cron wake text field", () => {
+  async function runCronWake(ctx: ToolHandlerContext, text: string, isError: boolean, id: string) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "cron",
+      toolCallId: id,
+      args: { action: "wake", text },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "cron",
+      toolCallId: id,
+      isError,
+      result: isError ? { type: "text", text: "Error: network error" } : { ok: true },
+    });
+  }
+
+  it("does not trip circuit when wake failures use different text values", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runCronWake(ctx, "good morning", true, "w1");
+    await runCronWake(ctx, "check email", true, "w2");
+    await runCronWake(ctx, "run daily report", true, "w3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("trips circuit when wake failures repeatedly use the same text", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runCronWake(ctx, "good morning", true, "w1");
+    await runCronWake(ctx, "good morning", true, "w2");
+    await runCronWake(ctx, "good morning", true, "w3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
