@@ -334,6 +334,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
             enabled: true,
             configured: true,
             running: true,
+            connected: undefined,
             restartPending: false,
             lastStartAt: Date.now(),
             lastError: null,
@@ -360,11 +361,14 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
               log.error?.(`[${id}] channel exited: ${message}`);
             })
             .finally(() => {
-              setRuntime(channelId, id, {
-                accountId: id,
-                running: false,
-                lastStopAt: Date.now(),
-              });
+              if (store.tasks.get(id) === trackedPromise) {
+                setRuntime(channelId, id, {
+                  accountId: id,
+                  running: false,
+                  connected: false,
+                  lastStopAt: Date.now(),
+                });
+              }
             })
             .then(async () => {
               if (manuallyStopped.has(rKey)) {
@@ -411,6 +415,12 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
             })
             .finally(() => {
               if (store.tasks.get(id) === trackedPromise) {
+                setRuntime(channelId, id, {
+                  accountId: id,
+                  running: false,
+                  connected: false,
+                  lastStopAt: Date.now(),
+                });
                 store.tasks.delete(id);
               }
               if (store.aborts.get(id) === abort) {
@@ -487,6 +497,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
         setRuntime(channelId, id, {
           accountId: id,
           running: false,
+          connected: false,
           restartPending: false,
           lastStopAt: Date.now(),
         });
