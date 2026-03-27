@@ -60,7 +60,12 @@ function buildEntry(name: string): SkillEntry {
       description: `${name} test skill`,
       filePath: path.join(skillDir, "SKILL.md"),
       baseDir: skillDir,
-      source: "openclaw-workspace",
+      sourceInfo: {
+        source: "openclaw-workspace",
+        path: "",
+        scope: "user" as const,
+        origin: "top-level" as const,
+      },
       disableModelInvocation: false,
     },
     frontmatter: {},

@@ -17,7 +17,12 @@ describe("resolveSkillsPromptForRun", () => {
         description: "Demo",
         filePath: "/app/skills/demo-skill/SKILL.md",
         baseDir: "/app/skills/demo-skill",
-        source: "openclaw-bundled",
+        sourceInfo: {
+          source: "openclaw-bundled",
+          path: "",
+          scope: "user" as const,
+          origin: "top-level" as const,
+        },
         disableModelInvocation: false,
       },
       frontmatter: {},
