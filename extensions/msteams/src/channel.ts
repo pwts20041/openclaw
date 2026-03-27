@@ -122,7 +122,10 @@ function describeMSTeamsMessageTool({
     cfg.channels?.msteams?.enabled !== false &&
     Boolean(resolveMSTeamsCredentials(cfg.channels?.msteams));
   return {
-    actions: enabled ? (["poll", "react"] satisfies ChannelMessageActionName[]) : [],
+    // "react" is omitted: setReaction/unsetReaction require Delegated permissions,
+    // but the bot authenticates with Application credentials (client_credentials flow).
+    // Re-enable "react" here once delegated-auth support is available.
+    actions: enabled ? (["poll"] satisfies ChannelMessageActionName[]) : [],
     capabilities: enabled ? ["cards"] : [],
     schema: enabled
       ? {
