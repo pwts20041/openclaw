@@ -1,0 +1,337 @@
+﻿[
+    {
+        "name":  "scan_controllers",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true,
+                       "total":  1,
+                       "controllers":  [
+                                           {
+                                               "ip":  "127.0.0.1",
+                                               "id":  "",
+                                               "isVirtual":  true,
+                                               "version":  "6.8.0.1",
+                                               "systemId":  "a30a86d0-545b-42c7-815f-3f4479226f6a",
+                                               "systemName":  "1JiaX_ABB_6_08",
+                                               "hostName":  "",
+                                               "controllerName":  "DESKTOP-A38HIOI"
+                                           }
+                                       ]
+                   },
+        "error":  null
+    },
+    {
+        "name":  "connect",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true,
+                       "systemName":  "1JiaX_ABB_6_08",
+                       "robotModel":  "DESKTOP-A38HIOI",
+                       "serialNumber":  "a30a86d0-545b-42c7-815f-3f4479226f6a",
+                       "connected":  true,
+                       "host":  "127.0.0.1",
+                       "isVirtual":  true,
+                       "controllerId":  ""
+                   },
+        "error":  null
+    },
+    {
+        "name":  "get_status",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true,
+                       "connected":  true,
+                       "operationMode":  "Auto",
+                       "motorState":  "MotorsOn",
+                       "rapidRunning":  false,
+                       "rapidExecutionStatus":  "Ready"
+                   },
+        "error":  null
+    },
+    {
+        "name":  "get_system_info",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true,
+                       "systemName":  "1JiaX_ABB_6_08",
+                       "controllerName":  "DESKTOP-A38HIOI",
+                       "robotWareName":  "1JiaX_ABB_6_08",
+                       "robotWareVersion":  "6.8.1040.1",
+                       "isVirtual":  true,
+                       "systemId":  "a30a86d0-545b-42c7-815f-3f4479226f6a"
+                   },
+        "error":  null
+    },
+    {
+        "name":  "get_service_info",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true,
+                       "elapsedProductionHours":  0,
+                       "lastStart":  "0001-01-01T00:00:00.0000000"
+                   },
+        "error":  null
+    },
+    {
+        "name":  "get_speed",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true,
+                       "speedRatio":  25
+                   },
+        "error":  null
+    },
+    {
+        "name":  "set_speed",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true,
+                       "speedRatio":  25
+                   },
+        "error":  null
+    },
+    {
+        "name":  "get_joints",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true,
+                       "joints":  [
+                                      16.953098297119141,
+                                      -11.862753868103027,
+                                      25.576452255249023,
+                                      0,
+                                      117.50260162353516,
+                                      -40.761737823486328
+                                  ]
+                   },
+        "error":  null
+    },
+    {
+        "name":  "get_world_position",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true,
+                       "x":  198.044,
+                       "y":  60.3709,
+                       "z":  496.482422,
+                       "rx":  150.23423972519797,
+                       "ry":  -29.9387617941524,
+                       "rz":  -114.1561961168543
+                   },
+        "error":  null
+    },
+    {
+        "name":  "get_event_log",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true,
+                       "categoryId":  0,
+                       "categoryName":  "公用",
+                       "count":  15,
+                       "entries":  [
+                                       {
+                                           "number":  140,
+                                           "title":  "调整速度",
+                                           "type":  "Information",
+                                           "timestamp":  "2026-03-17T12:17:48.0000000"
+                                       },
+                                       {
+                                           "number":  1595,
+                                           "title":  "套接字错误",
+                                           "type":  "Warning",
+                                           "timestamp":  "2026-03-17T12:17:47.0000000"
+                                       },
+                                       {
+                                           "number":  1595,
+                                           "title":  "套接字错误",
+                                           "type":  "Warning",
+                                           "timestamp":  "2026-03-17T12:17:41.0000000"
+                                       },
+                                       {
+                                           "number":  1595,
+                                           "title":  "套接字错误",
+                                           "type":  "Warning",
+                                           "timestamp":  "2026-03-17T12:17:39.0000000"
+                                       },
+                                       {
+                                           "number":  1595,
+                                           "title":  "套接字错误",
+                                           "type":  "Warning",
+                                           "timestamp":  "2026-03-17T12:17:38.0000000"
+                                       },
+                                       {
+                                           "number":  1595,
+                                           "title":  "套接字错误",
+                                           "type":  "Warning",
+                                           "timestamp":  "2026-03-17T12:17:36.0000000"
+                                       },
+                                       {
+                                           "number":  1595,
+                                           "title":  "套接字错误",
+                                           "type":  "Warning",
+                                           "timestamp":  "2026-03-17T12:17:34.0000000"
+                                       },
+                                       {
+                                           "number":  1595,
+                                           "title":  "套接字错误",
+                                           "type":  "Warning",
+                                           "timestamp":  "2026-03-17T12:17:32.0000000"
+                                       },
+                                       {
+                                           "number":  1595,
+                                           "title":  "套接字错误",
+                                           "type":  "Warning",
+                                           "timestamp":  "2026-03-17T12:17:30.0000000"
+                                       },
+                                       {
+                                           "number":  1595,
+                                           "title":  "套接字错误",
+                                           "type":  "Warning",
+                                           "timestamp":  "2026-03-17T12:17:28.0000000"
+                                       },
+                                       {
+                                           "number":  1595,
+                                           "title":  "套接字错误",
+                                           "type":  "Warning",
+                                           "timestamp":  "2026-03-17T12:17:27.0000000"
+                                       },
+                                       {
+                                           "number":  1595,
+                                           "title":  "套接字错误",
+                                           "type":  "Warning",
+                                           "timestamp":  "2026-03-17T12:17:25.0000000"
+                                       },
+                                       {
+                                           "number":  1595,
+                                           "title":  "套接字错误",
+                                           "type":  "Warning",
+                                           "timestamp":  "2026-03-17T12:17:22.0000000"
+                                       },
+                                       {
+                                           "number":  1595,
+                                           "title":  "套接字错误",
+                                           "type":  "Warning",
+                                           "timestamp":  "2026-03-17T12:17:21.0000000"
+                                       },
+                                       {
+                                           "number":  1595,
+                                           "title":  "套接字错误",
+                                           "type":  "Warning",
+                                           "timestamp":  "2026-03-17T12:17:18.0000000"
+                                       }
+                                   ]
+                   },
+        "error":  null
+    },
+    {
+        "name":  "list_tasks",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true,
+                       "count":  2,
+                       "tasks":  [
+                                     {
+                                         "taskName":  "T_ROB1",
+                                         "executionStatus":  "Ready",
+                                         "modules":  [
+                                                         "user",
+                                                         "BASE",
+                                                         "Communicate"
+                                                     ]
+                                     },
+                                     {
+                                         "taskName":  "com",
+                                         "executionStatus":  "Running",
+                                         "modules":  [
+                                                         "user",
+                                                         "BASE",
+                                                         "ComModule"
+                                                     ]
+                                     }
+                                 ]
+                   },
+        "error":  null
+    },
+    {
+        "name":  "backup_module",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true,
+                       "moduleName":  "user",
+                       "outputDir":  "d:\\OpenClaw\\Develop\\openclaw\\scripts\\_abb_backup",
+                       "taskName":  "T_ROB1"
+                   },
+        "error":  null
+    },
+    {
+        "name":  "reset_program_pointer",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  false,
+                       "error":  "C0049007 : Operation is illegal in current execution state.\r\nUrl:/RAPID/com  Cmd:SET  Prop:ResetPP  Args:  Elapsed:8  CurrentCmds:0\r\nHistory:\r\n-00:00:00.0968091 [113] SendCommand url:/RAPID/T_ROB1/user cmd:Get prop:ModInfo arg:\r\n-00:00:00.0878306 [113] status:SYS_CTRL_S_OK data:100000\r\n-00:00:00.0868348 [114] SendCommand url:/RAPID/T_ROB1 cmd:SET prop:SaveModule arg:-File \"d:/OpenClaw/Develop/openclaw/scripts/_abb_backup/user.sys\" -Name user\r\n-00:00:00.0728730 [114] status:SYS_CTRL_S_OK data:\r\n-00:00:00.0658911 [115] SendCommand url:/RAPID cmd:Get prop:Childs arg:-mark 0 -noelts -1 -cc 0\r\n-00:00:00.0589101 [115] status:SYS_CTRL_S_OK data:-noelts,all,mark,cc     2,1,        21,         0\tT_ROB1;RapidTaskNM\tcom;RapidTa...\r\n-00:00:00.0579083 [116] SendCommand url: cmd:Get prop:UserGrants arg:\r\n-00:00:00.0539243 [116] status:SYS_CTRL_S_OK data:\u003cUserGrants\u003e\n\u003cGrant name=\"UAS_FULL_ACCESS\"\u003e\u003c/Grant\u003e\n\u003cGrant name=\"UAS_SAFETY_CONF...\r\n-00:00:00.0529265 [117] SendCommand url: cmd:Get prop:CurrentMaster2 arg:-Domain RAPID\r\n-00:00:00.0529265 [117] status:SYS_CTRL_S_OK data:-Status NoMaster\r\n-00:00:00.0519288 [118] SendCommand url: cmd:Get prop:Mode arg:\r\n-00:00:00.0519288 [118] status:SYS_CTRL_S_OK data:AUTO\r\n-00:00:00.0519288 [119] SendCommand url: cmd:Get prop:CurrentMaster2 arg:-Domain RAPID\r\n-00:00:00.0499289 [119] status:SYS_CTRL_S_OK data:-Status NoMaster\r\n-00:00:00.0499289 [120] SendCommand url: cmd:Set prop:RequestMaster2 arg:-Domain RAPID -Uid 30\r\n-00:00:00.0489372 [120] status:SYS_CTRL_S_OK data:\r\n-00:00:00.0489372 [121] SendCommand url:/RAPID/T_ROB1 cmd:SET prop:ResetPP arg:\r\n-00:00:00.0090039 [121] status:SYS_CTRL_E_NO_SUCH_SYMBOL data:\r\n-00:00:00.0080461 [122] SendCommand url:/RAPID/com cmd:SET prop:ResetPP arg:\r\n00:00:00 [122] status:SYS_CTRL_E_EXEC_STATE data:\r\n",
+                       "availableTasks":  [
+                                              "T_ROB1",
+                                              "com"
+                                          ]
+                   },
+        "error":  null
+    },
+    {
+        "name":  "move_to_joints",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true
+                   },
+        "error":  null
+    },
+    {
+        "name":  "load_rapid",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true
+                   },
+        "error":  null
+    },
+    {
+        "name":  "start_rapid",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true
+                   },
+        "error":  null
+    },
+    {
+        "name":  "stop_rapid",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true
+                   },
+        "error":  null
+    },
+    {
+        "name":  "disconnect",
+        "ok":  true,
+        "kind":  "ok",
+        "result":  {
+                       "success":  true
+                   },
+        "error":  null
+    }
+]
