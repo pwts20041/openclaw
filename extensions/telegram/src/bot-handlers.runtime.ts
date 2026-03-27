@@ -405,6 +405,7 @@ export const registerTelegramHandlers = ({
             path: media.path,
             contentType: media.contentType,
             stickerMetadata: media.stickerMetadata,
+            animationMetadata: media.animationMetadata,
           });
         }
       }
@@ -507,6 +508,7 @@ export const registerTelegramHandlers = ({
           path: media.path,
           contentType: media.contentType,
           stickerMetadata: media.stickerMetadata,
+          animationMetadata: media.animationMetadata,
         },
       ];
     } catch (err) {
@@ -1056,20 +1058,13 @@ export const registerTelegramHandlers = ({
       return;
     }
 
-    // Skip sticker-only messages where the sticker was skipped (animated/video)
-    // These have no media and no text content to process.
-    const hasText = Boolean(getTelegramTextParts(msg).text.trim());
-    if (msg.sticker && !media && !hasText) {
-      logVerbose("telegram: skipping sticker-only message (unsupported sticker type)");
-      return;
-    }
-
     const allMedia = media
       ? [
           {
             path: media.path,
             contentType: media.contentType,
             stickerMetadata: media.stickerMetadata,
+            animationMetadata: media.animationMetadata,
           },
         ]
       : [];
