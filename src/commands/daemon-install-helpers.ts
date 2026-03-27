@@ -9,12 +9,12 @@ import { formatCliCommand } from "../cli/command-format.js";
 import { resolveGatewayLaunchAgentLabel } from "../daemon/constants.js";
 import { resolveGatewayProgramArguments } from "../daemon/program-args.js";
 import { buildServiceEnvironment } from "../daemon/service-env.js";
-import { resolveConfigDir } from "../utils.js";
 import {
   isDangerousHostEnvOverrideVarName,
   isDangerousHostEnvVarName,
   normalizeEnvVarKey,
 } from "../infra/host-env-security.js";
+import { resolveConfigDir } from "../utils.js";
 import {
   emitDaemonInstallRuntimeWarning,
   resolveDaemonInstallRuntimeInputs,
@@ -90,7 +90,6 @@ function collectAuthProfileServiceEnvVars(params: {
 
   return entries;
 }
-
 
 export async function buildGatewayInstallPlan(params: {
   env: Record<string, string | undefined>;
