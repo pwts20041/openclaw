@@ -60,6 +60,11 @@ export async function enforceTelegramDmAccess(params: {
   if (dmPolicy === "disabled") {
     return false;
   }
+  // Skip pairing/allowlist checks for bot-originated messages — bots cannot
+  // complete a pairing challenge and should not create spurious pairing entries.
+  if (msg.from?.is_bot) {
+    return true;
+  }
   if (dmPolicy === "open") {
     return true;
   }
