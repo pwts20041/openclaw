@@ -18273,7 +18273,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
       },
       providers: ["xiaomi"],
       providerAuthEnvVars: {
-        xiaomi: ["XIAOMI_API_KEY"],
+        xiaomi: ["MIMO_API_KEY", "XIAOMI_API_KEY"],
       },
       providerAuthChoices: [
         {
