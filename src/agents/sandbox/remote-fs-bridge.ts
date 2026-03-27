@@ -108,6 +108,7 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
         pinned.relativeParentPath,
         pinned.basename,
         params.mkdir !== false ? "1" : "0",
+        String(buffer.length),
       ],
       stdin: buffer,
       signal: params.signal,
