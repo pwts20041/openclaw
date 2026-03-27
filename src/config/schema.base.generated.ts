@@ -5537,6 +5537,15 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
                   readability: {
                     type: "boolean",
                   },
+                  ssrfPolicy: {
+                    type: "object",
+                    properties: {
+                      allowRfc2544BenchmarkRange: {
+                        type: "boolean",
+                      },
+                    },
+                    additionalProperties: false,
+                  },
                   firecrawl: {
                     type: "object",
                     properties: {
