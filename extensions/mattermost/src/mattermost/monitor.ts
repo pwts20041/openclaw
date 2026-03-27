@@ -75,7 +75,10 @@ import {
 } from "./monitor-helpers.js";
 import { resolveOncharPrefixes, stripOncharPrefix } from "./monitor-onchar.js";
 import { createMattermostMonitorResources, type MattermostMediaInfo } from "./monitor-resources.js";
-import { registerMattermostMonitorSlashCommands } from "./monitor-slash.js";
+import {
+  cleanupMattermostMonitorSlashCommands,
+  registerMattermostMonitorSlashCommands,
+} from "./monitor-slash.js";
 import {
   createMattermostConnectOnce,
   type MattermostEventPayload,
@@ -84,7 +87,6 @@ import {
 import { runWithReconnect } from "./reconnect.js";
 import { deliverMattermostReplyPayload } from "./reply-delivery.js";
 import { sendMessageMattermost } from "./send.js";
-import { cleanupSlashCommands } from "./slash-commands.js";
 import { deactivateSlashCommands, getSlashCommandState } from "./slash-state.js";
 
 export {
@@ -273,8 +275,7 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
   const botUserId = botUser.id;
   const botUsername = botUser.username?.trim() || undefined;
   runtime.log?.(`mattermost connected as ${botUsername ? `@${botUsername}` : botUserId}`);
-  let slashCommandCachePath: string | null = null;
-  await registerMattermostMonitorSlashCommands({
+  const slashLifecycle = await registerMattermostMonitorSlashCommands({
     client,
     cfg,
     runtime,
@@ -1664,28 +1665,12 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
       // Deactivate state immediately to prevent new local dispatches during teardown.
       deactivateSlashCommands(account.accountId);
 
-      slashShutdownCleanup = (async () => {
-        const remainingCommands = await cleanupSlashCommands({
-          client,
-          commands,
-          log: (msg) => runtime.log?.(msg),
-        });
-
-        // Only rewrite the cache when this process had active slash state.
-        // Failed startups should leave the last known good cache intact.
-        if (!slashState || !slashCommandCachePath) {
-          return;
-        }
-
-        if (remainingCommands.length > 0) {
-          await savePersistedSlashCommands(slashCommandCachePath, remainingCommands, (msg) =>
-            runtime.log?.(msg),
-          );
-          return;
-        }
-
-        await removePersistedSlashCommands(slashCommandCachePath, (msg) => runtime.log?.(msg));
-      })().catch((err) => {
+      slashShutdownCleanup = cleanupMattermostMonitorSlashCommands({
+        client,
+        lifecycle: slashState ? slashLifecycle : null,
+        commands,
+        log: (msg) => runtime.log?.(msg),
+      }).catch((err) => {
         runtime.error?.(`mattermost: slash cleanup failed: ${String(err)}`);
       });
     };
