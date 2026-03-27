@@ -1202,13 +1202,16 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       compacted: true,
     });
   },
-  "sessions.truncate": async ({ params, respond, context }) => {
+  "sessions.truncate": async ({ params, respond, client, isWebchatConnect, context }) => {
     if (!assertValidParams(params, validateSessionsTruncateParams, "sessions.truncate", respond)) {
       return;
     }
     const p = params;
     const key = requireSessionKey(p.key, respond);
     if (!key) {
+      return;
+    }
+    if (rejectWebchatSessionMutation({ action: "delete", client, isWebchatConnect, respond })) {
       return;
     }
 
@@ -1222,6 +1225,21 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return { entry, primaryKey };
     });
     const entry = truncateTarget.entry;
+    const legacyKey = truncateTarget.primaryKey;
+    const canonicalKey = target.canonicalKey;
+    const mutationCleanupError = await cleanupSessionBeforeMutation({
+      cfg,
+      key,
+      target,
+      entry,
+      legacyKey,
+      canonicalKey,
+      reason: "session-delete",
+    });
+    if (mutationCleanupError) {
+      respond(false, undefined, mutationCleanupError);
+      return;
+    }
     const sessionId = entry?.sessionId;
     if (!sessionId) {
       respond(
@@ -1250,7 +1268,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const raw = fs.readFileSync(filePath, "utf-8");
     const allLines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
 
-    // Walk lines to find the JSONL line that corresponds to fromSeq.
+    // Walk lines to find the JSONL line that corresponds to the requested seq (p.seq).
     let seq = 0;
     let cutLineIndex = -1;
     for (let i = 0; i < allLines.length; i++) {
