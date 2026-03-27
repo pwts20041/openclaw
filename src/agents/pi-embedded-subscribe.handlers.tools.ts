@@ -4,6 +4,7 @@ import {
   buildExecApprovalPendingReplyPayload,
   buildExecApprovalUnavailableReplyPayload,
 } from "../infra/exec-approval-reply.js";
+import { splitMediaFromOutput } from "../media/parse.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import type { PluginHookAfterToolCallEvent } from "../plugins/types.js";
 import { normalizeTextForComparison } from "./pi-embedded-helpers.js";
@@ -234,6 +235,62 @@ function readExecApprovalUnavailableDetails(result: unknown): {
   };
 }
 
+function stripToolResultMediaDetails(result: unknown): unknown {
+  if (!result || typeof result !== "object") {
+    return result;
+  }
+  const record = result as Record<string, unknown>;
+  let changed = false;
+
+  let nextDetails = record.details;
+  if (nextDetails && typeof nextDetails === "object" && !Array.isArray(nextDetails)) {
+    const detailsRecord = { ...(nextDetails as Record<string, unknown>) };
+    if ("media" in detailsRecord) {
+      delete detailsRecord.media;
+      changed = true;
+    }
+    if ("path" in detailsRecord) {
+      delete detailsRecord.path;
+      changed = true;
+    }
+    nextDetails = detailsRecord;
+  }
+
+  let nextContent: unknown = record.content;
+  if (Array.isArray(record.content)) {
+    const cleaned = record.content.map((item) => {
+      if (!item || typeof item !== "object") {
+        return item;
+      }
+      const entry = item as Record<string, unknown>;
+      if (entry.type === "image") {
+        changed = true;
+        return null;
+      }
+      if (entry.type === "text" && typeof entry.text === "string") {
+        const cleanedText = splitMediaFromOutput(entry.text).text;
+        if (cleanedText !== entry.text) {
+          changed = true;
+        }
+        return { ...entry, text: cleanedText };
+      }
+      return entry;
+    });
+    const filtered = cleaned.filter((item) => item !== null);
+    nextContent = filtered;
+  }
+
+  if (!changed) {
+    return result;
+  }
+
+  return {
+    ...record,
+    ...(typeof nextDetails !== "undefined" ? { details: nextDetails } : {}),
+    ...(typeof nextContent !== "undefined" ? { content: nextContent } : {}),
+  };
+}
+
 async function emitToolResultOutput(params: {
   ctx: ToolHandlerContext;
   toolName: string;
@@ -243,15 +300,6 @@ async function emitToolResultOutput(params: {
   sanitizedResult: unknown;
 }) {
   const { ctx, toolName, meta, isToolError, result, sanitizedResult } = params;
-  const hasStructuredMedia =
-    result &&
-    typeof result === "object" &&
-    (result as { details?: unknown }).details &&
-    typeof (result as { details?: unknown }).details === "object" &&
-    !Array.isArray((result as { details?: unknown }).details) &&
-    typeof ((result as { details?: { media?: unknown } }).details?.media ?? undefined) ===
-      "object" &&
-    !Array.isArray((result as { details?: { media?: unknown } }).details?.media);
   const approvalPending = readExecApprovalPendingDetails(result);
   if (!isToolError && approvalPending) {
     if (!ctx.params.onToolResult) {
@@ -300,12 +348,15 @@ async function emitToolResultOutput(params: {
 
   if (ctx.shouldEmitToolOutput()) {
     const outputText = extractToolResultText(sanitizedResult);
-    if (outputText) {
-      ctx.emitToolOutput(toolName, meta, outputText, result);
-    }
-    if (!hasStructuredMedia) {
+    if (outputText && ctx.params.onToolResult) {
+      const outputResult = isToolError ? stripToolResultMediaDetails(result) : result;
+      ctx.emitToolOutput(toolName, meta, outputText, outputResult);
+      // In verbose/full mode, emitToolOutput handles media delivery.
+      // Do not also queue pending media to avoid duplicate sends.
       return;
     }
+    // Fall through to media-only handling when the tool result has no text,
+    // or when tool output callbacks are not wired.
   }
 
   if (isToolError) {

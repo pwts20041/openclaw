@@ -8,9 +8,10 @@ import type { EmbeddedPiSubscribeContext } from "./pi-embedded-subscribe.handler
 // Minimal mock context factory. Only the fields needed for the media emission path.
 function createMockContext(overrides?: {
   shouldEmitToolOutput?: boolean;
-  onToolResult?: ReturnType<typeof vi.fn>;
+  onToolResult?: ReturnType<typeof vi.fn> | undefined;
 }): EmbeddedPiSubscribeContext {
-  const onToolResult = overrides?.onToolResult ?? vi.fn();
+  const hasOnToolResult = Object.prototype.hasOwnProperty.call(overrides ?? {}, "onToolResult");
+  const onToolResult = hasOnToolResult ? overrides?.onToolResult : vi.fn();
   return {
     params: {
       runId: "test-run",
@@ -190,7 +191,7 @@ describe("handleToolExecutionEnd media emission", () => {
     expect(ctx.state.pendingToolMediaUrls).toEqual([]);
   });
 
-  it("still queues structured media when verbose is full", async () => {
+  it("does not queue structured media when verbose is full", async () => {
     const ctx = createMockContext({ shouldEmitToolOutput: true, onToolResult: vi.fn() });
 
     await handleToolExecutionEnd(ctx, {
@@ -210,6 +211,54 @@ describe("handleToolExecutionEnd media emission", () => {
     });
 
     expect(ctx.emitToolOutput).toHaveBeenCalled();
+    expect(ctx.state.pendingToolMediaUrls).toEqual([]);
+    expect(ctx.state.pendingToolAudioAsVoice).toBe(false);
+  });
+
+  it("queues structured media when verbose is full and tool result has no text", async () => {
+    const ctx = createMockContext({ shouldEmitToolOutput: true, onToolResult: vi.fn() });
+
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "tts",
+      toolCallId: "tc-1",
+      isError: false,
+      result: {
+        content: [],
+        details: {
+          media: {
+            mediaUrl: "/tmp/reply.opus",
+            audioAsVoice: true,
+          },
+        },
+      },
+    });
+
+    expect(ctx.emitToolOutput).not.toHaveBeenCalled();
+    expect(ctx.state.pendingToolMediaUrls).toEqual(["/tmp/reply.opus"]);
+    expect(ctx.state.pendingToolAudioAsVoice).toBe(true);
+  });
+
+  it("queues structured media when verbose is full but onToolResult is missing", async () => {
+    const ctx = createMockContext({ shouldEmitToolOutput: true, onToolResult: undefined });
+
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "tts",
+      toolCallId: "tc-1",
+      isError: false,
+      result: {
+        content: [{ type: "text", text: "Generated audio reply." }],
+        details: {
+          media: {
+            mediaUrl: "/tmp/reply.opus",
+            audioAsVoice: true,
+          },
+        },
+      },
+    });
+
+    expect(ctx.emitToolOutput).not.toHaveBeenCalled();
     expect(ctx.state.pendingToolMediaUrls).toEqual(["/tmp/reply.opus"]);
     expect(ctx.state.pendingToolAudioAsVoice).toBe(true);
   });
@@ -221,6 +270,73 @@ describe("handleToolExecutionEnd media emission", () => {
     await emitPngMediaToolResult(ctx, { isError: true });
 
     expect(onToolResult).not.toHaveBeenCalled();
+    expect(ctx.state.pendingToolMediaUrls).toEqual([]);
+  });
+
+  it("suppresses structured media when verbose is full and tool errors", async () => {
+    const ctx = createMockContext({ shouldEmitToolOutput: true, onToolResult: vi.fn() });
+
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "tts",
+      toolCallId: "tc-1",
+      isError: true,
+      result: {
+        content: [{ type: "text", text: "Generated audio reply." }],
+        details: {
+          media: {
+            mediaUrl: "/tmp/reply.opus",
+            audioAsVoice: true,
+          },
+        },
+      },
+    });
+
+    const emitToolOutput = ctx.emitToolOutput as ReturnType<typeof vi.fn>;
+    expect(emitToolOutput).toHaveBeenCalled();
+    const [toolName, _meta, outputText, outputResult] = emitToolOutput.mock.calls[0] ?? [];
+    expect(toolName).toBe("tts");
+    expect(outputText).toBe("Generated audio reply.");
+    expect(
+      (outputResult as { details?: { media?: unknown } } | undefined)?.details?.media,
+    ).toBeUndefined();
+    expect(ctx.state.pendingToolMediaUrls).toEqual([]);
+    expect(ctx.state.pendingToolAudioAsVoice).toBe(false);
+  });
+
+  it("preserves MCP provenance when suppressing error media", async () => {
+    const ctx = createMockContext({ shouldEmitToolOutput: true, onToolResult: vi.fn() });
+
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "browser",
+      toolCallId: "tc-1",
+      isError: true,
+      result: {
+        content: [{ type: "text", text: "MEDIA:/tmp/secret.png" }],
+        details: {
+          media: {
+            mediaUrl: "/tmp/secret.png",
+          },
+          mcpServer: "probe",
+          mcpTool: "browser",
+        },
+      },
+    });
+
+    const emitToolOutput = ctx.emitToolOutput as ReturnType<typeof vi.fn>;
+    const outputResult = emitToolOutput.mock.calls[0]?.[3] as
+      | { details?: { mcpServer?: string; mcpTool?: string; media?: unknown; path?: unknown } }
+      | undefined;
+    expect(outputResult?.details?.mcpServer).toBe("probe");
+    expect(outputResult?.details?.mcpTool).toBe("browser");
+    expect(outputResult?.details?.media).toBeUndefined();
+    expect(outputResult?.details?.path).toBeUndefined();
+    const outputRecord = outputResult as Record<string, unknown> | undefined;
+    const contentText = Array.isArray(outputRecord?.content)
+      ? (outputRecord?.content[0] as { text?: string } | undefined)?.text
+      : undefined;
+    expect(contentText ?? "").not.toContain("MEDIA:");
     expect(ctx.state.pendingToolMediaUrls).toEqual([]);
   });
 
