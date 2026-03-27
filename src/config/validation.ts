@@ -33,6 +33,8 @@ import type { OpenClawConfig, ConfigValidationIssue } from "./types.js";
 import { OpenClawSchema } from "./zod-schema.js";
 
 const LEGACY_REMOVED_PLUGIN_IDS = new Set(["google-antigravity-auth", "google-gemini-cli-auth"]);
+const UNKNOWN_KEY_STRIPPED_WARNING =
+  'Unrecognized config key stripped at load time (run "openclaw doctor --fix" to persist removal)';
 
 type UnknownIssueRecord = Record<string, unknown>;
 type ConfigPathSegment = string | number;
@@ -294,6 +296,52 @@ function mapZodIssueToConfigIssue(issue: unknown): ConfigValidationIssue {
   };
 }
 
+function stripUnrecognizedKeys(
+  raw: unknown,
+  issues: Array<{ code: string; path: PropertyKey[]; keys?: PropertyKey[] }>,
+): { cleaned: unknown; removedPaths: string[] } | null {
+  let clone: unknown;
+  try {
+    clone = structuredClone(raw);
+  } catch {
+    return null;
+  }
+  const removedPaths: string[] = [];
+
+  for (const issue of issues) {
+    if (issue.code !== "unrecognized_keys" || !Array.isArray(issue.keys)) {
+      continue;
+    }
+
+    let target: unknown = clone;
+    for (const segment of issue.path) {
+      if (target === null || target === undefined || typeof target !== "object") {
+        target = null;
+        break;
+      }
+      target = (target as Record<string | number, unknown>)[segment as string | number];
+    }
+
+    if (!target || typeof target !== "object" || Array.isArray(target)) {
+      continue;
+    }
+
+    const record = target as Record<string, unknown>;
+    for (const key of issue.keys) {
+      if (typeof key !== "string" || !(key in record)) {
+        continue;
+      }
+      delete record[key];
+      const parentPath = issue.path
+        .filter((p): p is string | number => typeof p !== "symbol")
+        .join(".");
+      removedPaths.push(parentPath ? `${parentPath}.${key}` : key);
+    }
+  }
+
+  return { cleaned: clone, removedPaths };
+}
+
 function isWorkspaceAvatarPath(value: string, workspaceDir: string): boolean {
   const workspaceRoot = path.resolve(workspaceDir);
   const resolved = path.resolve(workspaceRoot, value);
@@ -383,7 +431,9 @@ function validateGatewayTailscaleBind(config: OpenClawConfig): ConfigValidationI
  */
 export function validateConfigObjectRaw(
   raw: unknown,
-): { ok: true; config: OpenClawConfig } | { ok: false; issues: ConfigValidationIssue[] } {
+):
+  | { ok: true; config: OpenClawConfig; warnings?: ConfigValidationIssue[] }
+  | { ok: false; issues: ConfigValidationIssue[] } {
   const normalizedRaw = normalizeLegacyWebSearchConfig(raw);
   const legacyIssues = findLegacyConfigIssues(normalizedRaw);
   if (legacyIssues.length > 0) {
@@ -397,6 +447,57 @@ export function validateConfigObjectRaw(
   }
   const validated = OpenClawSchema.safeParse(normalizedRaw);
   if (!validated.success) {
+    const allUnrecognized = validated.error.issues.every((iss) => iss.code === "unrecognized_keys");
+    if (allUnrecognized) {
+      const stripped = stripUnrecognizedKeys(
+        normalizedRaw,
+        validated.error.issues as Array<{
+          code: string;
+          path: PropertyKey[];
+          keys?: PropertyKey[];
+        }>,
+      );
+      if (!stripped) {
+        return {
+          ok: false,
+          issues: validated.error.issues.map((issue) => mapZodIssueToConfigIssue(issue)),
+        };
+      }
+      const retried = OpenClawSchema.safeParse(stripped.cleaned);
+      if (retried.success) {
+        const warnings: ConfigValidationIssue[] = stripped.removedPaths.map((p) => ({
+          path: p,
+          message: UNKNOWN_KEY_STRIPPED_WARNING,
+        }));
+        const config = retried.data as OpenClawConfig;
+        const duplicates = findDuplicateAgentDirs(config);
+        if (duplicates.length > 0) {
+          return {
+            ok: false,
+            issues: [
+              {
+                path: "agents.list",
+                message: formatDuplicateAgentDirError(duplicates),
+              },
+            ],
+          };
+        }
+        const avatarIssues = validateIdentityAvatar(config);
+        if (avatarIssues.length > 0) {
+          return { ok: false, issues: avatarIssues };
+        }
+        const gatewayTailscaleBindIssues = validateGatewayTailscaleBind(config);
+        if (gatewayTailscaleBindIssues.length > 0) {
+          return { ok: false, issues: gatewayTailscaleBindIssues };
+        }
+        return { ok: true, config, warnings };
+      }
+      // Retry after stripping still failed — report the retry's issues for accuracy
+      return {
+        ok: false,
+        issues: retried.error.issues.map((issue) => mapZodIssueToConfigIssue(issue)),
+      };
+    }
     return {
       ok: false,
       issues: validated.error.issues.map((issue) => mapZodIssueToConfigIssue(issue)),
@@ -429,9 +530,15 @@ export function validateConfigObjectRaw(
   };
 }
 
+export function isUnknownKeyRecoveryWarning(warning: ConfigValidationIssue): boolean {
+  return warning.message === UNKNOWN_KEY_STRIPPED_WARNING;
+}
+
 export function validateConfigObject(
   raw: unknown,
-): { ok: true; config: OpenClawConfig } | { ok: false; issues: ConfigValidationIssue[] } {
+):
+  | { ok: true; config: OpenClawConfig; warnings?: ConfigValidationIssue[] }
+  | { ok: false; issues: ConfigValidationIssue[] } {
   const result = validateConfigObjectRaw(raw);
   if (!result.ok) {
     return result;
@@ -439,6 +546,7 @@ export function validateConfigObject(
   return {
     ok: true,
     config: applyModelDefaults(applyAgentDefaults(applySessionDefaults(result.config))),
+    warnings: result.warnings,
   };
 }
 
@@ -479,12 +587,15 @@ function validateConfigObjectWithPluginsBase(
 
   const config = base.config;
   const issues: ConfigValidationIssue[] = [];
-  const warnings: ConfigValidationIssue[] = listLegacyWebSearchConfigPaths(raw).map((path) => ({
-    path,
-    message:
-      `${path} is deprecated for web search provider config. ` +
-      "Move it under plugins.entries.<plugin>.config.webSearch.*; OpenClaw mapped it automatically for compatibility.",
-  }));
+  const warnings: ConfigValidationIssue[] = [
+    ...(base.warnings ?? []),
+    ...listLegacyWebSearchConfigPaths(raw).map((path) => ({
+      path,
+      message:
+        `${path} is deprecated for web search provider config. ` +
+        "Move it under plugins.entries.<plugin>.config.webSearch.*; OpenClaw mapped it automatically for compatibility.",
+    })),
+  ];
   const hasExplicitPluginsConfig =
     isRecord(raw) && Object.prototype.hasOwnProperty.call(raw, "plugins");
 

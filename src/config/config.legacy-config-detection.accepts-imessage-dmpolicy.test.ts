@@ -339,7 +339,7 @@ describe("legacy config detection", () => {
       expectedValue: "primary route",
     });
   });
-  it("rejects session.sendPolicy.rules[].match.provider on load", async () => {
+  it("strips session.sendPolicy.rules[].match.provider with warning on load", async () => {
     await withSnapshotForConfig(
       {
         session: {
@@ -349,8 +349,10 @@ describe("legacy config detection", () => {
         },
       },
       async (ctx) => {
-        expect(ctx.snapshot.valid).toBe(false);
-        expect(ctx.snapshot.issues.length).toBeGreaterThan(0);
+        // Unknown keys are now stripped with warnings instead of rejecting.
+        expect(ctx.snapshot.valid).toBe(true);
+        expect(ctx.snapshot.warnings.length).toBeGreaterThan(0);
+        // The on-disk file is preserved (not rewritten).
         const parsed = ctx.parsed as {
           session?: { sendPolicy?: { rules?: Array<{ match?: { provider?: string } }> } };
         };
@@ -358,13 +360,14 @@ describe("legacy config detection", () => {
       },
     );
   });
-  it("rejects messages.queue.byProvider on load", async () => {
+  it("strips messages.queue.byProvider with warning on load", async () => {
     await withSnapshotForConfig(
       { messages: { queue: { byProvider: { whatsapp: "queue" } } } },
       async (ctx) => {
-        expect(ctx.snapshot.valid).toBe(false);
-        expect(ctx.snapshot.issues.length).toBeGreaterThan(0);
-
+        // Unknown keys are now stripped with warnings instead of rejecting.
+        expect(ctx.snapshot.valid).toBe(true);
+        expect(ctx.snapshot.warnings.length).toBeGreaterThan(0);
+        // The on-disk file is preserved (not rewritten).
         const parsed = ctx.parsed as {
           messages?: {
             queue?: {
