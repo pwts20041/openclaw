@@ -96,8 +96,9 @@ export type ChatProps = {
   onQueueRemove: (id: string) => void;
   onNewSession: () => void;
   onClearHistory?: () => void;
-  /** Called when the user deletes a message group; receives the 1-based seq of the first message in that group. */
-  onTruncateHistory?: (seq: number) => boolean;
+  /** Called when the user deletes a message group; receives the 1-based seq of the first message in that group.
+   * @param onFail Called if the RPC was not applied (error or truncated: false); caller should restore any optimistic hide. */
+  onTruncateHistory?: (seq: number, onFail: () => void) => boolean;
   agentsList: {
     agents: Array<{ id: string; name?: string; identity?: { name?: string; avatarUrl?: string } }>;
     defaultId?: string;
@@ -1042,7 +1043,12 @@ export function renderChat(props: ChatProps) {
                         if (seq !== null && props.onTruncateHistory) {
                           // Only apply optimistic UI update if the RPC was actually initiated;
                           // if disconnected, onTruncateHistory returns false and we leave state unchanged.
-                          if (props.onTruncateHistory(seq)) {
+                          if (
+                            props.onTruncateHistory(seq, () => {
+                              deleted.restore(item.key);
+                              requestUpdate();
+                            })
+                          ) {
                             deleted.delete(item.key);
                             requestUpdate();
                           }
