@@ -1310,29 +1310,60 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
 
     // Phase 3: re-acquire the write lock and perform the actual truncation.
-    // Re-read the file to pick up any appends that landed between Phase 1 and Phase 2.
-    // The cutLineIndex is still valid because transcript appends only extend the tail.
+    // Re-scan for p.seq under the lock: sessions.compact can rewrite the transcript
+    // (without holding acquireSessionWriteLock) between phases 1 and 3, which would
+    // shift line indices and make the cached cutLineIndex stale.
     let keptLines: string[] = [];
     let archived = "";
+    let seqFoundInPhase3 = false;
     const writeLock = await acquireSessionWriteLock({ sessionFile: filePath });
     try {
       const raw = fs.readFileSync(filePath, "utf-8");
       const allLines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
-      keptLines = allLines.slice(0, cutLineIndex);
-      const newContent = keptLines.length > 0 ? `${keptLines.join("\n")}\n` : "";
-      // Write-then-rename: write to a temp file first so the original is untouched if writeFileSync throws.
-      const ts = new Date().toISOString().replaceAll(":", "-");
-      const tmpPath = `${filePath}.tmp.${ts}`;
-      const bakPath = `${filePath}.bak.${ts}`;
-      // Preserve original file permissions (typically 0o600) so the replacement does not
-      // weaken transcript privacy on shared hosts.
-      const originalMode = fs.statSync(filePath).mode & 0o777;
-      fs.writeFileSync(tmpPath, newContent, { encoding: "utf-8", mode: originalMode });
-      fs.renameSync(filePath, bakPath);
-      fs.renameSync(tmpPath, filePath);
-      archived = bakPath;
+      // Re-walk lines to find the fresh cut point for the requested seq.
+      let freshCutLineIndex = -1;
+      let seq = 0;
+      for (let i = 0; i < allLines.length; i++) {
+        try {
+          const parsed = JSON.parse(allLines[i]) as Record<string, unknown>;
+          if (parsed?.message || parsed?.type === "compaction") {
+            seq += 1;
+            if (seq === p.seq) {
+              freshCutLineIndex = i;
+              break;
+            }
+          }
+        } catch {
+          // skip malformed lines
+        }
+      }
+      if (freshCutLineIndex >= 0) {
+        seqFoundInPhase3 = true;
+        keptLines = allLines.slice(0, freshCutLineIndex);
+        const newContent = keptLines.length > 0 ? `${keptLines.join("\n")}\n` : "";
+        // Write-then-rename: write to a temp file first so the original is untouched if writeFileSync throws.
+        const ts = new Date().toISOString().replaceAll(":", "-");
+        const tmpPath = `${filePath}.tmp.${ts}`;
+        const bakPath = `${filePath}.bak.${ts}`;
+        // Preserve original file permissions (typically 0o600) so the replacement does not
+        // weaken transcript privacy on shared hosts.
+        const originalMode = fs.statSync(filePath).mode & 0o777;
+        fs.writeFileSync(tmpPath, newContent, { encoding: "utf-8", mode: originalMode });
+        fs.renameSync(filePath, bakPath);
+        fs.renameSync(tmpPath, filePath);
+        archived = bakPath;
+      }
     } finally {
       await writeLock.release();
+    }
+
+    if (!seqFoundInPhase3) {
+      respond(
+        true,
+        { ok: true, key: target.canonicalKey, truncated: false, reason: "seq not found" },
+        undefined,
+      );
+      return;
     }
 
     await updateSessionStore(storePath, (store) => {
