@@ -725,4 +725,28 @@ openclaw pairing list feishu
 - ✅ 图片
 - ✅ 文件
 - ✅ 音频
-- ⚠️ 富文本（部分支持）
+- ✅ 视频/媒体
+- ✅ 互动卡片
+- ⚠️ 富文本（post 格式和卡片，不涵盖飞书所有编辑能力）
+
+### 话题与回复
+
+- ✅ 内联回复
+- ✅ 话题回复（飞书 `reply_in_thread` 支持的场景）
+- ✅ 回复话题消息时，媒体回复会自动归入对应话题
+
+## 运行时支持的操作
+
+飞书当前支持以下运行时操作：
+
+- `send`
+- `read`
+- `edit`
+- `thread-reply`
+- `pin`
+- `list-pins`
+- `unpin`
+- `member-info`
+- `channel-info`
+- `channel-list`
+- `react` 和 `reactions`（需在配置中启用 reactions）
