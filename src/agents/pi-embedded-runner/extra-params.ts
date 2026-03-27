@@ -298,6 +298,7 @@ export function applyExtraParamsToAgent(
   thinkingLevel?: ThinkLevel,
   agentId?: string,
   workspaceDir?: string,
+  api?: string,
 ): { effectiveExtraParams: Record<string, unknown> } {
   const resolvedExtraParams = resolveExtraParams({
     cfg,
@@ -321,11 +322,16 @@ export function applyExtraParamsToAgent(
     resolvedExtraParams,
   });
 
-  if (provider === "openai" || provider === "openai-codex") {
-    if (provider === "openai") {
-      // Default OpenAI Responses to WebSocket-first with transparent SSE fallback.
-      agent.streamFn = createOpenAIDefaultTransportWrapper(agent.streamFn);
-    }
+  const isFirstPartyOpenAI = provider === "openai" || provider === "openai-codex";
+  const isResponsesApi = api === "openai-responses" || api === "openai-codex-responses";
+
+  // Transport wrapper: first-party openai (original scope) + any provider using a
+  // responses API (new custom-provider path).
+  if (provider === "openai" || isResponsesApi) {
+    agent.streamFn = createOpenAIDefaultTransportWrapper(agent.streamFn);
+  }
+  // Attribution headers: first-party OpenAI only.
+  if (isFirstPartyOpenAI) {
     agent.streamFn = createOpenAIAttributionHeadersWrapper(agent.streamFn);
   }
 

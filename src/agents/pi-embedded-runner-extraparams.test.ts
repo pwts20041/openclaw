@@ -2547,4 +2547,61 @@ describe("applyExtraParamsToAgent", () => {
     expect(payload.prompt_cache_key).toBe("session-default");
     expect(payload.prompt_cache_retention).toBe("24h");
   });
+
+  it("applies transport wrapper for custom provider with openai-responses api param", () => {
+    const { calls, agent } = createOptionsCaptureAgent();
+
+    applyExtraParamsToAgent(
+      agent,
+      undefined,
+      "custom-responses-provider",
+      "custom-model-v1",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "openai-responses",
+    );
+
+    const model = {
+      api: "openai-responses",
+      provider: "custom-responses-provider",
+      id: "custom-model-v1",
+      baseUrl: "https://custom-api.example.com/v1",
+    } as unknown as Model<"openai-responses">;
+    const context: Context = { messages: [] };
+    void agent.streamFn?.(model, context, {});
+
+    expect(calls).toHaveLength(1);
+    // Transport wrapper applied: defaults to "auto" (WebSocket-first with SSE fallback)
+    expect(calls[0]?.transport).toBe("auto");
+  });
+
+  it("does not inject attribution headers for custom openai-responses provider", () => {
+    const { calls, agent } = createOptionsCaptureAgent();
+
+    applyExtraParamsToAgent(
+      agent,
+      undefined,
+      "custom-responses-provider",
+      "custom-model-v1",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "openai-responses",
+    );
+
+    const model = {
+      api: "openai-responses",
+      provider: "custom-responses-provider",
+      id: "custom-model-v1",
+      baseUrl: "https://custom-api.example.com/v1",
+    } as unknown as Model<"openai-responses">;
+    const context: Context = { messages: [] };
+    void agent.streamFn?.(model, context, {});
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.headers).toBeUndefined();
+  });
 });
