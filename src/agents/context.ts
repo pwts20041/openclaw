@@ -10,7 +10,7 @@ import { resolveOpenClawAgentDir } from "./agent-paths.js";
 import { lookupCachedContextTokens, MODEL_CONTEXT_TOKEN_CACHE } from "./context-cache.js";
 import { normalizeProviderId } from "./model-selection.js";
 
-type ModelEntry = { id: string; contextWindow?: number };
+type ModelEntry = { id: string; provider?: string; contextWindow?: number };
 type ModelRegistryLike = {
   getAvailable?: () => ModelEntry[];
   getAll: () => ModelEntry[];
@@ -29,12 +29,46 @@ const CONFIG_LOAD_RETRY_POLICY: BackoffPolicy = {
   jitter: 0,
 };
 
+function setSmallerContextWindow(
+  cache: Map<string, number>,
+  key: string,
+  contextWindow: number,
+): void {
+  const existing = cache.get(key);
+  // Prefer the smaller window so token budgeting stays fail-safe.
+  if (existing === undefined || contextWindow < existing) {
+    cache.set(key, contextWindow);
+  }
+}
+
+function toProviderQualifiedModelKey(model: ModelEntry): string | undefined {
+  const providerRaw = model.provider?.trim();
+  const provider = providerRaw ? normalizeProviderId(providerRaw) : undefined;
+  const id = model.id?.trim();
+  if (!provider || !id || id.includes("/")) {
+    return undefined;
+  }
+  return `${provider}/${id}`;
+}
+
 export function applyDiscoveredContextWindows(params: {
   cache: Map<string, number>;
   models: ModelEntry[];
 }) {
+  const discoveredRawModelIds = new Set<string>();
+  for (const model of params.models) {
+    const modelId = model.id?.trim();
+    if (modelId) {
+      discoveredRawModelIds.add(modelId);
+    }
+  }
+
   for (const model of params.models) {
     if (!model?.id) {
+      continue;
+    }
+    const modelId = model.id.trim();
+    if (!modelId) {
       continue;
     }
     const contextWindow =
@@ -42,15 +76,16 @@ export function applyDiscoveredContextWindows(params: {
     if (!contextWindow || contextWindow <= 0) {
       continue;
     }
-    const existing = params.cache.get(model.id);
-    // When the same bare model id appears under multiple providers with different
-    // limits, keep the smaller window. This cache feeds both display paths and
-    // runtime paths (flush thresholds, session context-token persistence), so
-    // overestimating the limit could delay compaction and cause context overflow.
-    // Callers that know the active provider should use resolveContextTokensForModel,
-    // which tries the provider-qualified key first and falls back here.
-    if (existing === undefined || contextWindow < existing) {
-      params.cache.set(model.id, contextWindow);
+    // Bare-id fallback remains fail-safe: keep the smallest value when duplicate
+    // ids appear across providers.
+    setSmallerContextWindow(params.cache, modelId, contextWindow);
+
+    // When discovery provides a separate provider field, also store the
+    // provider-qualified key so provider-aware lookups can keep limits distinct.
+    // Guard against collisions with real slash-containing discovery ids.
+    const qualifiedKey = toProviderQualifiedModelKey(model);
+    if (qualifiedKey && !discoveredRawModelIds.has(qualifiedKey)) {
+      setSmallerContextWindow(params.cache, qualifiedKey, contextWindow);
     }
   }
 }
@@ -68,7 +103,7 @@ export function applyConfiguredContextWindows(params: {
       continue;
     }
     for (const model of provider.models) {
-      const modelId = typeof model?.id === "string" ? model.id : undefined;
+      const modelId = typeof model?.id === "string" ? model.id.trim() : undefined;
       const contextWindow =
         typeof model?.contextWindow === "number" ? model.contextWindow : undefined;
       if (!modelId || !contextWindow || contextWindow <= 0) {
@@ -427,8 +462,19 @@ export function resolveContextTokensForModel(params: {
       `${normalizeProviderId(ref.provider)}/${ref.model}`,
       { allowAsyncLoad: params.allowAsyncLoad },
     );
+    const bareResult = lookupContextTokens(ref.model, {
+      allowAsyncLoad: params.allowAsyncLoad,
+    });
+    if (qualifiedResult !== undefined && bareResult !== undefined) {
+      // Preserve configured bare-id overrides when present while keeping
+      // provider-specific discovery values for the common collision case.
+      return Math.max(qualifiedResult, bareResult);
+    }
     if (qualifiedResult !== undefined) {
       return qualifiedResult;
+    }
+    if (bareResult !== undefined) {
+      return bareResult;
     }
   }
 

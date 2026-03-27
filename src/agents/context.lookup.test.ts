@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-type DiscoveredModel = { id: string; contextWindow: number };
+type DiscoveredModel = { id: string; provider?: string; contextWindow: number };
 
 function mockContextDeps(params: {
   loadConfig: () => unknown;
@@ -107,6 +107,68 @@ describe("lookupContextTokens", () => {
     expect(lookupContextTokens("openrouter/claude-sonnet", { allowAsyncLoad: false })).toBe(
       321_000,
     );
+  });
+
+  it("prefers provider-qualified discovered context windows when provider is known", async () => {
+    mockDiscoveryDeps([
+      { provider: "anthropic", id: "claude-sonnet", contextWindow: 1_000_000 },
+      { provider: "openrouter", id: "claude-sonnet", contextWindow: 200_000 },
+    ]);
+
+    const { lookupContextTokens, resolveContextTokensForModel } = await import("./context.js");
+    lookupContextTokens("anthropic/claude-sonnet");
+    await flushAsyncWarmup();
+
+    expect(lookupContextTokens("anthropic/claude-sonnet")).toBe(1_000_000);
+    expect(lookupContextTokens("openrouter/claude-sonnet")).toBe(200_000);
+    expect(
+      resolveContextTokensForModel({
+        provider: "anthropic",
+        model: "claude-sonnet",
+        fallbackContextTokens: 128_000,
+      }),
+    ).toBe(1_000_000);
+    expect(
+      resolveContextTokensForModel({
+        provider: "openrouter",
+        model: "claude-sonnet",
+        fallbackContextTokens: 128_000,
+      }),
+    ).toBe(200_000);
+  });
+
+  it("prefers configured bare-id overrides over discovered provider-qualified windows", async () => {
+    mockDiscoveryDeps([{ provider: "customprovider", id: "llama-3.1-8b", contextWindow: 8_192 }], {
+      customprovider: {
+        models: [{ id: "llama-3.1-8b", contextWindow: 131_072 }],
+      },
+    });
+
+    const resolveContextTokensForModel = await importResolveContextTokensForModel();
+    expect(
+      resolveContextTokensForModel({
+        provider: "customprovider",
+        model: "llama-3.1-8b",
+        fallbackContextTokens: 4_096,
+      }),
+    ).toBe(131_072);
+  });
+
+  it("normalizes provider aliases when writing discovered provider-qualified keys", async () => {
+    mockDiscoveryDeps([{ provider: "qwen", id: "qwen-max", contextWindow: 200_000 }]);
+
+    const { lookupContextTokens, resolveContextTokensForModel } = await import("./context.js");
+    lookupContextTokens("qwen-max");
+    await flushAsyncWarmup();
+
+    expect(lookupContextTokens("qwen-portal/qwen-max")).toBe(200_000);
+    expect(
+      resolveContextTokensForModel({
+        provider: "qwen",
+        model: "qwen-max",
+        fallbackContextTokens: 16_000,
+      }),
+    ).toBe(200_000);
   });
 
   it("only warms eagerly for real openclaw startup commands that need model metadata", async () => {
@@ -275,6 +337,35 @@ describe("lookupContextTokens", () => {
       model: "google/gemini-2.5-pro",
     });
     expect(openrouterResult).toBe(999_000);
+  });
+
+  it("does not synthesize discovered qualified keys that collide with real slash ids", async () => {
+    mockDiscoveryDeps([
+      { provider: "google", id: "gemini-2.5-pro", contextWindow: 2_000_000 },
+      { id: "google/gemini-2.5-pro", contextWindow: 999_000 },
+    ]);
+
+    const { lookupContextTokens, resolveContextTokensForModel } = await import("./context.js");
+    lookupContextTokens("gemini-2.5-pro");
+    await flushAsyncWarmup();
+
+    // Explicit provider call should keep the provider-specific bare-id value,
+    // not the unrelated raw slash-id collision value.
+    expect(
+      resolveContextTokensForModel({
+        provider: "google",
+        model: "gemini-2.5-pro",
+        fallbackContextTokens: 16_000,
+      }),
+    ).toBe(2_000_000);
+
+    // Model-only slash-id call should still resolve the raw discovery id.
+    expect(
+      resolveContextTokensForModel({
+        model: "google/gemini-2.5-pro",
+        fallbackContextTokens: 16_000,
+      }),
+    ).toBe(999_000);
   });
 
   it("resolveContextTokensForModel prefers exact provider key over alias-normalized match", async () => {
