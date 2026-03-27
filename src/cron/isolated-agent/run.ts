@@ -767,18 +767,117 @@ export async function runCronIsolatedAgentTurn(params: {
       deliveryAttempted:
         deliveryResult.result.deliveryAttempted ?? deliveryResult.deliveryAttempted,
     };
-    if (!hasFatalErrorPayload || deliveryResult.result.status !== "ok") {
+    // When the agent task itself had a fatal error AND delivery also returned a
+    // non-ok result, prefer the delivery-level error details (e.g. permanent
+    // target misconfiguration).  In all other cases derive the run status from
+    // the agent task outcome so that a successful task is never marked "error"
+    // due to a *best-effort* delivery failure.  Fixes #49826.
+    //
+    // However, when delivery is NOT best-effort and delivery failed, the run
+    // must still report "error" — the caller explicitly opted into strict
+    // delivery semantics.
+    if (hasFatalErrorPayload && deliveryResult.result.status !== "ok") {
       return resultWithDeliveryMeta;
     }
-    return resolveRunOutcome({
-      delivered: deliveryResult.result.delivered,
-      deliveryAttempted: resultWithDeliveryMeta.deliveryAttempted,
-    });
+    if (!hasFatalErrorPayload && deliveryResult.result.status !== "ok" && !deliveryBestEffort) {
+      return resultWithDeliveryMeta;
+    }
+    // Abort/timeout errors must always surface even for best-effort delivery:
+    // the run was killed mid-flight, so treating it as "ok" would let one-shot
+    // jobs be deleted and suppress back-off for recurring jobs.  Fixes P1
+    // review thread on #49880.
+    if (isAborted() && deliveryResult.result.status !== "ok") {
+      return resultWithDeliveryMeta;
+    }
+    // When the agent task itself returned a fatal error payload, always
+    // surface that error — even when delivery succeeded.  Without this
+    // guard the status override below would rewrite the run to "ok",
+    // clearing consecutiveErrors and potentially deleting one-shot jobs
+    // despite the agent task having failed.  Fixes P1 review on #49880.
+    if (hasFatalErrorPayload) {
+      return resolveRunOutcome({
+        delivered: resultWithDeliveryMeta.delivered,
+        deliveryAttempted: resultWithDeliveryMeta.deliveryAttempted,
+      });
+    }
+    // Abort/timeout during delivery must surface even when
+    // dispatchCronDelivery returned a result with status "ok" (e.g.
+    // best-effort delivery swallowed the error but enriched the result).
+    // Without this guard, the status override below rewrites the abort to
+    // "ok", causing one-shot jobs to be deleted and recurring jobs to skip
+    // back-off.  Fixes P2 review thread on #49880.
+    if (isAborted()) {
+      return withRunSession({
+        status: "error",
+        error: abortReason() ?? "cron run aborted",
+        delivered: resultWithDeliveryMeta.delivered,
+        deliveryAttempted: resultWithDeliveryMeta.deliveryAttempted,
+        ...telemetry,
+      });
+    }
+    // Agent task succeeded — return the delivery result which preserves
+    // enriched summary/outputText from dispatchCronDelivery (e.g.
+    // sub-agent synthesis), overriding status to reflect the agent outcome.
+    return {
+      ...resultWithDeliveryMeta,
+      status: "ok" as const,
+      error: undefined,
+    };
   }
   const delivered = deliveryResult.delivered;
   const deliveryAttempted = deliveryResult.deliveryAttempted;
   summary = deliveryResult.summary;
   outputText = deliveryResult.outputText;
+
+  // dispatchCronDelivery() returned no enriched result — this is the common
+  // path when best-effort delivery is swallowed (deliverOutboundPayloads threw
+  // and the catch block returned null).  The guards below mirror the ones in
+  // the `if (deliveryResult.result)` block above.  Fixes P2 review on #49880.
+
+  // Abort/timeout must always surface — even when best-effort delivery
+  // swallowed the error — so one-shot jobs are not deleted and recurring
+  // jobs trigger back-off.
+  if (isAborted()) {
+    return withRunSession({
+      status: "error",
+      error: abortReason() ?? "cron run aborted",
+      summary,
+      outputText,
+      delivered,
+      deliveryAttempted,
+      ...telemetry,
+    });
+  }
+
+  // Non-best-effort delivery that returned no result is an unexpected state
+  // (strict delivery failures normally return an enriched result), but guard
+  // it defensively: if delivery was attempted and not best-effort, surface
+  // the failure.
+  //
+  // Exception: when a `message_sending` plugin hook intentionally cancelled
+  // all payloads, deliverOutboundPayloads legitimately returns no results
+  // without any delivery error.  This is not a failure — the hook decided
+  // the message should not be sent.  Similarly, when the channel sanitizer
+  // strips all payloads (e.g. HTML-only on WhatsApp), deliverOutboundPayloads
+  // returns [] without throwing — this is also not a failure (noOpDelivery).
+  // Fixes review thread on #49880.
+  if (
+    deliveryAttempted &&
+    !deliveryBestEffort &&
+    !delivered &&
+    !deliveryResult.hookCancelled &&
+    !deliveryResult.noOpDelivery
+  ) {
+    return withRunSession({
+      status: "error",
+      error: "delivery failed without enriched result",
+      summary,
+      outputText,
+      delivered,
+      deliveryAttempted,
+      ...telemetry,
+    });
+  }
 
   return resolveRunOutcome({ delivered, deliveryAttempted });
 }

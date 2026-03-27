@@ -108,6 +108,11 @@ export type DispatchCronDeliveryState = {
   result?: RunCronAgentTurnResult;
   delivered: boolean;
   deliveryAttempted: boolean;
+  /** True when all payloads were intentionally cancelled by a `message_sending` hook. */
+  hookCancelled?: boolean;
+  /** True when deliverOutboundPayloads returned an empty array without error — e.g. because
+   * the channel sanitizer stripped an HTML-only payload. This is not a failure. */
+  noOpDelivery?: boolean;
   summary?: string;
   outputText?: string;
   synthesizedText?: string;
@@ -356,6 +361,8 @@ export async function dispatchCronDelivery(
   // remains the only source of delivered state.
   let delivered = skipMessagingToolDelivery;
   let deliveryAttempted = skipMessagingToolDelivery;
+  let hookCancelled = false;
+  let noOpDelivery = false;
   const failDeliveryTarget = (error: string) =>
     params.withRunSession({
       status: "error",
@@ -462,6 +469,9 @@ export async function dispatchCronDelivery(
           deps: createOutboundSendDeps(params.deps),
           abortSignal: params.abortSignal,
           onError,
+          onHookCancelled: () => {
+            hookCancelled = true;
+          },
           // Isolated cron direct delivery uses its own transient retry loop.
           // Keep all attempts out of the write-ahead delivery queue so a
           // late-successful first send cannot leave behind a failed queue
@@ -493,6 +503,11 @@ export async function dispatchCronDelivery(
       }
       if (delivered) {
         rememberCompletedDirectCronDelivery(deliveryIdempotencyKey, deliveryResults);
+      } else {
+        // deliverOutboundPayloads returned an empty array without throwing — the
+        // channel sanitizer stripped all payloads (e.g. HTML-only message on a
+        // plain-text channel). This is intentional, not a delivery failure.
+        noOpDelivery = true;
       }
       return null;
     } catch (err) {
@@ -650,6 +665,7 @@ export async function dispatchCronDelivery(
           outputText,
           synthesizedText,
           deliveryPayloads,
+          hookCancelled,
         };
       }
       logWarn(`[cron:${params.job.id}] ${params.resolvedDelivery.error.message}`);
@@ -663,6 +679,8 @@ export async function dispatchCronDelivery(
         }),
         delivered,
         deliveryAttempted,
+        noOpDelivery,
+        hookCancelled,
         summary,
         outputText,
         synthesizedText,
@@ -682,10 +700,12 @@ export async function dispatchCronDelivery(
           result: directResult,
           delivered,
           deliveryAttempted,
+          noOpDelivery,
           summary,
           outputText,
           synthesizedText,
           deliveryPayloads,
+          hookCancelled,
         };
       }
     } else {
@@ -695,10 +715,12 @@ export async function dispatchCronDelivery(
           result: finalizedTextResult,
           delivered,
           deliveryAttempted,
+          noOpDelivery,
           summary,
           outputText,
           synthesizedText,
           deliveryPayloads,
+          hookCancelled,
         };
       }
     }
@@ -707,6 +729,8 @@ export async function dispatchCronDelivery(
   return {
     delivered,
     deliveryAttempted,
+    noOpDelivery,
+    hookCancelled,
     summary,
     outputText,
     synthesizedText,
