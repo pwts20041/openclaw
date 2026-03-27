@@ -10,7 +10,7 @@ type LazyLocaleRegistration = {
 
 export const DEFAULT_LOCALE: Locale = "en";
 
-const LAZY_LOCALES: readonly LazyLocale[] = ["zh-CN", "zh-TW", "pt-BR", "de", "es"];
+const LAZY_LOCALES: readonly LazyLocale[] = ["zh-CN", "zh-TW", "pt-BR", "de", "es", "ar"];
 
 const LAZY_LOCALE_REGISTRY: Record<LazyLocale, LazyLocaleRegistration> = {
   "zh-CN": {
@@ -32,6 +32,10 @@ const LAZY_LOCALE_REGISTRY: Record<LazyLocale, LazyLocaleRegistration> = {
   es: {
     exportName: "es",
     loader: () => import("../locales/es.ts"),
+  },
+  ar: {
+    exportName: "ar",
+    loader: () => import("../locales/ar.ts"),
   },
 };
 
@@ -58,7 +62,16 @@ export function resolveNavigatorLocale(navLang: string): Locale {
   if (navLang.startsWith("es")) {
     return "es";
   }
+  if (navLang.startsWith("ar")) {
+    return "ar";
+  }
   return DEFAULT_LOCALE;
+}
+
+const RTL_LOCALES: ReadonlySet<Locale> = new Set(["ar"] satisfies Locale[]);
+
+export function isRtlLocale(locale: Locale): boolean {
+  return RTL_LOCALES.has(locale);
 }
 
 export async function loadLazyLocaleTranslation(locale: Locale): Promise<TranslationMap | null> {
