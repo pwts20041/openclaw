@@ -636,7 +636,14 @@ export async function runCronIsolatedAgentTurn(params: {
     // retried on future runs once it recovers.
     // Compare against the *original* model/provider captured before `runPrompt`
     // reassigned the outer variables via fallback result (#48417).
-    const isFromFallback = modelUsed !== originalModel || providerUsed !== originalProvider;
+    //
+    // Hook override exception: a `before_model_resolve` hook can legitimately
+    // rewrite the provider/model without being a fallback. When isHookOverride is
+    // set, the change is plugin-directed and must be persisted as the session
+    // runtime model even though it differs from the configured default.
+    const isHookOverride = finalRunResult.meta?.agentMeta?.isHookOverride === true;
+    const isFromFallback =
+      !isHookOverride && (modelUsed !== originalModel || providerUsed !== originalProvider);
     if (!isFromFallback) {
       setSessionRuntimeModel(cronSession.sessionEntry, {
         provider: providerUsed,
@@ -644,7 +651,10 @@ export async function runCronIsolatedAgentTurn(params: {
       });
     }
     cronSession.sessionEntry.contextTokens = contextTokens;
-    if (isCliProvider(providerUsed, cfgWithAgentDefaults)) {
+    // CLI session IDs are resume handles — persisting one from a fallback run would
+    // cause the next run to resume from a fallback-provider session, preventing the
+    // primary from being retried once it recovers. Guard these writes the same way.
+    if (!isFromFallback && isCliProvider(providerUsed, cfgWithAgentDefaults)) {
       const cliSessionId = finalRunResult.meta?.agentMeta?.sessionId?.trim();
       if (cliSessionId) {
         setCliSessionId(cronSession.sessionEntry, providerUsed, cliSessionId);

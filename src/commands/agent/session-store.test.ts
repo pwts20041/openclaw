@@ -170,6 +170,93 @@ describe("updateSessionStoreAfterAgentRun", () => {
     expect(persisted?.modelProvider).not.toBe("anthropic");
   });
 
+  it("persists hook-overridden model even though it differs from configured defaults", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-session-store-"));
+    const storePath = path.join(dir, "sessions.json");
+    const sessionKey = `agent:test:hook-override:${randomUUID()}`;
+    const sessionId = randomUUID();
+
+    const sessionStore: Record<string, SessionEntry> = {
+      [sessionKey]: {
+        sessionId,
+        updatedAt: Date.now(),
+      },
+    };
+    await fs.writeFile(storePath, JSON.stringify(sessionStore, null, 2), "utf8");
+
+    // A before_model_resolve hook redirected the run to a different provider/model.
+    // The run reports isHookOverride=true — this is NOT a fallback.
+    await updateSessionStoreAfterAgentRun({
+      cfg: {} as never,
+      sessionId,
+      sessionKey,
+      storePath,
+      sessionStore,
+      defaultProvider: "openai",
+      defaultModel: "gpt-5.3",
+      result: {
+        payloads: [],
+        meta: {
+          aborted: false,
+          agentMeta: {
+            provider: "anthropic",
+            model: "claude-opus-4-5",
+            isHookOverride: true,
+            usage: { input: 100, output: 50 },
+          },
+        },
+      } as never,
+    });
+
+    const persisted = loadSessionStore(storePath, { skipCache: true })[sessionKey];
+    // Hook-directed model should be persisted as the session runtime model
+    expect(persisted?.model).toBe("claude-opus-4-5");
+    expect(persisted?.modelProvider).toBe("anthropic");
+  });
+
+  it("does not persist fallback CLI session ID into the session store", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-session-store-"));
+    const storePath = path.join(dir, "sessions.json");
+    const sessionKey = `agent:test:fallback-cli:${randomUUID()}`;
+    const sessionId = randomUUID();
+
+    const sessionStore: Record<string, SessionEntry> = {
+      [sessionKey]: {
+        sessionId,
+        updatedAt: Date.now(),
+      },
+    };
+    await fs.writeFile(storePath, JSON.stringify(sessionStore, null, 2), "utf8");
+
+    // Fallback run with a CLI provider — should not persist the fallback's session ID.
+    await updateSessionStoreAfterAgentRun({
+      cfg: { agents: { defaults: { cliProviders: ["claude-cli"] } } } as never,
+      sessionId,
+      sessionKey,
+      storePath,
+      sessionStore,
+      defaultProvider: "openai",
+      defaultModel: "gpt-5.3",
+      result: {
+        payloads: [],
+        meta: {
+          aborted: false,
+          agentMeta: {
+            provider: "claude-cli",
+            model: "claude-opus-4-5",
+            sessionId: "fallback-cli-session-id",
+            usage: { input: 100, output: 50 },
+          },
+        },
+      } as never,
+    });
+
+    const persisted = loadSessionStore(storePath, { skipCache: true })[sessionKey];
+    // Fallback CLI session ID must NOT be written
+    const persistedStr = JSON.stringify(persisted ?? {});
+    expect(persistedStr).not.toContain("fallback-cli-session-id");
+  });
+
   it("does not persist fallback model when agentMeta reports different provider/model than defaults", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-session-store-"));
     const storePath = path.join(dir, "sessions.json");
