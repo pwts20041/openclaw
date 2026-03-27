@@ -82,6 +82,22 @@ describe("createTelegramRetryRunner", () => {
         expectedError: "permission denied",
       },
       {
+        name: "retries misdirected request errors from Telegram edge nodes",
+        runnerOptions: {
+          retry: ZERO_DELAY_RETRY,
+        },
+        fnSteps: [
+          {
+            type: "reject" as const,
+            value: Object.assign(new Error("421 Misdirected Request"), {
+              status: 421,
+            }),
+          },
+        ],
+        expectedCalls: 3,
+        expectedError: "421 Misdirected Request",
+      },
+      {
         name: "keeps retrying retriable errors until attempts are exhausted",
         runnerOptions: {
           retry: ZERO_DELAY_RETRY,
