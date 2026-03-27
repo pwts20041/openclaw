@@ -4671,6 +4671,11 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
                         notifyOnExitEmptySuccess: {
                           type: "boolean",
                         },
+                        maxCommandChars: {
+                          type: "integer",
+                          minimum: 0,
+                          maximum: 9007199254740991,
+                        },
                         applyPatch: {
                           type: "object",
                           properties: {
@@ -7157,6 +7162,11 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
               },
               notifyOnExitEmptySuccess: {
                 type: "boolean",
+              },
+              maxCommandChars: {
+                type: "integer",
+                minimum: 0,
+                maximum: 9007199254740991,
               },
               applyPatch: {
                 type: "object",

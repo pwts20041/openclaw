@@ -295,10 +295,19 @@ vi.mock("openclaw/plugin-sdk/infra-runtime", async (importOriginal) => {
   };
 });
 
-vi.mock("openclaw/plugin-sdk/runtime-env", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/runtime-env")>();
+vi.mock("openclaw/plugin-sdk/runtime-env", () => {
+  const logger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    child: () => logger,
+  };
   return {
-    ...actual,
+    createSubsystemLogger: () => logger,
+    danger: (value: unknown) => String(value),
+    logVerbose: vi.fn(),
+    waitForAbortSignal: vi.fn(),
     registerUnhandledRejectionHandler: registerUnhandledRejectionHandlerMock,
   };
 });
