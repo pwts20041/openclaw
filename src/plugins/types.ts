@@ -1239,8 +1239,27 @@ export type PluginConversationBindingResolvedEvent = {
 
 /**
  * Result returned by a plugin command handler.
+ *
+ * By default, plugin commands are terminal — the reply is sent and the LLM
+ * agent does not run. Set `shouldContinue: true` to hand off to the agent
+ * instead of sending the reply. This is useful for commands that change
+ * agent state (e.g., granting a permission, loading context, toggling a
+ * mode) and need the agent to act on the change.
+ *
+ * When `shouldContinue` is true the reply payload is **not** delivered to the
+ * user — the agent runs immediately instead. Use `runtime.system.enqueueSystemEvent`
+ * inside the handler to pass context to the agent.
  */
-export type PluginCommandResult = ReplyPayload;
+export type PluginCommandResult = ReplyPayload & {
+  /**
+   * If true, the command reply is suppressed and the LLM agent runs instead.
+   * The agent receives the original user message as input, plus any system
+   * events enqueued during the command handler via `enqueueSystemEvent`.
+   *
+   * Default: false (command reply is the final response; agent does not run).
+   */
+  shouldContinue?: boolean;
+};
 
 /**
  * Handler function for plugin commands.
@@ -1586,9 +1605,11 @@ export type OpenClawPluginApi = {
     handler: (event: PluginConversationBindingResolvedEvent) => void | Promise<void>,
   ) => void;
   /**
-   * Register a custom command that bypasses the LLM agent.
+   * Register a custom command that runs before the LLM agent.
    * Plugin commands are processed before built-in commands and before agent invocation.
-   * Use this for simple state-toggling or status commands that don't need AI reasoning.
+   * By default the command reply is the final response (no agent run). Set
+   * `shouldContinue: true` in the returned `PluginCommandResult` to hand off
+   * to the agent instead (e.g., after granting a permission or loading context).
    */
   registerCommand: (command: OpenClawPluginCommandDefinition) => void;
   /** Register a context engine implementation (exclusive slot — only one active at a time). */
