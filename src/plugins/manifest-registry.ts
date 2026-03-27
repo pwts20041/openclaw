@@ -402,6 +402,8 @@ export function loadPluginManifestRegistry(
   for (const candidate of candidates) {
     const rejectHardlinks = candidate.origin !== "bundled";
     const isBundleRecord = (candidate.format ?? "openclaw") === "bundle";
+    // Prefer cached manifest data from discovery when available so registry
+    // loading avoids a second read for normal plugins and bundled metadata.
     const manifestRes:
       | ReturnType<typeof loadPluginManifest>
       | ReturnType<typeof loadBundleManifest>
@@ -418,7 +420,8 @@ export function loadPluginManifestRegistry(
               bundleFormat: candidate.bundleFormat,
               rejectHardlinks,
             })
-          : loadPluginManifest(candidate.rootDir, rejectHardlinks);
+          : (candidate.pluginManifestResult ??
+            loadPluginManifest(candidate.rootDir, rejectHardlinks));
     if (!manifestRes.ok) {
       diagnostics.push({
         level: "error",
