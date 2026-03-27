@@ -24,7 +24,6 @@ import ai.openclaw.app.voice.TalkModeManager
 import ai.openclaw.app.voice.VoiceConversationEntry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,7 +33,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -195,6 +193,12 @@ class NodeRuntime(
   private val _pendingGatewayTrust = MutableStateFlow<GatewayTrustPrompt?>(null)
   val pendingGatewayTrust: StateFlow<GatewayTrustPrompt?> = _pendingGatewayTrust.asStateFlow()
 
+  private fun generateNodeSessionKey(agentId: String = "main"): String {
+    val deviceId = identityStore.loadOrCreate().deviceId
+    val shortDeviceId = deviceId.take(12)
+    return "agent:$agentId:node-$shortDeviceId"
+  }
+
   private val _mainSessionKey = MutableStateFlow("main")
   val mainSessionKey: StateFlow<String> = _mainSessionKey.asStateFlow()
 
@@ -243,7 +247,15 @@ class NodeRuntime(
         _serverName.value = name
         _remoteAddress.value = remote
         _seamColorArgb.value = DEFAULT_SEAM_COLOR_ARGB
-        applyMainSessionKey(mainSessionKey)
+        
+        val resolvedKey = if (isCanonicalMainSessionKey(mainSessionKey)) {
+          mainSessionKey
+        } else {
+          val agentId = gatewayDefaultAgentId?.ifEmpty { "main" } ?: "main"
+          generateNodeSessionKey(agentId)
+        }
+        applyMainSessionKey(resolvedKey)
+        
         updateStatus()
         micCapture.onGatewayConnectionChanged(true)
         scope.launch {
@@ -260,7 +272,8 @@ class NodeRuntime(
         _remoteAddress.value = null
         _seamColorArgb.value = DEFAULT_SEAM_COLOR_ARGB
         if (!isCanonicalMainSessionKey(_mainSessionKey.value)) {
-          _mainSessionKey.value = "main"
+          _mainSessionKey.value = generateNodeSessionKey()
+          talkMode.setMainSessionKey(_mainSessionKey.value)
         }
         chat.applyMainSessionKey(resolveMainSessionKey())
         chat.onDisconnected(message)
@@ -320,7 +333,9 @@ class NodeRuntime(
       session = operatorSession,
       json = json,
       supportsChatSubscribe = false,
-    )
+    ).also {
+      it.applyMainSessionKey(_mainSessionKey.value)
+    }
   private val voiceReplySpeakerLazy: Lazy<TalkModeManager> = lazy {
     // Reuse the existing TalkMode speech engine (ElevenLabs + deterministic system-TTS fallback)
     // without enabling the legacy talk capture loop.
@@ -962,7 +977,14 @@ class NodeRuntime(
       val raw = ui?.get("seamColor").asStringOrNull()?.trim()
       val sessionCfg = config?.get("session").asObjectOrNull()
       val mainKey = normalizeMainKey(sessionCfg?.get("mainKey").asStringOrNull())
-      applyMainSessionKey(mainKey)
+      
+      val resolvedKey = if (isCanonicalMainSessionKey(mainKey)) {
+        mainKey
+      } else {
+        val agentId = gatewayDefaultAgentId?.ifEmpty { "main" } ?: "main"
+        generateNodeSessionKey(agentId)
+      }
+      applyMainSessionKey(resolvedKey)
 
       val parsed = parseHexColorArgb(raw)
       _seamColorArgb.value = parsed ?: DEFAULT_SEAM_COLOR_ARGB
@@ -995,7 +1017,14 @@ class NodeRuntime(
 
       gatewayDefaultAgentId = defaultAgentId.ifEmpty { null }
       gatewayAgents = agents
-      applyMainSessionKey(mainKey)
+      
+      val resolvedKey = if (isCanonicalMainSessionKey(mainKey)) {
+        mainKey
+      } else {
+        val agentId = defaultAgentId.ifEmpty { "main" }
+        generateNodeSessionKey(agentId)
+      }
+      applyMainSessionKey(resolvedKey)
       updateHomeCanvasState()
     } catch (_: Throwable) {
       // ignore

@@ -82,7 +82,6 @@ class ChatController(
     val trimmed = mainSessionKey.trim()
     if (trimmed.isEmpty()) return
     if (_sessionKey.value == trimmed) return
-    if (_sessionKey.value != "main") return
     _sessionKey.value = trimmed
     scope.launch { bootstrap(forceHealth = true, refreshSessions = true) }
   }
