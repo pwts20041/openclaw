@@ -249,6 +249,8 @@ importers:
 
   extensions/anthropic: {}
 
+  extensions/blender: {}
+
   extensions/bluebubbles:
     devDependencies:
       openclaw:
