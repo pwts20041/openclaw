@@ -600,23 +600,72 @@ describe("deliverReplies", () => {
     );
   });
 
-  it("throws when formatted and plain fallback text are both empty", async () => {
+  it("silently skips (does not throw) when formatted and plain fallback text are both empty", async () => {
     const runtime = createRuntime();
     const sendMessage = vi.fn();
     const bot = { api: { sendMessage } } as unknown as Bot;
 
-    await expect(
-      deliverReplies({
-        replies: [{ text: "   " }],
-        chatId: "123",
-        token: "tok",
-        runtime,
-        bot,
-        replyToMode: "off",
-        textLimit: 4000,
-      }),
-    ).rejects.toThrow("empty formatted text and empty plain fallback");
+    // Should not throw — empty chunks are silently skipped instead of causing 400 errors.
+    const result = await deliverReplies({
+      replies: [{ text: "   " }],
+      chatId: "123",
+      token: "tok",
+      runtime,
+      bot,
+      replyToMode: "off",
+      textLimit: 4000,
+    });
+    expect(result.delivered).toBe(false);
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("skips empty last chunk when long response splits into multiple chunks", async () => {
+    // Scenario: large response split into 2 chunks where the last chunk is empty/whitespace.
+    // Before the fix: Telegram 400 "text must be non-empty" → "No response generated."
+    // After the fix: empty chunk is skipped silently; first chunk delivers successfully.
+    const { runtime, sendMessage, bot } = createSendMessageHarness(99);
+    // 3500 As (exactly at limit) + trailing whitespace: produces chunk1="A"*3500 (sent)
+    // and chunk2="   " (whitespace only, skipped by empty-text guard).
+    const longText = "A".repeat(3500) + "\n\n   ";
+    await deliverWith({
+      replies: [{ text: longText }],
+      runtime,
+      bot,
+      replyToMode: "off",
+      textLimit: 3500,
+    });
+    // sendMessage should only be called once — for the first non-empty chunk (not the trailing whitespace).
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("handles Telegram 400 text-must-be-non-empty error by silently skipping the chunk", async () => {
+    const runtime = createRuntime();
+    const sendMessage = vi
+      .fn()
+      // Reject both the HTML attempt and the plain-text fallback with 400 so neither
+      // returns a message object. The plain fallback runs because hasFallbackText is
+      // true for "hello"; both rejections match EMPTY_TEXT_ERR_RE for silent-skip.
+      .mockRejectedValue(
+        new Error("Call to 'sendMessage' failed! (400: Bad Request: text must be non-empty)"),
+      );
+    const bot = createBot({ sendMessage });
+
+    // Use non-whitespace text so the chunk passes shouldSkipChunk and reaches sendMessage.
+    // The mock then rejects with the 400 "text must be non-empty" error, exercising the
+    // silent-skip path in sendTelegramText. With whitespace-only text the chunk is skipped
+    // before sendMessage is called and the 400 handler is never reached.
+    const result = await deliverReplies({
+      replies: [{ text: "hello" }],
+      chatId: "123",
+      token: "tok",
+      runtime,
+      bot,
+      replyToMode: "off",
+      textLimit: 4000,
+    });
+    // sendMessage called twice (HTML + plain fallback), both threw 400; silently skipped.
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(result.delivered).toBe(false);
   });
 
   it("uses reply_to_message_id when quote text is provided", async () => {
