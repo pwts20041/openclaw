@@ -1,7 +1,11 @@
 import type { Bot } from "grammy";
 import { createFinalizableDraftLifecycle } from "openclaw/plugin-sdk/channel-lifecycle";
 import { buildTelegramThreadParams, type TelegramThreadSpec } from "./bot/helpers.js";
-import { isSafeToRetrySendError, isTelegramClientRejection } from "./network-errors.js";
+import {
+  isRecoverableTelegramNetworkError,
+  isSafeToRetrySendError,
+  isTelegramClientRejection,
+} from "./network-errors.js";
 
 const TELEGRAM_STREAM_MAX_CHARS = 4096;
 const DEFAULT_THROTTLE_MS = 1000;
@@ -82,8 +86,27 @@ export type TelegramDraftStream = {
   lastDeliveredText?: () => string;
   clear: () => Promise<void>;
   stop: () => Promise<void>;
-  /** Convert the current draft preview into a permanent message (sendMessage). */
   materialize?: () => Promise<number | undefined>;
+  prepareFinalization?: (params: { text: string }) => Promise<
+    | {
+        kind: "finalized";
+        content: string;
+        messageId?: number;
+      }
+    | {
+        kind: "edit";
+        messageId: number;
+        finalTextAlreadyLanded: boolean;
+      }
+    | { kind: "retained" | "fallback" }
+  >;
+  archiveActivePreview?: () => Promise<
+    | {
+        textSnapshot: string;
+        messageId?: number;
+      }
+    | undefined
+  >;
   /** Reset internal state so the next update creates a new message instead of editing. */
   forceNewMessage: () => void;
   /** True when a preview sendMessage was attempted but the response was lost. */
@@ -395,23 +418,15 @@ export function createTelegramDraftStream(params: {
     loop.resetThrottleWindow();
   };
 
-  /**
-   * Materialize the current draft into a permanent message.
-   * For draft transport: sends the accumulated text as a real sendMessage.
-   * For message transport: the message is already permanent (noop).
-   * Returns the permanent message id, or undefined if nothing to materialize.
-   */
-  const materialize = async (): Promise<number | undefined> => {
+  const materializeDraftPreview = async (): Promise<
+    { kind: "finalized"; messageId?: number } | { kind: "retained" | "fallback" }
+  > => {
     await stop();
-    // If using message transport, the streamMessageId is already a real message.
-    if (previewTransport === "message" && typeof streamMessageId === "number") {
-      return streamMessageId;
-    }
     // For draft transport, use the rendered snapshot first so parse_mode stays
     // aligned with the text being materialized.
     const renderedText = lastSentText || lastDeliveredText;
     if (!renderedText) {
-      return undefined;
+      return { kind: "fallback" };
     }
     const renderedParseMode = lastSentText ? lastSentParseMode : undefined;
     try {
@@ -438,14 +453,97 @@ export function createTelegramDraftStream(params: {
             // Best-effort cleanup; draft clear failure is cosmetic.
           }
         }
-        return streamMessageId;
+        return { kind: "finalized", messageId: streamMessageId };
       }
     } catch (err) {
+      if (isSafeToRetrySendError(err) || isTelegramClientRejection(err)) {
+        return { kind: "fallback" };
+      }
+      if (isRecoverableTelegramNetworkError(err, { allowMessageMatch: true })) {
+        return { kind: "retained" };
+      }
       params.warn?.(
         `telegram stream preview materialize failed: ${err instanceof Error ? err.message : String(err)}`,
       );
+      return { kind: "retained" };
+    }
+    return { kind: "fallback" };
+  };
+
+  const prepareFinalization: NonNullable<TelegramDraftStream["prepareFinalization"]> = async ({
+    text,
+  }) => {
+    const trimmed = text.trimEnd();
+    if (!trimmed) {
+      return { kind: "fallback" };
+    }
+    const hadPreviewMessage = typeof streamMessageId === "number";
+    if (trimmed !== lastDeliveredText) {
+      update(text);
+    }
+    if (previewTransport === "draft") {
+      const result = await materializeDraftPreview();
+      if (result.kind === "finalized") {
+        lastDeliveredText = trimmed;
+        return {
+          kind: "finalized",
+          content: trimmed,
+          ...(typeof result.messageId === "number" ? { messageId: result.messageId } : {}),
+        };
+      }
+      return result;
+    }
+    if (!hadPreviewMessage) {
+      update(text);
+    }
+    await stop();
+    if (typeof streamMessageId === "number") {
+      return {
+        kind: "edit",
+        messageId: streamMessageId,
+        finalTextAlreadyLanded: !hadPreviewMessage,
+      };
+    }
+    if (messageSendAttempted && hadPreviewMessage) {
+      return { kind: "retained" };
+    }
+    return { kind: "fallback" };
+  };
+
+  const archiveActivePreview: NonNullable<
+    TelegramDraftStream["archiveActivePreview"]
+  > = async () => {
+    const textSnapshot = lastDeliveredText;
+    if (!textSnapshot) {
+      return undefined;
+    }
+    if (previewTransport === "draft") {
+      const result = await materializeDraftPreview();
+      if (result.kind !== "finalized") {
+        return { textSnapshot };
+      }
+      return {
+        textSnapshot,
+        ...(typeof result.messageId === "number" ? { messageId: result.messageId } : {}),
+      };
+    }
+    await stop();
+    if (typeof streamMessageId === "number") {
+      return { textSnapshot, messageId: streamMessageId };
+    }
+    if (messageSendAttempted) {
+      return { textSnapshot };
     }
     return undefined;
+  };
+
+  const materialize: NonNullable<TelegramDraftStream["materialize"]> = async () => {
+    if (previewTransport === "message") {
+      await stop();
+      return streamMessageId;
+    }
+    const result = await materializeDraftPreview();
+    return result.kind === "finalized" ? result.messageId : undefined;
   };
 
   params.log?.(`telegram stream preview ready (maxChars=${maxChars}, throttleMs=${throttleMs})`);
@@ -460,6 +558,8 @@ export function createTelegramDraftStream(params: {
     clear,
     stop,
     materialize,
+    prepareFinalization,
+    archiveActivePreview,
     forceNewMessage,
     sendMayHaveLanded: () => messageSendAttempted && typeof streamMessageId !== "number",
   };

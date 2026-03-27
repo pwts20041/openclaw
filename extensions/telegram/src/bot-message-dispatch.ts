@@ -209,10 +209,6 @@ export const dispatchTelegramMessage = async ({
   const draftReplyToMessageId =
     replyToMode !== "off" && typeof msg.message_id === "number" ? msg.message_id : undefined;
   const draftMinInitialChars = DRAFT_MIN_INITIAL_CHARS;
-  // Keep DM preview lanes on real message transport. Native draft previews still
-  // require a draft->message materialize hop, and that overlap keeps reintroducing
-  // a visible duplicate flash at finalize time.
-  const useMessagePreviewTransportForDm = threadSpec?.scope === "dm" && canStreamAnswerDraft;
   const mediaLocalRoots = getAgentScopedMediaLocalRoots(cfg, route.agentId);
   const archivedAnswerPreviews: ArchivedPreview[] = [];
   const archivedReasoningPreviewIds: number[] = [];
@@ -223,26 +219,25 @@ export const dispatchTelegramMessage = async ({
           chatId,
           maxChars: draftMaxChars,
           thread: threadSpec,
-          previewTransport: useMessagePreviewTransportForDm ? "message" : "auto",
+          previewTransport: threadSpec?.scope === "dm" ? "draft" : "auto",
           replyToMessageId: draftReplyToMessageId,
           minInitialChars: draftMinInitialChars,
           renderText: renderDraftPreview,
           onSupersededPreview:
-            laneName === "answer" || laneName === "reasoning"
+            laneName === "reasoning"
               ? (preview) => {
-                  if (laneName === "reasoning") {
-                    if (!archivedReasoningPreviewIds.includes(preview.messageId)) {
-                      archivedReasoningPreviewIds.push(preview.messageId);
-                    }
-                    return;
+                  if (!archivedReasoningPreviewIds.includes(preview.messageId)) {
+                    archivedReasoningPreviewIds.push(preview.messageId);
                   }
+                }
+              : (preview) => {
                   archivedAnswerPreviews.push({
                     messageId: preview.messageId,
                     textSnapshot: preview.textSnapshot,
+                    consumeOnNextFinal: true,
                     deleteIfUnused: true,
                   });
-                }
-              : undefined,
+                },
           log: logVerbose,
           warn: logVerbose,
         })
@@ -270,6 +265,7 @@ export const dispatchTelegramMessage = async ({
   };
   const answerLane = lanes.answer;
   const reasoningLane = lanes.reasoning;
+  let activeDmPreviewLane: LaneName | null = null;
   let splitReasoningOnNextStream = false;
   let skipNextAnswerMessageStartRotation = false;
   let draftLaneEventQueue = Promise.resolve();
@@ -306,13 +302,44 @@ export const dispatchTelegramMessage = async ({
     lane.lastPartialText = "";
     lane.hasStreamedMessage = false;
   };
+  const archiveActiveDmPreview = async (reason: "boundary" | "lane-switch") => {
+    if (threadSpec?.scope !== "dm" || activeDmPreviewLane == null) {
+      return false;
+    }
+    const laneName = activeDmPreviewLane;
+    const lane = lanes[laneName];
+    if (!lane.hasStreamedMessage) {
+      activeDmPreviewLane = null;
+      return false;
+    }
+    const archivedPreview = await lane.stream?.archiveActivePreview?.();
+    if (archivedPreview?.messageId != null) {
+      if (laneName === "answer") {
+        archivedAnswerPreviews.push({
+          messageId: archivedPreview.messageId,
+          textSnapshot: lane.lastPartialText,
+          deleteIfUnused: reason === "lane-switch",
+        });
+      } else if (!archivedReasoningPreviewIds.includes(archivedPreview.messageId)) {
+        archivedReasoningPreviewIds.push(archivedPreview.messageId);
+      }
+    }
+    lane.stream?.forceNewMessage();
+    resetDraftLaneState(lane);
+    activeDmPreviewLane = null;
+    return true;
+  };
   const rotateAnswerLaneForNewAssistantMessage = async () => {
+    if (threadSpec?.scope === "dm") {
+      const didArchive = await archiveActiveDmPreview("boundary");
+      activePreviewLifecycleByLane.answer = "transient";
+      retainPreviewOnCleanupByLane.answer = false;
+      return didArchive;
+    }
     let didForceNewMessage = false;
     if (answerLane.hasStreamedMessage) {
-      // Materialize the current streamed draft into a permanent message
-      // so it remains visible across tool boundaries.
-      const materializedId = await answerLane.stream?.materialize?.();
-      const previewMessageId = materializedId ?? answerLane.stream?.messageId();
+      const archivedPreview = await answerLane.stream?.archiveActivePreview?.();
+      const previewMessageId = archivedPreview?.messageId ?? answerLane.stream?.messageId();
       if (
         typeof previewMessageId === "number" &&
         activePreviewLifecycleByLane.answer === "transient"
@@ -320,6 +347,7 @@ export const dispatchTelegramMessage = async ({
         archivedAnswerPreviews.push({
           messageId: previewMessageId,
           textSnapshot: answerLane.lastPartialText,
+          consumeOnNextFinal: false,
           deleteIfUnused: false,
         });
       }
@@ -334,7 +362,8 @@ export const dispatchTelegramMessage = async ({
     }
     return didForceNewMessage;
   };
-  const updateDraftFromPartial = (lane: DraftLaneState, text: string | undefined) => {
+  const updateDraftFromPartial = (laneName: LaneName, text: string | undefined) => {
+    const lane = lanes[laneName];
     const laneStream = lane.stream;
     if (!laneStream || !text) {
       return;
@@ -367,11 +396,17 @@ export const dispatchTelegramMessage = async ({
       skipNextAnswerMessageStartRotation = await rotateAnswerLaneForNewAssistantMessage();
     }
     for (const segment of split.segments) {
+      if (threadSpec?.scope === "dm") {
+        if (activeDmPreviewLane != null && activeDmPreviewLane !== segment.lane) {
+          await archiveActiveDmPreview("lane-switch");
+        }
+        activeDmPreviewLane = segment.lane;
+      }
       if (segment.lane === "reasoning") {
         reasoningStepState.noteReasoningHint();
         reasoningStepState.noteReasoningDelivered();
       }
-      updateDraftFromPartial(lanes[segment.lane], segment.text);
+      updateDraftFromPartial(segment.lane, segment.text);
     }
   };
   const flushDraftLane = async (lane: DraftLaneState) => {
@@ -700,7 +735,9 @@ export const dispatchTelegramMessage = async ({
 
           if (info.kind === "final") {
             await answerLane.stream?.stop();
-            await reasoningLane.stream?.stop();
+            if (reasoningLane.stream !== answerLane.stream) {
+              await reasoningLane.stream?.stop();
+            }
             reasoningStepState.resetForNextStep();
           }
           const canSendAsIs = reply.hasMedia || reply.text.length > 0;
@@ -745,8 +782,13 @@ export const dispatchTelegramMessage = async ({
                 // stream starts. Splitting at reasoning-end can orphan the active
                 // preview and cause duplicate reasoning sends on reasoning final.
                 if (splitReasoningOnNextStream) {
-                  reasoningLane.stream?.forceNewMessage();
-                  resetDraftLaneState(reasoningLane);
+                  if (threadSpec?.scope === "dm") {
+                    await archiveActiveDmPreview("lane-switch");
+                    activeDmPreviewLane = "reasoning";
+                  } else {
+                    reasoningLane.stream?.forceNewMessage();
+                    resetDraftLaneState(reasoningLane);
+                  }
                   splitReasoningOnNextStream = false;
                 }
                 await ingestDraftLaneSegments(payload.text);
@@ -840,6 +882,7 @@ export const dispatchTelegramMessage = async ({
         await stream.clear();
       }
     }
+    activeDmPreviewLane = null;
     for (const archivedPreview of archivedAnswerPreviews) {
       if (archivedPreview.deleteIfUnused === false) {
         continue;

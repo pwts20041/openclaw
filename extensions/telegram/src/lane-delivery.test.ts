@@ -444,6 +444,7 @@ describe("createLaneTextDeliverer", () => {
     });
 
     expect(result.kind).toBe("sent");
+    expect(answerStream.materialize).not.toHaveBeenCalled();
     expect(harness.sendPayload).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Choose one" }),
     );
