@@ -122,7 +122,7 @@ describe("collectForbiddenPackPaths", () => {
 });
 
 describe("collectMissingPackPaths", () => {
-  it("requires the shipped channel catalog, control ui, and optional bundled metadata", () => {
+  it("requires the shipped channel catalog, control ui, hashed control-ui assets, and optional bundled metadata", () => {
     const missing = collectMissingPackPaths([
       "dist/index.js",
       "dist/entry.js",
@@ -137,6 +137,7 @@ describe("collectMissingPackPaths", () => {
       expect.arrayContaining([
         "dist/channel-catalog.json",
         "dist/control-ui/index.html",
+        "dist/control-ui/assets/*",
         "dist/extensions/matrix/helper-api.js",
         "dist/extensions/matrix/runtime-api.js",
         "dist/extensions/matrix/thread-bindings-runtime.js",
@@ -150,19 +151,23 @@ describe("collectMissingPackPaths", () => {
     );
   });
 
-  it("accepts the shipped upgrade surface when optional bundled metadata is present", () => {
-    expect(
-      collectMissingPackPaths([
-        "dist/index.js",
-        "dist/entry.js",
-        "dist/control-ui/index.html",
-        ...requiredBundledPluginPackPaths,
-        ...requiredPluginSdkPackPaths,
-        "dist/plugin-sdk/root-alias.cjs",
-        "dist/build-info.json",
-        "dist/channel-catalog.json",
-      ]),
-    ).toEqual([]);
+  it("accepts the shipped upgrade surface when optional bundled metadata and control-ui assets are present", () => {
+    const missing = collectMissingPackPaths([
+      "dist/index.js",
+      "dist/entry.js",
+      "dist/control-ui/index.html",
+      "dist/control-ui/assets/app-abc123.js",
+      ...requiredBundledPluginPackPaths,
+      ...requiredPluginSdkPackPaths,
+      "dist/plugin-sdk/root-alias.cjs",
+      "dist/build-info.json",
+      "dist/channel-catalog.json",
+    ]);
+
+    expect(missing).toEqual([]);
+    expect(missing).not.toEqual(
+      expect.arrayContaining(["dist/control-ui/index.html", "dist/control-ui/assets/*"]),
+    );
   });
 
   it("requires bundled plugin runtime sidecars that dynamic plugin boundaries resolve at runtime", () => {
