@@ -1,4 +1,5 @@
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
+import { isToolCallContentType } from "../chat/tool-content.js";
 import { loadConfig } from "../config/config.js";
 import {
   loadSessionStore,
@@ -7,12 +8,14 @@ import {
 } from "../config/sessions.js";
 import { callGateway } from "../gateway/call.js";
 import { extractTextFromChatContent } from "../shared/chat-content.js";
+import { sanitizeUserFacingText } from "./pi-embedded-helpers.js";
 import { readLatestAssistantReply } from "./tools/agent-step.js";
 import { sanitizeTextContent, extractAssistantText } from "./tools/sessions-helpers.js";
 import { isAnnounceSkip } from "./tools/sessions-send-helpers.js";
 
 const FAST_TEST_MODE = process.env.OPENCLAW_TEST_FAST === "1";
 const FAST_TEST_RETRY_INTERVAL_MS = 8;
+const FINAL_REPLY_BLOCK_RE = /<\s*final\s*>([\s\S]*?)<\s*\/\s*final\s*>/gi;
 
 type ToolResultMessage = {
   role?: unknown;
@@ -95,6 +98,27 @@ function extractInlineTextContent(content: unknown): string {
   );
 }
 
+function extractExplicitFinalAssistantText(message: unknown): string | undefined {
+  if (!message || typeof message !== "object") {
+    return undefined;
+  }
+  const content = (message as { content?: unknown }).content;
+  const rawText =
+    typeof content === "string"
+      ? content
+      : (extractTextFromChatContent(content, {
+          joinWith: "",
+          normalizeText: (text) => text,
+        }) ?? "");
+  if (!rawText) {
+    return undefined;
+  }
+  const parts = Array.from(rawText.matchAll(FINAL_REPLY_BLOCK_RE))
+    .map((match) => sanitizeUserFacingText(sanitizeTextContent(match[1] ?? "")).trim())
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join("\n").trim() : undefined;
+}
+
 function extractSubagentOutputText(message: unknown): string {
   if (!message || typeof message !== "object") {
     return "";
@@ -138,12 +162,11 @@ function countAssistantToolCalls(content: unknown): number {
       continue;
     }
     const type = (block as { type?: unknown }).type;
+    const normalizedType = typeof type === "string" ? type.toLowerCase() : "";
     if (
-      type === "toolCall" ||
-      type === "tool_use" ||
-      type === "toolUse" ||
-      type === "functionCall" ||
-      type === "function_call"
+      isToolCallContentType(type) ||
+      normalizedType === "functioncall" ||
+      normalizedType === "function_call"
     ) {
       count += 1;
     }
@@ -162,7 +185,14 @@ function summarizeSubagentOutputHistory(messages: Array<unknown>): SubagentOutpu
     }
     const role = (message as { role?: unknown }).role;
     if (role === "assistant") {
-      snapshot.toolCallCount += countAssistantToolCalls((message as { content?: unknown }).content);
+      const toolCallCount = countAssistantToolCalls((message as { content?: unknown }).content);
+      snapshot.toolCallCount += toolCallCount;
+      const explicitFinalText =
+        toolCallCount > 0 ? extractExplicitFinalAssistantText(message)?.trim() : undefined;
+      if (toolCallCount > 0) {
+        // Mixed assistant/tool-call turns should not carry forward stale prior assistant text.
+        snapshot.latestAssistantText = explicitFinalText;
+      }
       const text = extractSubagentOutputText(message).trim();
       if (!text) {
         continue;
@@ -174,7 +204,11 @@ function summarizeSubagentOutputHistory(messages: Array<unknown>): SubagentOutpu
         continue;
       }
       snapshot.latestSilentText = undefined;
-      snapshot.latestAssistantText = text;
+      if (toolCallCount === 0) {
+        snapshot.latestAssistantText = text;
+      } else if (explicitFinalText) {
+        snapshot.latestAssistantText = explicitFinalText;
+      }
       snapshot.assistantFragments.push(text);
       continue;
     }
@@ -186,10 +220,17 @@ function summarizeSubagentOutputHistory(messages: Array<unknown>): SubagentOutpu
   return snapshot;
 }
 
+function shouldUseSubagentPartialProgress(outcome?: SubagentRunOutcome): boolean {
+  return outcome?.status === "timeout" || outcome?.status === "error";
+}
+
 function formatSubagentPartialProgress(
   snapshot: SubagentOutputSnapshot,
   outcome?: SubagentRunOutcome,
 ): string | undefined {
+  if (!shouldUseSubagentPartialProgress(outcome)) {
+    return undefined;
+  }
   if (snapshot.latestSilentText) {
     return undefined;
   }
@@ -235,9 +276,13 @@ export async function readSubagentOutput(
     params: { sessionKey, limit: 100 },
   });
   const messages = Array.isArray(history?.messages) ? history.messages : [];
-  const selected = selectSubagentOutputText(summarizeSubagentOutputHistory(messages), outcome);
+  const snapshot = summarizeSubagentOutputHistory(messages);
+  const selected = selectSubagentOutputText(snapshot, outcome);
   if (selected?.trim()) {
     return selected;
+  }
+  if (snapshot.toolCallCount > 0 && !shouldUseSubagentPartialProgress(outcome)) {
+    return undefined;
   }
   const latestAssistant = await readLatestAssistantReply({ sessionKey, limit: 100 });
   return latestAssistant?.trim() ? latestAssistant : undefined;
