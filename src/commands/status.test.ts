@@ -560,7 +560,7 @@ describe("statusCommand", () => {
       "Plugin compatibility",
       "Channels",
       "WhatsApp",
-      "bootstrap files",
+      "no workspaces bootstrapping",
       "Sessions",
       "+1000",
       "50%",
@@ -582,6 +582,12 @@ describe("statusCommand", () => {
           line.includes("openclaw --profile isolated status --all"),
       ),
     ).toBe(true);
+  });
+
+  it("describes mature workspaces as not actively bootstrapping", async () => {
+    const joined = await runStatusAndGetJoinedLogs();
+    expect(joined).toContain("no workspaces bootstrapping");
+    expect(joined).not.toContain("no bootstrap files");
   });
 
   it("shows gateway auth when reachable", async () => {
