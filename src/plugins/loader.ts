@@ -37,7 +37,7 @@ import {
 import { isPathInside, safeStatSync } from "./path-safety.js";
 import { createPluginRegistry, type PluginRecord, type PluginRegistry } from "./registry.js";
 import { resolvePluginCacheInputs } from "./roots.js";
-import { setActivePluginRegistry } from "./runtime.js";
+import { setActivePluginRegistry, getActivePluginRegistry, getActivePluginRegistryKey } from "./runtime.js";
 import type { CreatePluginRuntimeOptions } from "./runtime/index.js";
 import type { PluginRuntime } from "./runtime/types.js";
 import { validateJsonSchemaValue } from "./schema-validator.js";
@@ -720,6 +720,25 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
     pluginSdkResolution: options.pluginSdkResolution,
   });
   const cacheEnabled = options.cache !== false;
+
+  // Early return: if an active registry is already set (from a prior load) AND
+  // the caller did not supply a specific config/workspace override, reuse it
+  // instead of doing a full reload. This prevents redundant plugin discovery,
+  // module loading, and hook registration when multiple callers invoke
+  // loadOpenClawPlugins() within the same process.
+  // We only apply this when the caller uses the default (empty) options, so that
+  // explicit config/workspace overrides always take effect.
+  // Related: https://github.com/openclaw/openclaw/issues/48380
+  if (shouldActivate && !options.config && !options.workspaceDir && !options.onlyPluginIds) {
+    const activeKey = getActivePluginRegistryKey();
+    if (activeKey) {
+      const activeReg = getActivePluginRegistry();
+      if (activeReg && (activeReg.plugins?.length ?? 0) > 0) {
+        return activeReg;
+      }
+    }
+  }
+
   if (cacheEnabled) {
     const cached = getCachedPluginRegistry(cacheKey);
     if (cached) {
