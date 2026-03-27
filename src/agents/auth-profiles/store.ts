@@ -562,6 +562,7 @@ export function ensureAuthProfileStore(
 
 export function saveAuthProfileStore(store: AuthProfileStore, agentDir?: string): void {
   const authPath = resolveAuthStorePath(agentDir);
+  const runtimeKey = resolveRuntimeStoreKey(agentDir);
   const profiles = Object.fromEntries(
     Object.entries(store.profiles).map(([profileId, credential]) => {
       if (credential.type === "api_key" && credential.keyRef && credential.key !== undefined) {
@@ -586,4 +587,7 @@ export function saveAuthProfileStore(store: AuthProfileStore, agentDir?: string)
   } satisfies AuthProfileStore;
   saveJsonFile(authPath, payload);
   writeCachedAuthProfileStore(authPath, readAuthStoreMtimeMs(authPath), payload);
+  if (runtimeAuthStoreSnapshots.has(runtimeKey)) {
+    runtimeAuthStoreSnapshots.set(runtimeKey, cloneAuthProfileStore(payload));
+  }
 }
