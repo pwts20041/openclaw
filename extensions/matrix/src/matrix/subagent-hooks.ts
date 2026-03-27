@@ -1,0 +1,167 @@
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
+import { findMatrixAccountConfig, resolveMatrixBaseConfig } from "./account-config.js";
+import {
+  getMatrixThreadBindingManager,
+  listAllBindings,
+  listBindingsForAccount,
+  removeBindingRecord,
+} from "./thread-bindings-shared.js";
+
+function summarizeError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message;
+  }
+  if (typeof err === "string") {
+    return err;
+  }
+  return "error";
+}
+
+export function registerMatrixSubagentHooks(api: OpenClawPluginApi) {
+  const resolveThreadBindingFlags = (accountId?: string) => {
+    const matrix = resolveMatrixBaseConfig(api.config);
+    const baseThreadBindings = matrix.threadBindings;
+    const accountThreadBindings = accountId
+      ? findMatrixAccountConfig(api.config, accountId)?.threadBindings
+      : undefined;
+    return {
+      enabled:
+        accountThreadBindings?.enabled ??
+        baseThreadBindings?.enabled ??
+        api.config.session?.threadBindings?.enabled ??
+        true,
+      spawnSubagentSessions:
+        accountThreadBindings?.spawnSubagentSessions ??
+        baseThreadBindings?.spawnSubagentSessions ??
+        false,
+    };
+  };
+
+  api.on("subagent_spawning", async (event) => {
+    if (!event.threadRequested) {
+      return;
+    }
+    const channel = event.requester?.channel?.trim().toLowerCase();
+    if (channel !== "matrix") {
+      return;
+    }
+    const accountId = event.requester?.accountId?.trim() || undefined;
+    const threadBindingFlags = resolveThreadBindingFlags(accountId);
+    if (!threadBindingFlags.enabled) {
+      return {
+        status: "error" as const,
+        error:
+          "Matrix thread bindings are disabled (set channels.matrix.threadBindings.enabled=true to override for this account, or session.threadBindings.enabled=true globally).",
+      };
+    }
+    if (!threadBindingFlags.spawnSubagentSessions) {
+      return {
+        status: "error" as const,
+        error:
+          "Matrix thread-bound subagent spawns are disabled for this account (set channels.matrix.threadBindings.spawnSubagentSessions=true to enable).",
+      };
+    }
+    // Verify a thread binding manager exists for this account. The actual
+    // binding (including child thread creation via intro message) is handled
+    // by the SessionBindingAdapter's bind() method in thread-bindings.ts,
+    // which the core invokes with placement="child" after we return
+    // threadBindingReady: true. We do NOT call setBindingRecord here —
+    // the adapter's bind() handles record creation, persistence, and
+    // thread creation atomically.
+    const resolvedAccountId = accountId || "default";
+    const manager = getMatrixThreadBindingManager(resolvedAccountId);
+    if (!manager) {
+      return {
+        status: "error" as const,
+        error:
+          "Unable to create or bind a Matrix room for this subagent session. No thread binding manager available for this account.",
+      };
+    }
+
+    return { status: "ok" as const, threadBindingReady: true };
+  });
+
+  api.on("subagent_ended", async (event) => {
+    const accountId = event.accountId?.trim() || undefined;
+    // Find and remove all bindings matching the ended subagent session.
+    const candidates = accountId
+      ? listBindingsForAccount(accountId)
+      : listAllBindings();
+    const matching = candidates.filter(
+      (entry) =>
+        entry.targetSessionKey === event.targetSessionKey && entry.targetKind === "subagent",
+    );
+    const affectedAccountIds = new Set<string>();
+    for (const binding of matching) {
+      if (removeBindingRecord(binding)) {
+        affectedAccountIds.add(binding.accountId);
+      }
+    }
+    // Persist for each affected account via its manager.
+    for (const acctId of affectedAccountIds) {
+      const manager = getMatrixThreadBindingManager(acctId);
+      await manager?.persist();
+    }
+  });
+
+  api.on("subagent_delivery_target", (event) => {
+    if (!event.expectsCompletionMessage) {
+      return;
+    }
+    const requesterChannel = event.requesterOrigin?.channel?.trim().toLowerCase();
+    if (requesterChannel !== "matrix") {
+      return;
+    }
+    const requesterAccountId = event.requesterOrigin?.accountId?.trim();
+    const requesterThreadId =
+      event.requesterOrigin?.threadId != null && event.requesterOrigin.threadId !== ""
+        ? String(event.requesterOrigin.threadId).trim()
+        : "";
+
+    // Search across all accounts if no specific account is given.
+    const candidates = requesterAccountId
+      ? listBindingsForAccount(requesterAccountId)
+      : listAllBindings();
+    const bindings = candidates.filter(
+      (entry) =>
+        entry.targetSessionKey === event.childSessionKey && entry.targetKind === "subagent",
+    );
+    if (bindings.length === 0) {
+      return;
+    }
+
+    let binding: (typeof bindings)[number] | undefined;
+    if (requesterThreadId) {
+      binding = bindings.find((entry) => {
+        if (entry.conversationId !== requesterThreadId) {
+          return false;
+        }
+        if (requesterAccountId && entry.accountId !== requesterAccountId) {
+          return false;
+        }
+        return true;
+      });
+    }
+    if (!binding && bindings.length === 1) {
+      binding = bindings[0];
+    }
+    if (!binding) {
+      return;
+    }
+
+    // Build the delivery target from the binding.
+    const roomId = binding.parentConversationId ?? binding.conversationId;
+    const threadId =
+      binding.parentConversationId && binding.parentConversationId !== binding.conversationId
+        ? binding.conversationId
+        : undefined;
+    return {
+      origin: {
+        channel: "matrix",
+        accountId: binding.accountId,
+        to: `room:${roomId}`,
+        ...(threadId ? { threadId } : {}),
+      },
+    };
+  });
+}
