@@ -469,9 +469,18 @@ export async function prepareSlackMessage(params: {
     return null;
   }
 
-  const shouldRequireMention = isRoom
+  // Thread-aware mention gating: when requireMentionInThreads is explicitly set,
+  // it overrides both the mention requirement and the implicit-mention bypass for threads.
+  const baseMentionRequired = isRoom
     ? (channelConfig?.requireMention ?? ctx.defaultRequireMention)
     : false;
+  const threadMentionOverride =
+    isRoom && isThreadReply ? channelConfig?.requireMentionInThreads : undefined;
+  const shouldRequireMention =
+    threadMentionOverride !== undefined ? threadMentionOverride : baseMentionRequired;
+  // Only suppress implicitMention when the override actively enforces mention (true),
+  // not when it relaxes it (false) — otherwise WasMentioned is under-reported.
+  const effectiveImplicitMention = threadMentionOverride === true ? false : implicitMention;
 
   // Allow "control commands" to bypass mention gating if sender is authorized.
   const canDetectMention = Boolean(ctx.botUserId) || mentionRegexes.length > 0;
@@ -480,13 +489,17 @@ export async function prepareSlackMessage(params: {
     requireMention: Boolean(shouldRequireMention),
     canDetectMention,
     wasMentioned,
-    implicitMention,
+    implicitMention: effectiveImplicitMention,
     hasAnyMention,
     allowTextCommands,
     hasControlCommand: hasControlCommandInMessage,
     commandAuthorized,
   });
-  const effectiveWasMentioned = mentionGate.effectiveWasMentioned;
+  // When requireMentionInThreads explicitly relaxes the requirement (false) for a thread
+  // that would otherwise need a mention, treat the turn as mentioned so downstream directive
+  // gating (elevated/exec) is not inadvertently stripped.
+  const effectiveWasMentioned =
+    mentionGate.effectiveWasMentioned || (threadMentionOverride === false && baseMentionRequired);
   if (isRoom && shouldRequireMention && mentionGate.shouldSkip) {
     ctx.logger.info({ channel: message.channel, reason: "no-mention" }, "skipping channel message");
     const pendingText = (message.text ?? "").trim();
