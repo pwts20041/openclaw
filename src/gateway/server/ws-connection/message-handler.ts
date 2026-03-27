@@ -527,8 +527,8 @@ export function attachGatewayWsMessageHandler(params: {
           });
           const preserveInsecureLocalControlUiScopes =
             isControlUi &&
-            controlUiAuthPolicy.allowInsecureAuthConfigured &&
-            isLocalClient &&
+            (controlUiAuthPolicy.allowBypass ||
+              (controlUiAuthPolicy.allowInsecureAuthConfigured && isLocalClient)) &&
             (authMethod === "token" || authMethod === "password");
           const decision = evaluateMissingDeviceIdentity({
             hasDeviceIdentity: Boolean(device),
