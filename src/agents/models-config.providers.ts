@@ -15,6 +15,7 @@ import {
   XIAOMI_DEFAULT_MODEL_ID,
   buildXiaomiProvider,
 } from "../plugin-sdk/provider-catalog.js";
+import { formatApiKeyPreview } from "../plugins/provider-auth-input.js";
 import { isRecord } from "../utils.js";
 import { normalizeOptionalSecretInput } from "../utils/normalize-secret-input.js";
 import { hasAnthropicVertexAvailableAuth } from "./anthropic-vertex-provider.js";
@@ -77,6 +78,21 @@ const MODELSTUDIO_NATIVE_BASE_URLS = new Set([
 const log = createSubsystemLogger("agents/model-providers");
 
 const ENV_VAR_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
+
+function shouldTraceProviderAuth(provider: string): boolean {
+  return provider.trim().toLowerCase() === "xai";
+}
+
+function summarizeProviderAuthKey(apiKey: string | undefined): string {
+  const trimmed = apiKey?.trim() ?? "";
+  if (!trimmed) {
+    return "missing";
+  }
+  if (isNonSecretApiKeyMarker(trimmed)) {
+    return `marker:${trimmed}`;
+  }
+  return formatApiKeyPreview(trimmed);
+}
 
 function resolveLiveProviderCatalogTimeoutMs(env: NodeJS.ProcessEnv): number | null {
   const live =
@@ -708,7 +724,15 @@ function resolveConfigBackedProviderAuth(params: { provider: string; config?: Op
   });
   const apiKey = synthetic?.apiKey?.trim();
   if (!apiKey) {
+    if (shouldTraceProviderAuth(params.provider)) {
+      log.info("[xai-auth] bootstrap config fallback: no config-backed key found");
+    }
     return undefined;
+  }
+  if (shouldTraceProviderAuth(params.provider)) {
+    log.info(
+      `[xai-auth] bootstrap config fallback: key=${summarizeProviderAuthKey(apiKey)} marker=${isNonSecretApiKeyMarker(apiKey) ? "kept" : "secretref-managed"} source=config`,
+    );
   }
   return isNonSecretApiKeyMarker(apiKey)
     ? {
