@@ -216,7 +216,7 @@ async function maybeFilterModelsByProvider(params: {
     (a, b) => a.localeCompare(b),
   );
   const hasPreferredProvider = params.preferredProvider
-    ? providerIds.includes(params.preferredProvider)
+    ? providerIds.some((id) => matchesPreferredProvider(id, params.preferredProvider!))
     : false;
   const shouldPromptProvider =
     !hasPreferredProvider &&
@@ -447,7 +447,7 @@ export async function promptDefaultModel(
     allowKeep &&
     hasPreferredProvider &&
     preferredProvider &&
-    resolved.provider !== preferredProvider
+    !matchesPreferredProvider(resolved.provider, preferredProvider)
   ) {
     const firstModel = filteredModels[0];
     if (firstModel) {
