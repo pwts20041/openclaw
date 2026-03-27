@@ -109,6 +109,19 @@ const coreEntries: CoreCliEntry[] = [
   {
     commands: [
       {
+        name: "usage",
+        description: "Show token and cost usage for agent sessions",
+        hasSubcommands: false,
+      },
+    ],
+    register: async ({ program }) => {
+      const mod = await import("./register.usage.js");
+      mod.registerUsageCommand(program);
+    },
+  },
+  {
+    commands: [
+      {
         name: "doctor",
         description: "Health checks + quick fixes for the gateway and channels",
         hasSubcommands: false,
