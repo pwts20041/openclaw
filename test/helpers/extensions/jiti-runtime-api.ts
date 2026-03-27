@@ -144,9 +144,9 @@ function collectPluginSdkAliases(params: {
     for (const ref of collectSourceModuleRefs(filePath)) {
       if (ref.specifier.startsWith(PLUGIN_SDK_SPECIFIER_PREFIX)) {
         const shouldKeepReal =
-          rootModule &&
           !ref.typeOnly &&
-          (explicitRealSpecifiers.size === 0 || explicitRealSpecifiers.has(ref.specifier));
+          (explicitRealSpecifiers.has(ref.specifier) ||
+            (rootModule && explicitRealSpecifiers.size === 0));
         if (shouldKeepReal) {
           realSpecifiers.add(ref.specifier);
           const subpath = ref.specifier.slice(PLUGIN_SDK_SPECIFIER_PREFIX.length);

@@ -1,5 +1,7 @@
 import { type Api, type Model } from "@mariozechner/pi-ai";
 import type { OpenClawConfig } from "../../config/config.js";
+import type { FsRoot } from "../../config/types.tools.js";
+import type { LocalMediaRoot } from "../../media/local-media-access.js";
 import { appendLocalMediaParentRoots } from "../../media/local-roots.js";
 import { getDefaultLocalRoots } from "../../media/web-media.js";
 import type { ImageModelConfig } from "./image-tool.helpers.js";
@@ -55,9 +57,14 @@ function applyAgentDefaultModelConfig(
 
 export function resolveMediaToolLocalRoots(
   workspaceDirRaw: string | undefined,
-  options?: { workspaceOnly?: boolean },
+  options?: { workspaceOnly?: boolean; roots?: FsRoot[] },
   mediaSources?: readonly string[],
-): string[] {
+): LocalMediaRoot[] {
+  // Roots take precedence, including kind="file" exact-match roots.
+  // Empty roots array is a valid deny-all policy — return empty to block all media reads.
+  if (options?.roots) {
+    return [...options.roots];
+  }
   const workspaceDir = normalizeWorkspaceDir(workspaceDirRaw);
   if (options?.workspaceOnly) {
     return workspaceDir ? [workspaceDir] : [];

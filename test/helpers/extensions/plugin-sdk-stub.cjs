@@ -1,6 +1,23 @@
 "use strict";
 
 let stub;
+const stubZodMeta = new Proxy(
+  {
+    parent: undefined,
+    def: Object.create(null),
+    bag: Object.create(null),
+    onattach: [],
+    values: undefined,
+  },
+  {
+    get(target, prop, receiver) {
+      if (Reflect.has(target, prop)) {
+        return Reflect.get(target, prop, receiver);
+      }
+      return undefined;
+    },
+  },
+);
 
 stub = new Proxy(
   function pluginSdkStub() {
@@ -13,7 +30,7 @@ stub = new Proxy(
     construct() {
       return stub;
     },
-    get(_target, prop) {
+    get(target, prop, receiver) {
       if (prop === "__esModule") {
         return true;
       }
@@ -21,6 +38,12 @@ stub = new Proxy(
         return stub;
       }
       if (prop === "then") {
+        return undefined;
+      }
+      if (prop === "_zod") {
+        return stubZodMeta;
+      }
+      if (prop === "arguments" || prop === "caller") {
         return undefined;
       }
       if (prop === Symbol.toPrimitive) {
@@ -35,12 +58,15 @@ stub = new Proxy(
       if (prop === "valueOf") {
         return () => 0;
       }
+      if (Reflect.has(target, prop)) {
+        return Reflect.get(target, prop, receiver);
+      }
       return stub;
     },
-    ownKeys() {
-      return [];
+    ownKeys(target) {
+      return [...new Set([...Reflect.ownKeys(target), "__esModule", "default"])];
     },
-    getOwnPropertyDescriptor(_target, prop) {
+    getOwnPropertyDescriptor(target, prop) {
       if (prop === "__esModule") {
         return {
           configurable: true,
@@ -57,7 +83,7 @@ stub = new Proxy(
           writable: false,
         };
       }
-      return undefined;
+      return Reflect.getOwnPropertyDescriptor(target, prop);
     },
   },
 );

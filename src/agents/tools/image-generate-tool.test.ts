@@ -1,3 +1,6 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as imageGenerationRuntime from "../../image-generation/runtime.js";
 import * as imageOps from "../../media/image-ops.js";
@@ -74,6 +77,7 @@ function createToolWithPrimaryImageModel(
   extra?: {
     agentDir?: string;
     workspaceDir?: string;
+    fsPolicy?: NonNullable<Parameters<typeof createImageGenerateTool>[0]>["fsPolicy"];
   },
 ) {
   return requireImageGenerateTool(
@@ -580,5 +584,37 @@ describe("createImageGenerateTool", () => {
       }),
     ).rejects.toThrow("fal edit does not support aspectRatio overrides");
     expect(generateImage).not.toHaveBeenCalled();
+  });
+
+  it("allows rooted reference images outside the workspace", async () => {
+    stubEditedImageFlow();
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-image-gen-ws-"));
+    const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-image-gen-root-"));
+    const outsideImage = path.join(outsideDir, "rooted.png");
+    await fs.writeFile(outsideImage, Buffer.from("input-image"));
+    try {
+      const tool = createToolWithPrimaryImageModel("google/gemini-3.1-flash-image-preview", {
+        workspaceDir,
+        fsPolicy: {
+          workspaceOnly: true,
+          roots: [{ path: outsideImage, kind: "file", access: "ro" }],
+        },
+      });
+
+      const result = await tool.execute("call-rooted-edit", {
+        prompt: "edit",
+        image: outsideImage,
+      });
+
+      expect(result).toMatchObject({
+        details: {
+          image: outsideImage,
+          count: 1,
+        },
+      });
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
   });
 });
