@@ -64,6 +64,7 @@ import { createBundleLspToolRuntime } from "../../pi-bundle-lsp-runtime.js";
 import { createBundleMcpToolRuntime } from "../../pi-bundle-mcp-tools.js";
 import {
   downgradeOpenAIFunctionCallReasoningPairs,
+  downgradeOpenAIReasoningBlocks,
   isCloudCodeAssistFormatError,
   resolveBootstrapMaxChars,
   resolveBootstrapPromptTruncationWarningMode,
@@ -972,7 +973,12 @@ export async function runEmbeddedAttempt(
           if (!Array.isArray(messages)) {
             return inner(model, context, options);
           }
-          const sanitized = downgradeOpenAIFunctionCallReasoningPairs(messages as AgentMessage[]);
+          const pairSanitized = downgradeOpenAIFunctionCallReasoningPairs(
+            messages as AgentMessage[],
+          );
+          // Also strip orphaned reasoning blocks that lack a required following
+          // content item — OpenAI rejects these with a 400 error.
+          const sanitized = downgradeOpenAIReasoningBlocks(pairSanitized);
           if (sanitized === messages) {
             return inner(model, context, options);
           }
