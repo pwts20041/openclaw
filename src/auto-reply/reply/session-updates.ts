@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { buildWorkspaceSkillSnapshot } from "../../agents/skills.js";
 import { ensureSkillsWatcher, getSkillsSnapshotVersion } from "../../agents/skills/refresh.js";
+import { resolveSessionSkillsSnapshot } from "../../agents/skills/session-snapshot.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
   resolveSessionFilePath,
@@ -78,8 +79,13 @@ export async function ensureSkillSnapshot(params: {
   const remoteEligibility = getRemoteSkillEligibility();
   const snapshotVersion = getSkillsSnapshotVersion(workspaceDir);
   ensureSkillsWatcher({ workspaceDir, config: cfg });
-  const shouldRefreshSnapshot =
-    snapshotVersion > 0 && (nextEntry?.skillsSnapshot?.version ?? 0) < snapshotVersion;
+  const buildSkillsSnapshot = () =>
+    buildWorkspaceSkillSnapshot(workspaceDir, {
+      config: cfg,
+      skillFilter,
+      eligibility: { remote: remoteEligibility },
+      snapshotVersion,
+    });
 
   if (isFirstTurnInSession && sessionStore && sessionKey) {
     const current = nextEntry ??
@@ -87,15 +93,12 @@ export async function ensureSkillSnapshot(params: {
         sessionId: sessionId ?? crypto.randomUUID(),
         updatedAt: Date.now(),
       };
-    const skillSnapshot =
-      isFirstTurnInSession || !current.skillsSnapshot || shouldRefreshSnapshot
-        ? buildWorkspaceSkillSnapshot(workspaceDir, {
-            config: cfg,
-            skillFilter,
-            eligibility: { remote: remoteEligibility },
-            snapshotVersion,
-          })
-        : current.skillsSnapshot;
+    const { skillsSnapshot: skillSnapshot } = resolveSessionSkillsSnapshot({
+      currentSnapshot: current.skillsSnapshot,
+      isNewSession: true,
+      snapshotVersion,
+      buildSnapshot: buildSkillsSnapshot,
+    });
     nextEntry = {
       ...current,
       sessionId: sessionId ?? current.sessionId ?? crypto.randomUUID(),
@@ -107,28 +110,19 @@ export async function ensureSkillSnapshot(params: {
     systemSent = true;
   }
 
-  const skillsSnapshot = shouldRefreshSnapshot
-    ? buildWorkspaceSkillSnapshot(workspaceDir, {
-        config: cfg,
-        skillFilter,
-        eligibility: { remote: remoteEligibility },
-        snapshotVersion,
-      })
-    : (nextEntry?.skillsSnapshot ??
-      (isFirstTurnInSession
-        ? undefined
-        : buildWorkspaceSkillSnapshot(workspaceDir, {
-            config: cfg,
-            skillFilter,
-            eligibility: { remote: remoteEligibility },
-            snapshotVersion,
-          })));
+  const { skillsSnapshot, shouldPersist: shouldPersistSkillsSnapshot } =
+    resolveSessionSkillsSnapshot({
+      currentSnapshot: nextEntry?.skillsSnapshot,
+      isNewSession: isFirstTurnInSession,
+      snapshotVersion,
+      buildSnapshot: buildSkillsSnapshot,
+    });
   if (
     skillsSnapshot &&
     sessionStore &&
     sessionKey &&
     !isFirstTurnInSession &&
-    (!nextEntry?.skillsSnapshot || shouldRefreshSnapshot)
+    shouldPersistSkillsSnapshot
   ) {
     const current = nextEntry ?? {
       sessionId: sessionId ?? crypto.randomUUID(),
