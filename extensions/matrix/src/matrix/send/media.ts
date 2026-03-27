@@ -1,4 +1,4 @@
-import { parseBuffer, type IFileInfo } from "music-metadata";
+import type { IFileInfo } from "music-metadata";
 import { getMatrixRuntime } from "../../runtime.js";
 import type {
   DimensionalFileInfo,
@@ -16,6 +16,16 @@ import {
   type MatrixRelation,
   type MediaKind,
 } from "./types.js";
+
+// Lazy import music-metadata to avoid ESM/CJS compatibility issues
+let _parseBuffer: typeof import("music-metadata").parseBuffer | undefined;
+async function getParseBuffer() {
+  if (!_parseBuffer) {
+    const musicMetadata = await import("music-metadata");
+    _parseBuffer = musicMetadata.parseBuffer;
+  }
+  return _parseBuffer;
+}
 
 const getCore = () => getMatrixRuntime();
 
@@ -169,6 +179,7 @@ export async function resolveMediaDurationMs(params: {
     return undefined;
   }
   try {
+    const parseBuffer = await getParseBuffer();
     const fileInfo: IFileInfo | string | undefined =
       params.contentType || params.fileName
         ? {
@@ -187,6 +198,7 @@ export async function resolveMediaDurationMs(params: {
     }
   } catch {
     // Duration is optional; ignore parse failures.
+    // This can happen with music-metadata in ESM environments due to __dirname issues.
   }
   return undefined;
 }
