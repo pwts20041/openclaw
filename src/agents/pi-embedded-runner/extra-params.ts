@@ -8,6 +8,7 @@ import {
   prepareProviderExtraParams as prepareProviderExtraParamsRuntime,
   wrapProviderStreamFn as wrapProviderStreamFnRuntime,
 } from "../../plugins/provider-runtime.js";
+import { findNormalizedProviderValue } from "../provider-id.js";
 import {
   createAnthropicBetaHeadersWrapper,
   createBedrockNoCacheWrapper,
@@ -38,6 +39,19 @@ import {
   resolveOpenAIServiceTier,
 } from "./openai-stream-wrappers.js";
 import { createXaiFastModeWrapper } from "./xai-stream-wrappers.js";
+import { createZaiToolStreamWrapper } from "./zai-stream-wrappers.js";
+
+const GOOGLE_SAFETY_CATEGORY_MAP = {
+  harassment: "HARM_CATEGORY_HARASSMENT",
+  hateSpeech: "HARM_CATEGORY_HATE_SPEECH",
+  sexuallyExplicit: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+  dangerousContent: "HARM_CATEGORY_DANGEROUS_CONTENT",
+} as const;
+
+type GoogleSafetySetting = {
+  category: (typeof GOOGLE_SAFETY_CATEGORY_MAP)[keyof typeof GOOGLE_SAFETY_CATEGORY_MAP];
+  threshold: string;
+};
 
 const defaultProviderRuntimeDeps = {
   prepareProviderExtraParams: prepareProviderExtraParamsRuntime,
@@ -236,6 +250,61 @@ function createStreamFnWithExtraParams(
   return wrappedStreamFn;
 }
 
+function resolveConfiguredGoogleSafetySettings(
+  cfg: OpenClawConfig | undefined,
+  provider: string,
+): GoogleSafetySetting[] | undefined {
+  const configured = findNormalizedProviderValue(cfg?.models?.providers, provider)?.safetySettings;
+  if (!configured) {
+    return undefined;
+  }
+  const settings = Object.entries(configured).flatMap(([key, threshold]) => {
+    if (typeof threshold !== "string") {
+      return [];
+    }
+    const category = GOOGLE_SAFETY_CATEGORY_MAP[key as keyof typeof GOOGLE_SAFETY_CATEGORY_MAP];
+    if (!category) {
+      return [];
+    }
+    return [{ category, threshold } satisfies GoogleSafetySetting];
+  });
+  return settings.length > 0 ? settings : undefined;
+}
+
+function createGoogleSafetySettingsWrapper(
+  baseStreamFn: StreamFn | undefined,
+  safetySettings?: GoogleSafetySetting[],
+): StreamFn {
+  const underlying = baseStreamFn ?? streamSimple;
+  return (model, context, options) => {
+    const onPayload = options?.onPayload;
+    return underlying(model, context, {
+      ...options,
+      onPayload: (payload) => {
+        if (
+          safetySettings &&
+          model.api === "google-generative-ai" &&
+          payload &&
+          typeof payload === "object"
+        ) {
+          const payloadObj = payload as Record<string, unknown>;
+          const existingConfig = payloadObj.config;
+          if (existingConfig === undefined) {
+            payloadObj.config = {};
+          }
+          const configObj = payloadObj.config;
+          if (configObj && typeof configObj === "object" && !Array.isArray(configObj)) {
+            const googleConfig = configObj as Record<string, unknown>;
+            if (googleConfig.safetySettings === undefined) {
+              googleConfig.safetySettings = safetySettings.map((setting) => ({ ...setting }));
+            }
+          }
+        }
+        return onPayload?.(payload, model);
+      },
+    });
+  };
+}
 function resolveAliasedParamValue(
   sources: Array<Record<string, unknown> | undefined>,
   snakeCaseKey: string,
@@ -329,6 +398,11 @@ export function applyExtraParamsToAgent(
     agent.streamFn = createOpenAIAttributionHeadersWrapper(agent.streamFn);
   }
 
+  const googleSafetySettings = resolveConfiguredGoogleSafetySettings(cfg, provider);
+  if (googleSafetySettings) {
+    log.debug(`applying Google safety settings for ${provider}/${modelId}`);
+    agent.streamFn = createGoogleSafetySettingsWrapper(agent.streamFn, googleSafetySettings);
+  }
   const wrappedStreamFn = createStreamFnWithExtraParams(
     agent.streamFn,
     effectiveExtraParams,
@@ -390,6 +464,16 @@ export function applyExtraParamsToAgent(
   if (provider === "amazon-bedrock" && !isAnthropicBedrockModel(modelId)) {
     log.debug(`disabling prompt caching for non-Anthropic Bedrock model ${provider}/${modelId}`);
     agent.streamFn = createBedrockNoCacheWrapper(agent.streamFn);
+  }
+
+  // Enable Z.AI tool_stream for real-time tool call streaming.
+  // Enabled by default for Z.AI provider, can be disabled via params.tool_stream: false
+  if (provider === "zai" || provider === "z-ai") {
+    const toolStreamEnabled = effectiveExtraParams?.tool_stream !== false;
+    if (toolStreamEnabled) {
+      log.debug(`enabling Z.AI tool_stream for ${provider}/${modelId}`);
+      agent.streamFn = createZaiToolStreamWrapper(agent.streamFn, true);
+    }
   }
 
   // Guard Google payloads against invalid negative thinking budgets emitted by
