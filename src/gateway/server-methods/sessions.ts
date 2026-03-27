@@ -1305,12 +1305,27 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
 
+    // Phase 2: abort any active run BEFORE writing the truncated transcript.
+    // Phase 1 confirmed a real cut exists so this is not a no-op request.
+    // Active runs must be stopped first; otherwise a still-running agent can continue
+    // appending output from pre-truncate context back into the transcript after the rewrite.
+    const mutationCleanupError = await cleanupSessionBeforeMutation({
+      cfg,
+      key,
+      target,
+      entry,
+      legacyKey,
+      canonicalKey,
+      reason: "session-delete",
+    });
+    if (mutationCleanupError) {
+      respond(false, undefined, mutationCleanupError);
+      return;
+    }
+
     // Phase 3c: re-acquire the write lock and perform the actual file write.
     // Re-scan for p.seq under the lock: sessions.compact can rewrite the transcript
     // (without holding acquireSessionWriteLock) so line indices from Phase 1 may be stale.
-    // We do NOT abort active runs before the file write; runs are only aborted after the
-    // truncation is on disk (Phase 2 below), so a concurrent compact that makes this request
-    // a no-op will never cause runs to be aborted unnecessarily.
     let keptLines: string[] = [];
     let archived = "";
     let seqFoundInPhase3c = false;
@@ -1367,34 +1382,15 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
 
     if (!seqFoundInPhase3c) {
-      // seq is gone (compact rewrote the transcript, or sessions.delete removed the file
-      // between Phase 1 and Phase 3c). No write was performed; no runs were aborted.
+      // seq disappeared between Phase 1 and Phase 3c (concurrent compact or sessions.delete).
+      // No file write was performed. The active run was already aborted above (Phase 2);
+      // that is acceptable since the seq genuinely existed at Phase 1 scan time.
       respond(
         true,
         { ok: true, key: target.canonicalKey, truncated: false, reason: "seq not found" },
         undefined,
       );
       return;
-    }
-
-    // Phase 2: abort active runs — only after the truncated file has been written above.
-    // This ensures a concurrent compact that makes this RPC a no-op (seqFoundInPhase3c false)
-    // never causes runs to be aborted without a matching transcript mutation.
-    const mutationCleanupError = await cleanupSessionBeforeMutation({
-      cfg,
-      key,
-      target,
-      entry,
-      legacyKey,
-      canonicalKey,
-      reason: "session-delete",
-    });
-    // Do NOT return an error if cleanup fails here: the transcript has already been
-    // rewritten on disk. Reporting failure would leave the client and emitSessionsChanged
-    // out of sync with the real on-disk state. Log and continue with truncated: true.
-    if (mutationCleanupError) {
-      // Non-fatal: cleanup (e.g. run abort) failed after the write was committed.
-      // The truncation is real; proceed so the UI stays consistent.
     }
 
     await updateSessionStore(storePath, (store) => {
