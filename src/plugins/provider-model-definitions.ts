@@ -121,6 +121,7 @@ const ZAI_DEFAULT_MODEL_ID = "glm-5";
 const ZAI_DEFAULT_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 const ZAI_MODEL_CATALOG = {
   "glm-5": { name: "GLM-5", reasoning: true },
+  "glm-5.1": { name: "GLM-5.1", reasoning: true },
   "glm-5-turbo": { name: "GLM-5 Turbo", reasoning: true },
   "glm-4.7": { name: "GLM-4.7", reasoning: true },
   "glm-4.7-flash": { name: "GLM-4.7 Flash", reasoning: true },
