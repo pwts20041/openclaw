@@ -6,6 +6,8 @@ import {
   createAgentSession,
   DefaultResourceLoader,
   SessionManager,
+  type AgentSession,
+  type PromptOptions,
 } from "@mariozechner/pi-coding-agent";
 import {
   resolveTelegramInlineButtonsScope,
@@ -63,6 +65,7 @@ import { resolveOwnerDisplaySetting } from "../../owner-display.js";
 import { createBundleLspToolRuntime } from "../../pi-bundle-lsp-runtime.js";
 import { createBundleMcpToolRuntime } from "../../pi-bundle-mcp-tools.js";
 import {
+  classifyFailoverReason,
   downgradeOpenAIFunctionCallReasoningPairs,
   isCloudCodeAssistFormatError,
   resolveBootstrapMaxChars,
@@ -111,6 +114,7 @@ import {
 import { getDmHistoryLimitFromSessionKey, limitHistoryTurns } from "../history.js";
 import { log } from "../logger.js";
 import { buildEmbeddedMessageActionDiscoveryInput } from "../message-action-discovery-input.js";
+import { retryPromptOnRateLimit } from "../rate-limit-retry.js";
 import {
   clearActiveEmbeddedRun,
   type EmbeddedPiQueueHandle,
@@ -211,6 +215,67 @@ export {
   wrapStreamFnSanitizeMalformedToolCalls,
   wrapStreamFnTrimToolCallNames,
 } from "./attempt.tool-call-normalization.js";
+
+type RetryablePromptSession = {
+  prompt: AgentSession["prompt"];
+  messages: AgentSession["messages"];
+  agent: Pick<AgentSession["agent"], "replaceMessages">;
+};
+
+export async function runPromptWithRateLimitRetry(params: {
+  activeSession: RetryablePromptSession;
+  effectivePrompt: string;
+  images: NonNullable<PromptOptions["images"]>;
+  abortable: <T>(promise: Promise<T>) => Promise<T>;
+  assistantTexts: string[];
+  toolMetas: Array<unknown>;
+  didSendViaMessagingTool: () => boolean;
+  getSuccessfulCronAdds: () => number;
+  abortSignal?: AbortSignal;
+  provider: string;
+  modelId: string;
+}) {
+  const preRetryMessages = params.activeSession.messages.slice();
+  await retryPromptOnRateLimit({
+    prompt: () =>
+      params.images.length > 0
+        ? params.abortable(
+            params.activeSession.prompt(params.effectivePrompt, { images: params.images }),
+          )
+        : params.abortable(params.activeSession.prompt(params.effectivePrompt)),
+    classifyTerminalFailure: () => {
+      const messages = params.activeSession.messages;
+      if (messages.length <= preRetryMessages.length) {
+        return null;
+      }
+      const last = messages[messages.length - 1];
+      if (last?.role !== "assistant") {
+        return null;
+      }
+      if (last.stopReason !== "error") {
+        return null;
+      }
+      const reason = classifyFailoverReason(last.errorMessage ?? "");
+      return {
+        isRateLimit: reason === "rate_limit",
+        rawError: last,
+      };
+    },
+    isReplaySafe: () =>
+      params.assistantTexts.length === 0 &&
+      params.toolMetas.length === 0 &&
+      !params.didSendViaMessagingTool() &&
+      params.getSuccessfulCronAdds() === 0,
+    rewind: () => {
+      if (params.activeSession.messages.length !== preRetryMessages.length) {
+        params.activeSession.agent.replaceMessages(preRetryMessages);
+      }
+    },
+    abortSignal: params.abortSignal,
+    provider: params.provider,
+    modelId: params.modelId,
+  });
+}
 
 const MAX_BTW_SNAPSHOT_MESSAGES = 100;
 
@@ -1484,13 +1549,19 @@ export async function runEmbeddedAttempt(
             inFlightPrompt: effectivePrompt,
           });
 
-          // Only pass images option if there are actually images to pass
-          // This avoids potential issues with models that don't expect the images parameter
-          if (imageResult.images.length > 0) {
-            await abortable(activeSession.prompt(effectivePrompt, { images: imageResult.images }));
-          } else {
-            await abortable(activeSession.prompt(effectivePrompt));
-          }
+          await runPromptWithRateLimitRetry({
+            activeSession,
+            effectivePrompt,
+            images: imageResult.images,
+            abortable,
+            assistantTexts,
+            toolMetas,
+            didSendViaMessagingTool,
+            getSuccessfulCronAdds,
+            abortSignal: runAbortController.signal,
+            provider: params.provider,
+            modelId: params.modelId,
+          });
         } catch (err) {
           // Yield-triggered abort is intentional — treat as clean stop, not error.
           // Check the abort reason to distinguish from external aborts (timeout, user cancel)

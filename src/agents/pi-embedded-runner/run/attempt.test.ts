@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { PromptOptions } from "@mariozechner/pi-coding-agent";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import type { OpenClawConfig } from "../../../config/config.js";
 import {
@@ -15,6 +17,7 @@ import {
   buildAfterTurnRuntimeContext,
   buildSessionsYieldContextMessage,
   composeSystemPromptWithHookContext,
+  runPromptWithRateLimitRetry,
   persistSessionsYieldContextMessage,
   prependSystemPromptAddition,
   queueSessionsYieldInterruptMessage,
@@ -34,6 +37,19 @@ type FakeWrappedStream = {
   result: () => Promise<unknown>;
   [Symbol.asyncIterator]: () => AsyncIterator<unknown>;
 };
+
+const baseAssistantUsage = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
+beforeEach(() => {
+  vi.useRealTimers();
+});
 
 function createOllamaProviderConfig(injectNumCtxForOpenAICompat: boolean): OpenClawConfig {
   return {
@@ -241,6 +257,97 @@ describe("sessions_yield helpers", () => {
     expect(activeSession.sessionManager.byId.has("aborted")).toBe(false);
     expect(activeSession.sessionManager.leafId).toBe("session-root");
     expect(rewriteFile).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("runPromptWithRateLimitRetry", () => {
+  function createRetryTestSession() {
+    const initialMessages: AgentMessage[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        timestamp: Date.now(),
+      },
+    ];
+    const session = {
+      messages: initialMessages,
+      prompt: vi.fn<(prompt: string, options?: PromptOptions) => Promise<void>>(),
+      agent: {
+        replaceMessages: vi.fn((messages: AgentMessage[]) => {
+          session.messages = messages.slice();
+        }),
+      },
+    };
+    return session;
+  }
+
+  function createRateLimitAssistant() {
+    return {
+      role: "assistant" as const,
+      content: [],
+      api: "openai-responses",
+      provider: "openai",
+      model: "mock-1",
+      usage: baseAssistantUsage,
+      stopReason: "error" as const,
+      errorMessage: "Too many requests",
+      timestamp: Date.now(),
+    };
+  }
+
+  it("rethrows exhausted thrown rate limits so callers stay on the promptError path", async () => {
+    const session = createRetryTestSession();
+    const error = Object.assign(new Error("Too Many Requests"), { status: 429 });
+    session.prompt.mockRejectedValue(error);
+
+    await expect(
+      runPromptWithRateLimitRetry({
+        activeSession: session,
+        effectivePrompt: "hello",
+        images: [],
+        abortable: async <T>(promise: Promise<T>) => await promise,
+        assistantTexts: [],
+        toolMetas: [],
+        didSendViaMessagingTool: () => false,
+        getSuccessfulCronAdds: () => 0,
+        provider: "openai",
+        modelId: "mock-1",
+      }),
+    ).rejects.toBe(error);
+
+    expect(session.prompt).toHaveBeenCalledTimes(4);
+    expect(session.agent.replaceMessages).not.toHaveBeenCalled();
+  });
+
+  it("rewinds intermediate terminal rate-limit assistants and returns the final assistant failure", async () => {
+    const session = createRetryTestSession();
+    session.prompt.mockImplementation(async () => {
+      session.messages.push(createRateLimitAssistant());
+    });
+
+    await expect(
+      runPromptWithRateLimitRetry({
+        activeSession: session,
+        effectivePrompt: "hello",
+        images: [],
+        abortable: async <T>(promise: Promise<T>) => await promise,
+        assistantTexts: [],
+        toolMetas: [],
+        didSendViaMessagingTool: () => false,
+        getSuccessfulCronAdds: () => 0,
+        provider: "openai",
+        modelId: "mock-1",
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(session.prompt).toHaveBeenCalledTimes(4);
+    expect(session.agent.replaceMessages).toHaveBeenCalledTimes(3);
+    expect(session.messages).toHaveLength(2);
+    expect(session.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "Too many requests",
+    });
   });
 });
 
