@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildAssistantMessage,
   createConfiguredOllamaStreamFn,
   createOllamaStreamFn,
   convertToOllamaMessages,
-  buildAssistantMessage,
   parseNdjsonStream,
   resolveOllamaBaseUrlForRun,
 } from "../plugin-sdk/ollama.js";
