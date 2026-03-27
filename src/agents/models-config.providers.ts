@@ -15,6 +15,7 @@ import {
   XIAOMI_DEFAULT_MODEL_ID,
   buildXiaomiProvider,
 } from "../plugin-sdk/provider-catalog.js";
+import { formatApiKeyPreview } from "../plugins/provider-auth-input.js";
 import { isRecord } from "../utils.js";
 import { normalizeOptionalSecretInput } from "../utils/normalize-secret-input.js";
 import { hasAnthropicVertexAvailableAuth } from "./anthropic-vertex-provider.js";
@@ -45,6 +46,7 @@ import {
   resolvePluginDiscoveryProviders,
   runProviderCatalog,
 } from "../plugins/provider-discovery.js";
+import { resolveProviderSyntheticAuthWithPlugin } from "../plugins/provider-runtime.js";
 import {
   isNonSecretApiKeyMarker,
   resolveNonEnvSecretRefApiKeyMarker,
@@ -76,6 +78,21 @@ const MODELSTUDIO_NATIVE_BASE_URLS = new Set([
 const log = createSubsystemLogger("agents/model-providers");
 
 const ENV_VAR_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
+
+function shouldTraceProviderAuth(provider: string): boolean {
+  return provider.trim().toLowerCase() === "xai";
+}
+
+function summarizeProviderAuthKey(apiKey: string | undefined): string {
+  const trimmed = apiKey?.trim() ?? "";
+  if (!trimmed) {
+    return "missing";
+  }
+  if (isNonSecretApiKeyMarker(trimmed)) {
+    return `marker:${trimmed}`;
+  }
+  return formatApiKeyPreview(trimmed);
+}
 
 function resolveLiveProviderCatalogTimeoutMs(env: NodeJS.ProcessEnv): number | null {
   const live =
@@ -688,6 +705,50 @@ type ImplicitProviderContext = ImplicitProviderParams & {
   resolveProviderAuth: ProviderAuthResolver;
 };
 
+function resolveConfigBackedProviderAuth(params: { provider: string; config?: OpenClawConfig }):
+  | {
+      apiKey: string;
+      discoveryApiKey?: string;
+      mode: "api_key";
+      source: "config";
+    }
+  | undefined {
+  const synthetic = resolveProviderSyntheticAuthWithPlugin({
+    provider: params.provider,
+    config: params.config,
+    context: {
+      config: params.config,
+      provider: params.provider,
+      providerConfig: params.config?.models?.providers?.[params.provider],
+    },
+  });
+  const apiKey = synthetic?.apiKey?.trim();
+  if (!apiKey) {
+    if (shouldTraceProviderAuth(params.provider)) {
+      log.info("[xai-auth] bootstrap config fallback: no config-backed key found");
+    }
+    return undefined;
+  }
+  if (shouldTraceProviderAuth(params.provider)) {
+    log.info(
+      `[xai-auth] bootstrap config fallback: key=${summarizeProviderAuthKey(apiKey)} marker=${isNonSecretApiKeyMarker(apiKey) ? "kept" : "secretref-managed"} source=config`,
+    );
+  }
+  return isNonSecretApiKeyMarker(apiKey)
+    ? {
+        apiKey,
+        discoveryApiKey: toDiscoveryApiKey(apiKey),
+        mode: "api_key",
+        source: "config",
+      }
+    : {
+        apiKey: resolveNonEnvSecretRefApiKeyMarker("file"),
+        discoveryApiKey: toDiscoveryApiKey(apiKey),
+        mode: "api_key",
+        source: "config",
+      };
+}
+
 function mergeImplicitProviderSet(
   target: Record<string, ProviderConfig>,
   additions: Record<string, ProviderConfig> | undefined,
@@ -797,9 +858,19 @@ export async function resolveImplicitProviders(
       };
     }
     const fromProfiles = resolveApiKeyFromProfiles({ provider, store: authStore, env });
+    if (fromProfiles?.apiKey) {
+      return {
+        apiKey: fromProfiles.apiKey,
+        discoveryApiKey: fromProfiles.discoveryApiKey,
+      };
+    }
+    const fromConfig = resolveConfigBackedProviderAuth({
+      provider,
+      config: params.config,
+    });
     return {
-      apiKey: fromProfiles?.apiKey,
-      discoveryApiKey: fromProfiles?.discoveryApiKey,
+      apiKey: fromConfig?.apiKey,
+      discoveryApiKey: fromConfig?.discoveryApiKey,
     };
   };
   const resolveProviderAuth: ProviderAuthResolver = (
@@ -855,6 +926,19 @@ export async function resolveImplicitProviders(
     }
     if (oauthCandidate) {
       return oauthCandidate;
+    }
+
+    const fromConfig = resolveConfigBackedProviderAuth({
+      provider,
+      config: params.config,
+    });
+    if (fromConfig) {
+      return {
+        apiKey: fromConfig.apiKey,
+        discoveryApiKey: fromConfig.discoveryApiKey,
+        mode: fromConfig.mode,
+        source: "none",
+      };
     }
 
     return {

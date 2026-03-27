@@ -14,7 +14,6 @@ import { DEFAULT_CONTEXT_TOKENS } from "../defaults.js";
 import { resolveGoogleGenerativeAiTransport } from "../google-generative-ai.js";
 import { buildModelAliasLines } from "../model-alias-lines.js";
 import { isSecretRefHeaderValueMarker } from "../model-auth-markers.js";
-import { normalizeModelCompat } from "../model-compat.js";
 import { findNormalizedProviderValue, normalizeProviderId } from "../model-selection.js";
 import {
   buildSuppressedBuiltInModelError,
@@ -101,12 +100,9 @@ function normalizeResolvedModel(params: {
       model: normalizedInputModel,
     },
   }) as Model<Api> | undefined;
-  if (pluginNormalized) {
-    return normalizeModelCompat(pluginNormalized);
-  }
   return normalizeResolvedProviderModel({
     provider: params.provider,
-    model: normalizedInputModel,
+    model: pluginNormalized ?? normalizedInputModel,
   });
 }
 

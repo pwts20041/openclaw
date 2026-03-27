@@ -1,11 +1,12 @@
 import path from "node:path";
 import { type Api, type Model } from "@mariozechner/pi-ai";
 import { formatCliCommand } from "../cli/command-format.js";
-import type { OpenClawConfig } from "../config/config.js";
+import { getRuntimeConfigSnapshot, type OpenClawConfig } from "../config/config.js";
 import type { ModelProviderAuthMode, ModelProviderConfig } from "../config/types.js";
 import { coerceSecretRef } from "../config/types.secrets.js";
 import { getShellEnvAppliedKeys } from "../infra/shell-env.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { formatApiKeyPreview } from "../plugins/provider-auth-input.js";
 import {
   buildProviderMissingAuthMessageWithPlugin,
   resolveProviderSyntheticAuthWithPlugin,
@@ -28,6 +29,7 @@ import {
   CUSTOM_LOCAL_AUTH_MARKER,
   isKnownEnvApiKeyMarker,
   isNonSecretApiKeyMarker,
+  resolveNonEnvSecretRefApiKeyMarker,
 } from "./model-auth-markers.js";
 import { normalizeProviderId } from "./model-selection.js";
 
@@ -39,6 +41,38 @@ const AWS_BEARER_ENV = "AWS_BEARER_TOKEN_BEDROCK";
 const AWS_ACCESS_KEY_ENV = "AWS_ACCESS_KEY_ID";
 const AWS_SECRET_KEY_ENV = "AWS_SECRET_ACCESS_KEY";
 const AWS_PROFILE_ENV = "AWS_PROFILE";
+
+function shouldTraceProviderAuth(provider: string): boolean {
+  return normalizeProviderId(provider) === "xai";
+}
+
+function summarizeProviderAuthKey(apiKey: string | undefined): string {
+  const trimmed = apiKey?.trim() ?? "";
+  if (!trimmed) {
+    return "missing";
+  }
+  if (isNonSecretApiKeyMarker(trimmed)) {
+    return `marker:${trimmed}`;
+  }
+  return formatApiKeyPreview(trimmed);
+}
+
+function logProviderAuthDecision(params: {
+  provider: string;
+  stage: string;
+  source?: string;
+  mode?: string;
+  profileId?: string;
+  apiKey?: string;
+}): void {
+  if (!shouldTraceProviderAuth(params.provider)) {
+    return;
+  }
+  log.info(
+    `[xai-auth] ${params.stage}: source=${params.source ?? "unknown"} mode=${params.mode ?? "unknown"} profile=${params.profileId ?? "none"} key=${summarizeProviderAuthKey(params.apiKey)}`,
+  );
+}
+
 function resolveProviderConfig(
   cfg: OpenClawConfig | undefined,
   provider: string,
@@ -158,10 +192,117 @@ function isCustomLocalProviderConfig(providerConfig: ModelProviderConfig): boole
   );
 }
 
+function readConfiguredOrManagedApiKey(value: unknown): string | undefined {
+  const literal = normalizeOptionalSecretInput(value);
+  if (literal) {
+    return literal;
+  }
+  const ref = coerceSecretRef(value);
+  return ref ? resolveNonEnvSecretRefApiKeyMarker(ref.source) : undefined;
+}
+
+function readLegacyGrokFallbackAuth(
+  config: OpenClawConfig | undefined,
+): { apiKey: string; source: string } | undefined {
+  const apiKey = readConfiguredOrManagedApiKey(config?.tools?.web?.search?.grok?.apiKey);
+  return apiKey ? { apiKey, source: "tools.web.search.grok.apiKey" } : undefined;
+}
+
+function readXaiConfigBackedAuth(
+  config: OpenClawConfig | undefined,
+): { apiKey: string; source: string } | undefined {
+  const pluginConfig = config?.plugins?.entries?.xai?.config as
+    | { webSearch?: { apiKey?: unknown } }
+    | undefined;
+  const pluginApiKey = readConfiguredOrManagedApiKey(pluginConfig?.webSearch?.apiKey);
+  if (pluginApiKey) {
+    return {
+      apiKey: pluginApiKey,
+      source: "plugins.entries.xai.config.webSearch.apiKey",
+    };
+  }
+  return readLegacyGrokFallbackAuth(config);
+}
+
+function resolveXaiConfigBackedRuntimeAuth(params: {
+  cfg: OpenClawConfig | undefined;
+}): ResolvedProviderAuth | undefined {
+  const directAuth = readXaiConfigBackedAuth(params.cfg);
+  if (directAuth && !isNonSecretApiKeyMarker(directAuth.apiKey)) {
+    return {
+      apiKey: directAuth.apiKey,
+      source: directAuth.source,
+      mode: "api-key",
+    };
+  }
+
+  const runtimeConfig = getRuntimeConfigSnapshot();
+  if (!runtimeConfig || runtimeConfig === params.cfg) {
+    return undefined;
+  }
+
+  const runtimeAuth = readXaiConfigBackedAuth(runtimeConfig);
+  if (!runtimeAuth || isNonSecretApiKeyMarker(runtimeAuth.apiKey)) {
+    return undefined;
+  }
+  return {
+    apiKey: runtimeAuth.apiKey,
+    source: runtimeAuth.source,
+    mode: "api-key",
+  };
+}
+
 function resolveSyntheticLocalProviderAuth(params: {
   cfg: OpenClawConfig | undefined;
   provider: string;
 }): ResolvedProviderAuth | null {
+  if (normalizeProviderId(params.provider) === "xai") {
+    const xaiConfigBackedAuth = resolveXaiConfigBackedRuntimeAuth({
+      cfg: params.cfg,
+    });
+    if (xaiConfigBackedAuth) {
+      return xaiConfigBackedAuth;
+    }
+  }
+
+  const tryPluginSyntheticAuth = (
+    config: OpenClawConfig | undefined,
+  ): ResolvedProviderAuth | undefined => {
+    const providerConfig = resolveProviderConfig(config, params.provider);
+    const syntheticAuth = resolveProviderSyntheticAuthWithPlugin({
+      provider: params.provider,
+      config,
+      context: {
+        config,
+        provider: params.provider,
+        providerConfig,
+      },
+    });
+    if (
+      syntheticAuth &&
+      !(
+        normalizeProviderId(params.provider) === "xai" &&
+        isNonSecretApiKeyMarker(syntheticAuth.apiKey)
+      )
+    ) {
+      return syntheticAuth;
+    }
+    return undefined;
+  };
+
+  const directPluginSyntheticAuth = tryPluginSyntheticAuth(params.cfg);
+  if (directPluginSyntheticAuth) {
+    return directPluginSyntheticAuth;
+  }
+
+  const runtimeConfig = getRuntimeConfigSnapshot();
+  if (runtimeConfig && runtimeConfig !== params.cfg) {
+    const runtimePluginSyntheticAuth = tryPluginSyntheticAuth(runtimeConfig);
+    if (runtimePluginSyntheticAuth) {
+      return runtimePluginSyntheticAuth;
+    }
+  }
+
   const providerConfig = resolveProviderConfig(params.cfg, params.provider);
   if (!providerConfig) {
     return null;
@@ -173,19 +314,6 @@ function resolveSyntheticLocalProviderAuth(params: {
     (Array.isArray(providerConfig.models) && providerConfig.models.length > 0);
   if (!hasApiConfig) {
     return null;
-  }
-
-  const pluginSyntheticAuth = resolveProviderSyntheticAuthWithPlugin({
-    provider: params.provider,
-    config: params.cfg,
-    context: {
-      config: params.cfg,
-      provider: params.provider,
-      providerConfig,
-    },
-  });
-  if (pluginSyntheticAuth) {
-    return pluginSyntheticAuth;
   }
 
   const authOverride = resolveProviderAuthOverride(params.cfg, params.provider);
@@ -329,12 +457,23 @@ export async function resolveApiKeyForProvider(params: {
       });
       if (resolved) {
         const mode = store.profiles[candidate]?.type;
-        return {
+        const resolvedMode: ResolvedProviderAuth["mode"] =
+          mode === "oauth" ? "oauth" : mode === "token" ? "token" : "api-key";
+        const result: ResolvedProviderAuth = {
           apiKey: resolved.apiKey,
           profileId: candidate,
           source: `profile:${candidate}`,
-          mode: mode === "oauth" ? "oauth" : mode === "token" ? "token" : "api-key",
+          mode: resolvedMode,
         };
+        logProviderAuthDecision({
+          provider,
+          stage: "resolved from profile",
+          source: result.source,
+          mode: result.mode,
+          profileId: result.profileId,
+          apiKey: result.apiKey,
+        });
+        return result;
       }
     } catch (err) {
       log.debug?.(`auth profile "${candidate}" failed for provider "${provider}": ${String(err)}`);
@@ -343,20 +482,46 @@ export async function resolveApiKeyForProvider(params: {
 
   const envResolved = resolveEnvApiKey(provider);
   if (envResolved) {
-    return {
+    const resolvedMode: ResolvedProviderAuth["mode"] = envResolved.source.includes("OAUTH_TOKEN")
+      ? "oauth"
+      : "api-key";
+    const result: ResolvedProviderAuth = {
       apiKey: envResolved.apiKey,
       source: envResolved.source,
-      mode: envResolved.source.includes("OAUTH_TOKEN") ? "oauth" : "api-key",
+      mode: resolvedMode,
     };
+    logProviderAuthDecision({
+      provider,
+      stage: "resolved from env",
+      source: result.source,
+      mode: result.mode,
+      apiKey: result.apiKey,
+    });
+    return result;
   }
 
   const customKey = resolveUsableCustomProviderApiKey({ cfg, provider });
   if (customKey) {
-    return { apiKey: customKey.apiKey, source: customKey.source, mode: "api-key" };
+    const result = { apiKey: customKey.apiKey, source: customKey.source, mode: "api-key" as const };
+    logProviderAuthDecision({
+      provider,
+      stage: "resolved from models.providers",
+      source: result.source,
+      mode: result.mode,
+      apiKey: result.apiKey,
+    });
+    return result;
   }
 
   const syntheticLocalAuth = resolveSyntheticLocalProviderAuth({ cfg, provider });
   if (syntheticLocalAuth) {
+    logProviderAuthDecision({
+      provider,
+      stage: "resolved synthetic auth",
+      source: syntheticLocalAuth.source,
+      mode: syntheticLocalAuth.mode,
+      apiKey: syntheticLocalAuth.apiKey,
+    });
     return syntheticLocalAuth;
   }
 
@@ -387,12 +552,22 @@ export async function resolveApiKeyForProvider(params: {
       },
     });
     if (pluginMissingAuthMessage) {
+      logProviderAuthDecision({
+        provider,
+        stage: "plugin missing auth message",
+        source: pluginMissingAuthMessage,
+      });
       throw new Error(pluginMissingAuthMessage);
     }
   }
 
   const authStorePath = resolveAuthStorePathForDisplay(params.agentDir);
   const resolvedAgentDir = path.dirname(authStorePath);
+  logProviderAuthDecision({
+    provider,
+    stage: "missing auth",
+    source: "no profiles/env/config fallback",
+  });
   throw new Error(
     [
       `No API key found for provider "${provider}".`,
