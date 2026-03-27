@@ -26,6 +26,12 @@ import { defaultRuntime } from "../../runtime.js";
 import { formatCliCommand } from "../command-format.js";
 import { inheritOptionFromParent } from "../command-options.js";
 import { forceFreePortAndWait, waitForPortBindable } from "../ports.js";
+import {
+  applyCrashLoopGuard,
+  CrashLoopError,
+  clearGatewayCrashHistory,
+  recordGatewayCrash,
+} from "./crash-loop-guard.js";
 import { ensureDevGatewayConfig } from "./dev.js";
 import { runGatewayLoop } from "./run-loop.js";
 import {
@@ -197,6 +203,21 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
   const rawStreamPath = toOptionString(opts.rawStreamPath);
   if (rawStreamPath) {
     process.env.OPENCLAW_RAW_STREAM_PATH = rawStreamPath;
+  }
+
+  const stateDir = resolveStateDir(process.env);
+  try {
+    await applyCrashLoopGuard({
+      stateDir,
+      logger: gatewayLog,
+    });
+  } catch (err) {
+    if (err instanceof CrashLoopError) {
+      defaultRuntime.error(err.message);
+      defaultRuntime.exit(1);
+      return;
+    }
+    throw err;
   }
 
   if (devMode) {
@@ -424,16 +445,29 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
         }
       : undefined;
 
+<<<<<<< HEAD
   const startLoop = async () =>
+=======
+  process.on("exit", (code) => {
+    if (code !== 0) {
+      recordGatewayCrash(stateDir);
+    }
+  });
+
+  try {
+>>>>>>> 430b320cd0 (fix: register crash-recording exit handler after all validation passes)
     await runGatewayLoop({
       runtime: defaultRuntime,
       lockPort: port,
-      start: async () =>
-        await startGatewayServer(port, {
+      start: async () => {
+        const server = await startGatewayServer(port, {
           bind,
           auth: authOverride,
           tailscale: tailscaleOverride,
-        }),
+        });
+        clearGatewayCrashHistory(stateDir);
+        return server;
+      },
     });
 
   try {
