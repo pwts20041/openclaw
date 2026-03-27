@@ -49,6 +49,12 @@ export function createFinalizableDraftStreamControls(params: {
     loop.update(text);
   };
 
+  const seal = async (): Promise<void> => {
+    params.markFinal();
+    loop.stop();
+    await loop.waitForInFlight();
+  };
+
   const stop = async (): Promise<void> => {
     params.markFinal();
     await loop.flush();
@@ -63,6 +69,7 @@ export function createFinalizableDraftStreamControls(params: {
   return {
     loop,
     update,
+    seal,
     stop,
     stopForClear,
   };
