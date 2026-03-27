@@ -676,7 +676,7 @@ export function resolveSessionDisplayName(
     if (!prefix) {
       return name;
     }
-    const prefixPattern = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\s*`, "i");
+    const prefixPattern = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`, "i");
     return prefixPattern.test(name) ? name : `${prefix} ${name}`;
   };
 
