@@ -683,7 +683,7 @@ describe("createInboundDebouncer", () => {
 });
 
 describe("initSessionState BodyStripped", () => {
-  it("prefers BodyForAgent over Body for group chats", async () => {
+  it("prefers Body over BodyForAgent for group chats (Body includes envelope)", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-sender-meta-"));
     const storePath = path.join(root, "sessions.json");
     const cfg = { session: { store: storePath } } as OpenClawConfig;
@@ -702,10 +702,10 @@ describe("initSessionState BodyStripped", () => {
       commandAuthorized: true,
     });
 
-    expect(result.sessionCtx.BodyStripped).toBe("ping");
+    expect(result.sessionCtx.BodyStripped).toBe("[WhatsApp 123@g.us] ping");
   });
 
-  it("prefers BodyForAgent over Body for direct chats", async () => {
+  it("prefers Body over BodyForAgent for direct chats (Body includes envelope)", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-sender-meta-direct-"));
     const storePath = path.join(root, "sessions.json");
     const cfg = { session: { store: storePath } } as OpenClawConfig;
@@ -723,7 +723,7 @@ describe("initSessionState BodyStripped", () => {
       commandAuthorized: true,
     });
 
-    expect(result.sessionCtx.BodyStripped).toBe("ping");
+    expect(result.sessionCtx.BodyStripped).toBe("[WhatsApp +1] ping");
   });
 });
 

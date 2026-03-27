@@ -309,6 +309,7 @@ export async function processMessage(params: {
   const ctxPayload = finalizeInboundContext({
     Body: combinedBody,
     BodyForAgent: params.msg.body,
+    Timestamp: params.msg.timestamp,
     InboundHistory: inboundHistory,
     RawBody: params.msg.body,
     CommandBody: params.msg.body,
