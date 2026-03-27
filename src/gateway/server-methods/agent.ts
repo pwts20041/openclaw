@@ -624,8 +624,18 @@ export const agentHandlers: GatewayRequestHandlers = {
           resolvedAccountId,
         };
       } catch (err) {
-        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(err)));
-        return;
+        if (bestEffortDeliver) {
+          // Best-effort delivery: if no external channel is available (e.g. webchat-only),
+          // downgrade to in-session response instead of failing the entire request.
+          // The agent response will still be written to the session and visible in webchat.
+          context.logGateway.info(
+            "bestEffortDeliver: channel resolution failed, proceeding without delivery",
+            { err: String(err) },
+          );
+        } else {
+          respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(err)));
+          return;
+        }
       }
     }
 
@@ -643,15 +653,23 @@ export const agentHandlers: GatewayRequestHandlers = {
     }
 
     if (wantsDelivery && resolvedChannel === INTERNAL_MESSAGE_CHANNEL) {
-      respond(
-        false,
-        undefined,
-        errorShape(
-          ErrorCodes.INVALID_REQUEST,
-          "delivery channel is required: pass --channel/--reply-channel or use a main session with a previous channel",
-        ),
-      );
-      return;
+      if (bestEffortDeliver) {
+        // Best-effort delivery with no deliverable channel: proceed without delivery.
+        // The response is still written to the session and visible in webchat/control-ui.
+        context.logGateway.info(
+          "bestEffortDeliver: no deliverable channel available, skipping delivery",
+        );
+      } else {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            "delivery channel is required: pass --channel/--reply-channel or use a main session with a previous channel",
+          ),
+        );
+        return;
+      }
     }
 
     const normalizedTurnSource = normalizeMessageChannel(turnSourceChannel);

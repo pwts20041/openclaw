@@ -685,6 +685,43 @@ describe("gateway agent handler", () => {
     expect(callArgs.bestEffortDeliver).toBe(false);
   });
 
+  it("does not fail when bestEffortDeliver=true and no external channels are configured (#51936)", async () => {
+    // In webchat-only setups, exec approval followups pass deliver=true + bestEffortDeliver=true
+    // but no external channel (telegram/discord/etc) is configured. The agent handler should
+    // downgrade gracefully instead of throwing "Channel is required".
+    primeMainAgentRun();
+    mocks.agentCommand.mockClear();
+    const respond = vi.fn();
+
+    await invokeAgent(
+      {
+        message: "exec approval result",
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        deliver: true,
+        bestEffortDeliver: true,
+        idempotencyKey: "test-webchat-only-approval",
+      },
+      { reqId: "webchat-only-1", respond },
+    );
+
+    // Should accept (not reject) — the agent run proceeds without external delivery
+    await waitForAssertion(() => expect(mocks.agentCommand).toHaveBeenCalled());
+    const acceptedCall = respond.mock.calls.find(
+      (call: unknown[]) =>
+        call[0] === true && (call[1] as Record<string, unknown>)?.status === "accepted",
+    );
+    expect(acceptedCall).toBeDefined();
+    // Should NOT have been rejected with INVALID_REQUEST
+    const rejectedCall = respond.mock.calls.find(
+      (call: unknown[]) =>
+        call[0] === false &&
+        typeof (call[2] as Record<string, unknown>)?.message === "string" &&
+        ((call[2] as Record<string, unknown>).message as string).includes("Channel is required"),
+    );
+    expect(rejectedCall).toBeUndefined();
+  });
+
   it("rejects public spawned-run metadata fields", async () => {
     primeMainAgentRun();
     mocks.agentCommand.mockClear();
