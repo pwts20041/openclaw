@@ -371,7 +371,9 @@ export function createExecTool(
           ].join("\n"),
         );
       }
-      const rawWorkdir = params.workdir?.trim() || defaults?.cwd || process.cwd();
+      const requestedWorkdir = params.workdir?.trim();
+      const configuredWorkdir = defaults?.cwd?.trim();
+      const rawWorkdir = requestedWorkdir || configuredWorkdir || process.cwd();
       let workdir = rawWorkdir;
       let containerWorkdir = sandbox?.containerWorkdir;
       if (sandbox) {
@@ -462,6 +464,7 @@ export function createExecTool(
         return executeNodeHostCommand({
           command: params.command,
           workdir,
+          forwardedWorkdir: requestedWorkdir || undefined,
           env,
           requestedEnv: params.env,
           requestedNode: params.node?.trim(),

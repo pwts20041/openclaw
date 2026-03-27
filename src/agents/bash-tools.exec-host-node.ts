@@ -34,6 +34,7 @@ import { listNodes, resolveNodeIdFromList } from "./tools/nodes-utils.js";
 export type ExecuteNodeHostCommandParams = {
   command: string;
   workdir: string;
+  forwardedWorkdir?: string;
   env: Record<string, string>;
   requestedEnv?: Record<string, string>;
   requestedNode?: string;
@@ -105,7 +106,7 @@ export async function executeNodeHostCommand(
       params: {
         command: argv,
         rawCommand: params.command,
-        cwd: params.workdir,
+        ...(params.forwardedWorkdir ? { cwd: params.forwardedWorkdir } : {}),
         agentId: params.agentId,
         sessionKey: params.sessionKey,
       },
@@ -118,7 +119,7 @@ export async function executeNodeHostCommand(
   }
   const runArgv = prepared.plan.argv;
   const runRawCommand = prepared.plan.commandText;
-  const runCwd = prepared.plan.cwd ?? params.workdir;
+  const runCwd = typeof prepared.plan.cwd === "string" ? prepared.plan.cwd : undefined;
   const runAgentId = prepared.plan.agentId ?? params.agentId;
   const runSessionKey = prepared.plan.sessionKey ?? params.sessionKey;
 
@@ -216,7 +217,7 @@ export async function executeNodeHostCommand(
       params: {
         command: runArgv,
         rawCommand: runRawCommand,
-        cwd: runCwd,
+        ...(runCwd ? { cwd: runCwd } : {}),
         env: nodeEnv,
         timeoutMs: typeof params.timeoutSec === "number" ? params.timeoutSec * 1000 : undefined,
         agentId: runAgentId,
@@ -245,7 +246,7 @@ export async function executeNodeHostCommand(
         approvalId,
         systemRunPlan: prepared.plan,
         env: nodeEnv,
-        workdir: runCwd,
+        workdir: runCwd ?? params.workdir,
         host: "node",
         nodeId,
         security: hostSecurity,

@@ -236,6 +236,7 @@ describe("exec approvals", () => {
   });
 
   it("reuses approval id as the node runId", async () => {
+    let prepareParams: unknown;
     let invokeParams: unknown;
     let agentParams: unknown;
 
@@ -246,6 +247,7 @@ describe("exec approvals", () => {
       onNodeInvoke: (params) => {
         const invoke = params as { command?: string };
         if (invoke.command === "system.run.prepare") {
+          prepareParams = (params as { params?: unknown }).params;
           return buildPreparedSystemRunPayload(params);
         }
         if (invoke.command === "system.run") {
@@ -270,6 +272,7 @@ describe("exec approvals", () => {
       interactive: true,
     });
     const approvalId = details.approvalId;
+    expect(prepareParams).not.toHaveProperty("cwd");
 
     await expect
       .poll(() => (invokeParams as { params?: { runId?: string } } | undefined)?.params?.runId, {
@@ -282,7 +285,88 @@ describe("exec approvals", () => {
     ).toMatchObject({
       suppressNotifyOnExit: true,
     });
+    expect(
+      (invokeParams as { params?: Record<string, unknown> } | undefined)?.params,
+    ).not.toHaveProperty("cwd");
     await expect.poll(() => agentParams, { timeout: 2_000, interval: 20 }).toBeTruthy();
+  });
+
+  it("does not forward the local cwd to node prepare or run payloads", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-node-default-cwd-"));
+    let prepareParams: Record<string, unknown> | undefined;
+    let runParams: Record<string, unknown> | undefined;
+
+    vi.mocked(callGatewayTool).mockImplementation(async (method, _opts, params) => {
+      if (method === "node.invoke") {
+        const invoke = params as {
+          command?: string;
+          params?: Record<string, unknown>;
+        };
+        if (invoke.command === "system.run.prepare") {
+          prepareParams = invoke.params;
+          return buildPreparedSystemRunPayload(params);
+        }
+        if (invoke.command === "system.run") {
+          runParams = invoke.params;
+          return { payload: { success: true, stdout: "ok" } };
+        }
+      }
+      return { ok: true };
+    });
+
+    const tool = createExecTool({
+      host: "node",
+      ask: "off",
+      security: "full",
+      approvalRunningNoticeMs: 0,
+      cwd: tempDir,
+    });
+
+    const result = await tool.execute("call-node-cwd", { command: "echo hello" });
+    expect(result.details.status).toBe("completed");
+    expect(prepareParams).toBeTruthy();
+    expect(runParams).toBeTruthy();
+    expect(prepareParams).not.toHaveProperty("cwd");
+    expect(runParams).not.toHaveProperty("cwd");
+  });
+
+  it("forwards an explicit workdir to node prepare and execution", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-node-cwd-"));
+    let prepareParams: Record<string, unknown> | undefined;
+    let runParams: Record<string, unknown> | undefined;
+
+    vi.mocked(callGatewayTool).mockImplementation(async (method, _opts, params) => {
+      if (method === "node.invoke") {
+        const invoke = params as {
+          command?: string;
+          params?: Record<string, unknown>;
+        };
+        if (invoke.command === "system.run.prepare") {
+          prepareParams = invoke.params;
+          return buildPreparedSystemRunPayload(params);
+        }
+        if (invoke.command === "system.run") {
+          runParams = invoke.params;
+          return { payload: { success: true, stdout: "ok" } };
+        }
+      }
+      return { ok: true };
+    });
+
+    const tool = createExecTool({
+      host: "node",
+      ask: "off",
+      security: "full",
+      approvalRunningNoticeMs: 0,
+    });
+
+    const result = await tool.execute("call-node-remote-cwd", {
+      command: "echo hello",
+      workdir: tempDir,
+    });
+    expect(result.details.status).toBe("completed");
+    expect(prepareParams).toMatchObject({ cwd: tempDir });
+    expect(runParams).toMatchObject({ cwd: tempDir });
   });
 
   it("skips approval when node allowlist is satisfied", async () => {
