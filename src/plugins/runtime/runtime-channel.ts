@@ -35,6 +35,10 @@ import { dispatchReplyWithBufferedBlockDispatcher } from "../../auto-reply/reply
 import { createReplyDispatcherWithTyping } from "../../auto-reply/reply/reply-dispatcher.js";
 import { removeAckReactionAfterReply, shouldAckReaction } from "../../channels/ack-reactions.js";
 import { resolveCommandAuthorizedFromAuthorizers } from "../../channels/command-gating.js";
+import {
+  ensureConfiguredBindingRouteReady,
+  resolveConfiguredBindingRoute,
+} from "../../channels/plugins/binding-routing.js";
 import { recordInboundSession } from "../../channels/session.js";
 import {
   resolveChannelGroupPolicy,
@@ -116,6 +120,8 @@ export function createRuntimeChannel(): PluginRuntime["channel"] {
     routing: {
       buildAgentSessionKey,
       resolveAgentRoute,
+      resolveConfiguredBindingRoute,
+      ensureConfiguredBindingRouteReady,
     },
     pairing: {
       buildPairingReply,
