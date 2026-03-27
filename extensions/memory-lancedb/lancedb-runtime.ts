@@ -35,10 +35,90 @@ type LanceDbRuntimeLoaderDeps = {
   }) => Promise<string>;
 };
 
-const MEMORY_LANCEDB_RUNTIME_MANIFEST: RuntimeManifest = (() => {
-  const packageJson = JSON.parse(
-    fs.readFileSync(new URL("./package.json", import.meta.url), "utf8"),
-  ) as {
+/**
+ * Resolve the package.json path for the memory-lancedb plugin.
+ * Uses createRequire to handle both development and bundled environments correctly.
+ * In bundled mode, import.meta.url may point to a different location than expected.
+ */
+function resolvePackageJsonPath(): string {
+  const pluginRequire = createRequire(import.meta.url);
+
+  // Strategy 1: Try to resolve relative to this module's URL
+  // Works in development mode where files are not bundled
+  try {
+    const relativePath = pluginRequire.resolve("./package.json");
+    if (fs.existsSync(relativePath)) {
+      return relativePath;
+    }
+  } catch {
+    // Continue to fallback strategies
+  }
+
+  // Strategy 2: In bundled mode, look for extensions/memory-lancedb/package.json
+  // relative to the dist directory
+  try {
+    // Get the dist directory by resolving the main openclaw package
+    const openclawMain = pluginRequire.resolve("openclaw");
+    const distDir = path.dirname(openclawMain);
+    const bundledPackageJson = path.join(distDir, "extensions", "memory-lancedb", "package.json");
+    if (fs.existsSync(bundledPackageJson)) {
+      return bundledPackageJson;
+    }
+  } catch {
+    // Continue to fallback strategies
+  }
+
+  // Strategy 3: Try to find it relative to the @lancedb/lancedb package location
+  try {
+    const lancedbEntry = pluginRequire.resolve("@lancedb/lancedb");
+    // Walk up to find the memory-lancedb plugin directory
+    let currentDir = path.dirname(lancedbEntry);
+    for (let i = 0; i < 15 && currentDir !== "/"; i++) {
+      const candidatePath = path.join(currentDir, "package.json");
+      if (fs.existsSync(candidatePath)) {
+        const content = JSON.parse(fs.readFileSync(candidatePath, "utf8")) as {
+          name?: string;
+        };
+        if (content.name === "@openclaw/memory-lancedb" || content.name === "memory-lancedb") {
+          return candidatePath;
+        }
+      }
+      currentDir = path.dirname(currentDir);
+    }
+  } catch {
+    // Ignore resolution errors
+  }
+
+  // Strategy 4: Walk up from current module location looking for extensions/memory-lancedb
+  try {
+    let currentDir = path.dirname(new URL(import.meta.url).pathname);
+    for (let i = 0; i < 10 && currentDir !== "/"; i++) {
+      const candidatePath = path.join(currentDir, "extensions", "memory-lancedb", "package.json");
+      if (fs.existsSync(candidatePath)) {
+        return candidatePath;
+      }
+      // Also check for direct package.json with the right name
+      const directPath = path.join(currentDir, "package.json");
+      if (fs.existsSync(directPath)) {
+        const content = JSON.parse(fs.readFileSync(directPath, "utf8")) as {
+          name?: string;
+        };
+        if (content.name === "@openclaw/memory-lancedb" || content.name === "memory-lancedb") {
+          return directPath;
+        }
+      }
+      currentDir = path.dirname(currentDir);
+    }
+  } catch {
+    // Ignore resolution errors
+  }
+
+  throw new Error("memory-lancedb: could not resolve package.json path");
+}
+
+function buildRuntimeManifest(): RuntimeManifest {
+  const packageJsonPath = resolvePackageJsonPath();
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as {
     dependencies?: Record<string, string>;
   };
   const lanceDbSpec = packageJson.dependencies?.["@lancedb/lancedb"];
@@ -53,7 +133,17 @@ const MEMORY_LANCEDB_RUNTIME_MANIFEST: RuntimeManifest = (() => {
       "@lancedb/lancedb": lanceDbSpec,
     },
   };
-})();
+}
+
+// Lazily compute the manifest to avoid issues during module initialization
+let _runtimeManifest: RuntimeManifest | null = null;
+
+function getRuntimeManifest(): RuntimeManifest {
+  if (!_runtimeManifest) {
+    _runtimeManifest = buildRuntimeManifest();
+  }
+  return _runtimeManifest;
+}
 
 function resolveRuntimeDir(stateDir: string): string {
   return path.join(stateDir, "plugin-runtimes", "memory-lancedb", "lancedb");
@@ -187,7 +277,7 @@ export function createLanceDbRuntimeLoader(overrides: Partial<LanceDbRuntimeLoad
   const deps: LanceDbRuntimeLoaderDeps = {
     env: overrides.env ?? process.env,
     resolveStateDir: overrides.resolveStateDir ?? resolveStateDir,
-    runtimeManifest: overrides.runtimeManifest ?? MEMORY_LANCEDB_RUNTIME_MANIFEST,
+    runtimeManifest: overrides.runtimeManifest ?? getRuntimeManifest(),
     importBundled: overrides.importBundled ?? (() => import("@lancedb/lancedb")),
     importResolved: overrides.importResolved ?? defaultImportResolved,
     resolveRuntimeEntry: overrides.resolveRuntimeEntry ?? defaultResolveRuntimeEntry,
