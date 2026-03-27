@@ -161,4 +161,33 @@ describe("WhatsApp dmPolicy precedence", () => {
     expect(upsertPairingRequestMock).not.toHaveBeenCalled();
     expect(sendMessageMock).not.toHaveBeenCalled();
   });
+
+  it("allows self-chat messages through to let monitor-level echo tracking handle suppression (#55209)", async () => {
+    setAccessControlTestConfig({
+      channels: {
+        whatsapp: {
+          selfChatMode: true,
+          allowFrom: ["+15550009999"],
+        },
+      },
+    });
+
+    // In self-chat mode, both the user's own messages and bot echoes arrive with
+    // isFromMe=true. Access control must allow them through; the narrower
+    // isRecentOutboundMessage check in monitor.ts handles bot echo suppression.
+    const result = await checkInboundAccessControl({
+      accountId: "default",
+      from: "+15550009999",
+      selfE164: "+15550009999",
+      senderE164: "+15550009999",
+      group: false,
+      pushName: "Owner",
+      isFromMe: true,
+      sock: { sendMessage: sendMessageMock },
+      remoteJid: "15550009999@s.whatsapp.net",
+    });
+
+    expect(result.allowed).toBe(true);
+    expect(result.isSelfChat).toBe(true);
+  });
 });
