@@ -4458,7 +4458,7 @@
           }
         },
         {
-          "declaration": "export function applyProviderConfigWithDefaultModel(cfg: OpenClawConfig, params: { agentModels: Record<string, AgentModelEntryConfig>; providerId: string; api: \"github-copilot\" | \"openai-completions\" | ... 5 more ... | \"ollama\"; baseUrl: string; defaultModel: ModelDefinitionConfig; defaultModelId?: string | undefined; }): OpenClawConfig;",
+          "declaration": "export function applyProviderConfigWithDefaultModel(cfg: OpenClawConfig, params: { agentModels: Record<string, AgentModelEntryConfig>; providerId: string; api: \"github-copilot\" | \"openai-completions\" | ... 6 more ... | \"ollama\"; baseUrl: string; defaultModel: ModelDefinitionConfig; defaultModelId?: string | undefined; }): OpenClawConfig;",
           "exportName": "applyProviderConfigWithDefaultModel",
           "kind": "function",
           "source": {
@@ -4467,7 +4467,7 @@
           }
         },
         {
-          "declaration": "export function applyProviderConfigWithDefaultModelPreset(cfg: OpenClawConfig, params: { providerId: string; api: \"github-copilot\" | \"openai-completions\" | \"openai-responses\" | \"openai-codex-responses\" | \"anthropic-messages\" | \"google-generative-ai\" | \"bedrock-converse-stream\" | \"ollama\"; ... 4 more ...; primaryModelRef?: string | undefined; }): OpenClawConfig;",
+          "declaration": "export function applyProviderConfigWithDefaultModelPreset(cfg: OpenClawConfig, params: { providerId: string; api: \"github-copilot\" | \"openai-completions\" | \"openai-responses\" | \"openai-codex-responses\" | \"azure-openai-responses\" | \"anthropic-messages\" | \"google-generative-ai\" | \"bedrock-converse-stream\" | \"ollama\"; ... 4 more ...; primaryModelRef?: string | undefined; }): OpenClawConfig;",
           "exportName": "applyProviderConfigWithDefaultModelPreset",
           "kind": "function",
           "source": {
@@ -4476,7 +4476,7 @@
           }
         },
         {
-          "declaration": "export function applyProviderConfigWithDefaultModels(cfg: OpenClawConfig, params: { agentModels: Record<string, AgentModelEntryConfig>; providerId: string; api: \"github-copilot\" | \"openai-completions\" | ... 5 more ... | \"ollama\"; baseUrl: string; defaultModels: ModelDefinitionConfig[]; defaultModelId?: string | undefined; }): OpenClawConfig;",
+          "declaration": "export function applyProviderConfigWithDefaultModels(cfg: OpenClawConfig, params: { agentModels: Record<string, AgentModelEntryConfig>; providerId: string; api: \"github-copilot\" | \"openai-completions\" | ... 6 more ... | \"ollama\"; baseUrl: string; defaultModels: ModelDefinitionConfig[]; defaultModelId?: string | undefined; }): OpenClawConfig;",
           "exportName": "applyProviderConfigWithDefaultModels",
           "kind": "function",
           "source": {
@@ -4485,7 +4485,7 @@
           }
         },
         {
-          "declaration": "export function applyProviderConfigWithDefaultModelsPreset(cfg: OpenClawConfig, params: { providerId: string; api: \"github-copilot\" | \"openai-completions\" | \"openai-responses\" | \"openai-codex-responses\" | \"anthropic-messages\" | \"google-generative-ai\" | \"bedrock-converse-stream\" | \"ollama\"; ... 4 more ...; primaryModelRef?: string | undefined; }): OpenClawConfig;",
+          "declaration": "export function applyProviderConfigWithDefaultModelsPreset(cfg: OpenClawConfig, params: { providerId: string; api: \"github-copilot\" | \"openai-completions\" | \"openai-responses\" | \"openai-codex-responses\" | \"azure-openai-responses\" | \"anthropic-messages\" | \"google-generative-ai\" | \"bedrock-converse-stream\" | \"ollama\"; ... 4 more ...; primaryModelRef?: string | undefined; }): OpenClawConfig;",
           "exportName": "applyProviderConfigWithDefaultModelsPreset",
           "kind": "function",
           "source": {
@@ -4494,7 +4494,7 @@
           }
         },
         {
-          "declaration": "export function applyProviderConfigWithModelCatalog(cfg: OpenClawConfig, params: { agentModels: Record<string, AgentModelEntryConfig>; providerId: string; api: \"github-copilot\" | \"openai-completions\" | ... 5 more ... | \"ollama\"; baseUrl: string; catalogModels: ModelDefinitionConfig[]; }): OpenClawConfig;",
+          "declaration": "export function applyProviderConfigWithModelCatalog(cfg: OpenClawConfig, params: { agentModels: Record<string, AgentModelEntryConfig>; providerId: string; api: \"github-copilot\" | \"openai-completions\" | ... 6 more ... | \"ollama\"; baseUrl: string; catalogModels: ModelDefinitionConfig[]; }): OpenClawConfig;",
           "exportName": "applyProviderConfigWithModelCatalog",
           "kind": "function",
           "source": {
@@ -4503,7 +4503,7 @@
           }
         },
         {
-          "declaration": "export function applyProviderConfigWithModelCatalogPreset(cfg: OpenClawConfig, params: { providerId: string; api: \"github-copilot\" | \"openai-completions\" | \"openai-responses\" | \"openai-codex-responses\" | \"anthropic-messages\" | \"google-generative-ai\" | \"bedrock-converse-stream\" | \"ollama\"; baseUrl: string; catalogModels: ModelDefinitionConfig[]; aliases?: readonly AgentModelAliasEntry[] | undefined; primaryModelRef?: string | undefined; }): OpenClawConfig;",
+          "declaration": "export function applyProviderConfigWithModelCatalogPreset(cfg: OpenClawConfig, params: { providerId: string; api: \"github-copilot\" | \"openai-completions\" | \"openai-responses\" | \"openai-codex-responses\" | \"azure-openai-responses\" | \"anthropic-messages\" | \"google-generative-ai\" | \"bedrock-converse-stream\" | \"ollama\"; baseUrl: string; catalogModels: ModelDefinitionConfig[]; aliases?: readonly AgentModelAliasEntry[] | undefined; primaryModelRef?: string | undefined; }): OpenClawConfig;",
           "exportName": "applyProviderConfigWithModelCatalogPreset",
           "kind": "function",
           "source": {
@@ -4530,7 +4530,7 @@
           }
         },
         {
-          "declaration": "export function createDefaultModelPresetAppliers<TArgs extends unknown[]>(params: { resolveParams: (cfg: OpenClawConfig, ...args: TArgs) => Omit<{ providerId: string; api: \"github-copilot\" | \"openai-completions\" | \"openai-responses\" | ... 4 more ... | \"ollama\"; ... 4 more ...; primaryModelRef?: string | undefined; }, \"primaryModelRef\"> | null | undefined; primaryModelRef: string; }): ProviderOnboardPresetAppliers<...>;",
+          "declaration": "export function createDefaultModelPresetAppliers<TArgs extends unknown[]>(params: { resolveParams: (cfg: OpenClawConfig, ...args: TArgs) => Omit<{ providerId: string; api: \"github-copilot\" | \"openai-completions\" | \"openai-responses\" | ... 5 more ... | \"ollama\"; ... 4 more ...; primaryModelRef?: string | undefined; }, \"primaryModelRef\"> | null | undefined; primaryModelRef: string; }): ProviderOnboardPresetAppliers<...>;",
           "exportName": "createDefaultModelPresetAppliers",
           "kind": "function",
           "source": {
@@ -4539,7 +4539,7 @@
           }
         },
         {
-          "declaration": "export function createDefaultModelsPresetAppliers<TArgs extends unknown[]>(params: { resolveParams: (cfg: OpenClawConfig, ...args: TArgs) => Omit<{ providerId: string; api: \"github-copilot\" | \"openai-completions\" | \"openai-responses\" | ... 4 more ... | \"ollama\"; ... 4 more ...; primaryModelRef?: string | undefined; }, \"primaryModelRef\"> | null | undefined; primaryModelRef: string; }): ProviderOnboardPresetAppliers<...>;",
+          "declaration": "export function createDefaultModelsPresetAppliers<TArgs extends unknown[]>(params: { resolveParams: (cfg: OpenClawConfig, ...args: TArgs) => Omit<{ providerId: string; api: \"github-copilot\" | \"openai-completions\" | \"openai-responses\" | ... 5 more ... | \"ollama\"; ... 4 more ...; primaryModelRef?: string | undefined; }, \"primaryModelRef\"> | null | undefined; primaryModelRef: string; }): ProviderOnboardPresetAppliers<...>;",
           "exportName": "createDefaultModelsPresetAppliers",
           "kind": "function",
           "source": {
@@ -4548,7 +4548,7 @@
           }
         },
         {
-          "declaration": "export function createModelCatalogPresetAppliers<TArgs extends unknown[]>(params: { resolveParams: (cfg: OpenClawConfig, ...args: TArgs) => Omit<{ providerId: string; api: \"github-copilot\" | \"openai-completions\" | \"openai-responses\" | ... 4 more ... | \"ollama\"; baseUrl: string; catalogModels: ModelDefinitionConfig[]; aliases?: readonly AgentModelAliasEntry[] | undefined; primaryModelRef?: string | undefined; }, \"primaryModelRef\"> | null | undefined; primaryModelRef: string; }): ProviderOnboardPresetAppliers<...>;",
+          "declaration": "export function createModelCatalogPresetAppliers<TArgs extends unknown[]>(params: { resolveParams: (cfg: OpenClawConfig, ...args: TArgs) => Omit<{ providerId: string; api: \"github-copilot\" | \"openai-completions\" | \"openai-responses\" | ... 5 more ... | \"ollama\"; baseUrl: string; catalogModels: ModelDefinitionConfig[]; aliases?: readonly AgentModelAliasEntry[] | undefined; primaryModelRef?: string | undefined; }, \"primaryModelRef\"> | null | undefined; primaryModelRef: string; }): ProviderOnboardPresetAppliers<...>;",
           "exportName": "createModelCatalogPresetAppliers",
           "kind": "function",
           "source": {
@@ -4602,11 +4602,11 @@
           }
         },
         {
-          "declaration": "export type ModelApi = \"github-copilot\" | \"openai-completions\" | \"openai-responses\" | \"openai-codex-responses\" | \"anthropic-messages\" | \"google-generative-ai\" | \"bedrock-converse-stream\" | \"ollama\";",
+          "declaration": "export type ModelApi = \"github-copilot\" | \"openai-completions\" | \"openai-responses\" | \"openai-codex-responses\" | \"azure-openai-responses\" | \"anthropic-messages\" | \"google-generative-ai\" | \"bedrock-converse-stream\" | \"ollama\";",
           "exportName": "ModelApi",
           "kind": "type",
           "source": {
-            "line": 15,
+            "line": 16,
             "path": "src/config/types.models.ts"
           }
         },
@@ -4615,7 +4615,7 @@
           "exportName": "ModelDefinitionConfig",
           "kind": "type",
           "source": {
-            "line": 47,
+            "line": 48,
             "path": "src/config/types.models.ts"
           }
         },
@@ -4624,7 +4624,7 @@
           "exportName": "ModelProviderConfig",
           "kind": "type",
           "source": {
-            "line": 65,
+            "line": 66,
             "path": "src/config/types.models.ts"
           }
         },
