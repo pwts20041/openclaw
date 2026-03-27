@@ -1,4 +1,8 @@
 import path from "node:path";
+import {
+  registerPluginStreamProvider,
+  unregisterPluginStreamProviders,
+} from "../agents/stream-provider-registry.js";
 import type { AnyAgentTool } from "../agents/tools/common.js";
 import type { ChannelPlugin } from "../channels/plugins/types.js";
 import { registerContextEngineForOwner } from "../context-engine/registry.js";
@@ -958,6 +962,12 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
     },
   ): OpenClawPluginApi => {
     const registrationMode = params.registrationMode ?? "full";
+    // Clear any stale stream provider registrations from a previous load cycle
+    // for this plugin before building the new api object. This ensures that
+    // plugin enable/disable/reload cycles work correctly.
+    if (registrationMode === "full") {
+      unregisterPluginStreamProviders(record.id);
+    }
     return {
       id: record.id,
       name: record.name,
@@ -1057,6 +1067,20 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
           });
         }
       },
+      registerStreamProvider:
+        registrationMode === "full"
+          ? (apiId, factory) => {
+              const ok = registerPluginStreamProvider(record.id, apiId, factory);
+              if (!ok) {
+                pushDiagnostic({
+                  level: "warn",
+                  pluginId: record.id,
+                  source: record.source,
+                  message: `stream provider already registered for api: ${apiId}`,
+                });
+              }
+            }
+          : () => {},
       registerMemoryPromptSection: (builder) => {
         if (registrationMode !== "full") {
           return;

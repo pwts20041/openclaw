@@ -3176,6 +3176,15 @@
           }
         },
         {
+          "declaration": "export function createAssistantMessageEventStream(): AssistantMessageEventStream;",
+          "exportName": "createAssistantMessageEventStream",
+          "kind": "function",
+          "source": {
+            "line": 20,
+            "path": "node_modules/@mariozechner/pi-ai/dist/utils/event-stream.d.ts"
+          }
+        },
+        {
           "declaration": "export function createChannelPluginBase<TResolvedAccount>(params: CreateChannelPluginBaseOptions<TResolvedAccount>): CreatedChannelPluginBase<TResolvedAccount>;",
           "exportName": "createChannelPluginBase",
           "kind": "function",
@@ -3461,6 +3470,15 @@
           "source": {
             "line": 9,
             "path": "src/agents/tools/common.ts"
+          }
+        },
+        {
+          "declaration": "export type AssistantMessageEvent = AssistantMessageEvent;",
+          "exportName": "AssistantMessageEvent",
+          "kind": "type",
+          "source": {
+            "line": 163,
+            "path": "node_modules/@mariozechner/pi-ai/dist/types.d.ts"
           }
         },
         {
@@ -3968,6 +3986,33 @@
           }
         },
         {
+          "declaration": "export type StreamFn = StreamFn;",
+          "exportName": "StreamFn",
+          "kind": "type",
+          "source": {
+            "line": 12,
+            "path": "node_modules/@mariozechner/pi-agent-core/dist/types.d.ts"
+          }
+        },
+        {
+          "declaration": "export type StreamFnFactory = StreamFnFactory;",
+          "exportName": "StreamFnFactory",
+          "kind": "type",
+          "source": {
+            "line": 56,
+            "path": "src/agents/stream-provider-registry.ts"
+          }
+        },
+        {
+          "declaration": "export type StreamProviderResolveContext = StreamProviderResolveContext;",
+          "exportName": "StreamProviderResolveContext",
+          "kind": "type",
+          "source": {
+            "line": 35,
+            "path": "src/agents/stream-provider-registry.ts"
+          }
+        },
+        {
           "declaration": "export type TailscaleStatusCommandResult = TailscaleStatusCommandResult;",
           "exportName": "TailscaleStatusCommandResult",
           "kind": "type",
@@ -4001,6 +4046,51 @@
           "source": {
             "line": 1,
             "path": "src/infra/provider-usage.types.ts"
+          }
+        },
+        {
+          "declaration": "export interface AssistantMessage",
+          "exportName": "AssistantMessage",
+          "kind": "interface",
+          "source": {
+            "line": 122,
+            "path": "node_modules/@mariozechner/pi-ai/dist/types.d.ts"
+          }
+        },
+        {
+          "declaration": "export interface TextContent",
+          "exportName": "TextContent",
+          "kind": "interface",
+          "source": {
+            "line": 76,
+            "path": "node_modules/@mariozechner/pi-ai/dist/types.d.ts"
+          }
+        },
+        {
+          "declaration": "export interface ThinkingContent",
+          "exportName": "ThinkingContent",
+          "kind": "interface",
+          "source": {
+            "line": 81,
+            "path": "node_modules/@mariozechner/pi-ai/dist/types.d.ts"
+          }
+        },
+        {
+          "declaration": "export interface ToolCall",
+          "exportName": "ToolCall",
+          "kind": "interface",
+          "source": {
+            "line": 95,
+            "path": "node_modules/@mariozechner/pi-ai/dist/types.d.ts"
+          }
+        },
+        {
+          "declaration": "export interface ToolResultMessage",
+          "exportName": "ToolResultMessage",
+          "kind": "interface",
+          "source": {
+            "line": 134,
+            "path": "node_modules/@mariozechner/pi-ai/dist/types.d.ts"
           }
         },
         {

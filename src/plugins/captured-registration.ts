@@ -1,3 +1,4 @@
+import type { StreamFnFactory } from "../agents/stream-provider-registry.js";
 import type {
   AnyAgentTool,
   CliBackendPlugin,
@@ -60,6 +61,11 @@ export function createCapturedPluginRegistration(): CapturedPluginRegistration {
         tools.push(tool);
       },
       registerMemoryEmbeddingProvider() {},
+      // no-op: stream provider registration is a runtime-only side effect;
+      // captured-registration is used for wizard discovery (not runtime activation).
+      // Without this, plugins that call api.registerStreamProvider() during register()
+      // throw TypeError and abort — preventing their providers from being captured.
+      registerStreamProvider(_apiId: string, _factory: StreamFnFactory) {},
     } as unknown as OpenClawPluginApi,
   };
 }
