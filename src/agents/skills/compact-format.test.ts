@@ -16,7 +16,7 @@ function makeSkill(name: string, desc = "A skill", filePath = `/skills/${name}/S
     filePath,
     baseDir: `/skills/${name}`,
     sourceInfo: {
-      path: `/skills/${name}`,
+      path: filePath,
       source: "workspace",
       scope: "project",
       origin: "package",
