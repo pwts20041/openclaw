@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { resolveStateDir } from "../../../src/config/paths.js";
 import { resolvePreferredOpenClawTmpDir } from "../../../src/infra/tmp-openclaw-dir.js";
 import { optimizeImageToPng } from "../../../src/media/image-ops.js";
@@ -14,6 +14,9 @@ let loadWebMedia: typeof import("./media.js").loadWebMedia;
 let loadWebMediaRaw: typeof import("./media.js").loadWebMediaRaw;
 let optimizeImageToJpeg: typeof import("./media.js").optimizeImageToJpeg;
 let sendVoiceMessageDiscord: typeof import("../../discord/src/send.js").sendVoiceMessageDiscord;
+let ffmpegExecModule: typeof import("../../../src/media/ffmpeg-exec.js");
+let imageOpsModule: typeof import("../../../src/media/image-ops.js");
+let mimeModule: typeof import("../../../src/media/mime.js");
 
 let fixtureRoot = "";
 let fixtureFileCount = 0;
@@ -22,6 +25,7 @@ let largeJpegFile = "";
 let tinyPngBuffer: Buffer;
 let tinyPngFile = "";
 let tinyPngWrongExtFile = "";
+let fakeHeicFile = "";
 let alphaPngBuffer: Buffer;
 let alphaPngFile = "";
 let fallbackPngBuffer: Buffer;
@@ -57,6 +61,9 @@ beforeAll(async () => {
   ({ LocalMediaAccessError, loadWebMedia, loadWebMediaRaw, optimizeImageToJpeg } =
     await import("./media.js"));
   ({ sendVoiceMessageDiscord } = await import("../../discord/src/send.js"));
+  ffmpegExecModule = await import("../../../src/media/ffmpeg-exec.js");
+  imageOpsModule = await import("../../../src/media/image-ops.js");
+  mimeModule = await import("../../../src/media/mime.js");
   fixtureRoot = await fs.mkdtemp(
     path.join(resolvePreferredOpenClawTmpDir(), "openclaw-media-test-"),
   );
@@ -78,6 +85,7 @@ beforeAll(async () => {
     .toBuffer();
   tinyPngFile = await writeTempFile(tinyPngBuffer, ".png");
   tinyPngWrongExtFile = await writeTempFile(tinyPngBuffer, ".bin");
+  fakeHeicFile = await writeTempFile(Buffer.from("fake-heic"), ".heic");
   alphaPngBuffer = await sharp({
     create: {
       width: 64,
@@ -178,6 +186,34 @@ describe("web media loading", () => {
 
     expect(result.kind).toBe("image");
     expect(result.contentType).toBe("image/jpeg");
+  });
+
+  it("normalizes HEIC local files to JPEG output", async () => {
+    const convertHeicToJpegSpy = vi
+      .spyOn(imageOpsModule, "convertHeicToJpeg")
+      .mockResolvedValueOnce(tinyPngBuffer);
+
+    const result = await loadWebMedia(fakeHeicFile, 1024 * 1024);
+
+    expect(convertHeicToJpegSpy).toHaveBeenCalledTimes(1);
+    expect(result.kind).toBe("image");
+    expect(result.contentType).toBe("image/jpeg");
+    expect(result.fileName).toBe(path.basename(fakeHeicFile, ".heic") + ".jpg");
+    expect(result.buffer.length).toBeGreaterThan(0);
+    expect(result.buffer.equals(tinyPngBuffer)).toBe(false);
+    expect(result.buffer[0]).toBe(0xff);
+    expect(result.buffer[1]).toBe(0xd8);
+  });
+
+  it("relabels audio-only webm files as audio before delivery", async () => {
+    const audioOnlyWebmFile = await writeTempFile(Buffer.from("fake-webm"), ".webm");
+    vi.spyOn(mimeModule, "detectMime").mockResolvedValueOnce("video/webm");
+    vi.spyOn(ffmpegExecModule, "runFfprobe").mockResolvedValueOnce("audio\n");
+
+    const result = await loadWebMedia(audioOnlyWebmFile, 1024 * 1024);
+
+    expect(result.kind).toBe("audio");
+    expect(result.contentType).toBe("audio/webm");
   });
 
   it("includes URL + status in fetch errors", async () => {

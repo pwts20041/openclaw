@@ -21,13 +21,9 @@ import { createChatChannelPlugin, type ChannelPlugin } from "openclaw/plugin-sdk
 import { createEmptyChannelDirectoryAdapter } from "openclaw/plugin-sdk/directory-runtime";
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/setup";
 import { listAccountIds, resolveAccount } from "./accounts.js";
-import { sendMessage, sendFileUrl } from "./client.js";
+import * as synologyClient from "./client.js";
 import { SynologyChatChannelConfigSchema } from "./config-schema.js";
-import {
-  collectSynologyGatewayRoutingWarnings,
-  registerSynologyWebhookRoute,
-  validateSynologyGatewayAccountStartup,
-} from "./gateway-runtime.js";
+import * as synologyGatewayRuntime from "./gateway-runtime.js";
 import { synologyChatSetupAdapter, synologyChatSetupWizard } from "./setup-surface.js";
 import type { ResolvedSynologyChatAccount } from "./types.js";
 
@@ -170,14 +166,15 @@ type SynologyChatPlugin = Omit<
   };
 };
 
-const collectSynologyChatRoutingWarnings = projectAccountConfigWarningCollector<
-  ResolvedSynologyChatAccount,
-  OpenClawConfig,
-  SynologySecurityWarningContext
->(
-  (cfg) => cfg,
-  ({ account, cfg }) => collectSynologyGatewayRoutingWarnings({ account, cfg }),
-);
+type SynologyChatPluginDeps = {
+  client?: Pick<typeof synologyClient, "sendFileUrl" | "sendMessage">;
+  gatewayRuntime?: Pick<
+    typeof synologyGatewayRuntime,
+    | "collectSynologyGatewayRoutingWarnings"
+    | "registerSynologyWebhookRoute"
+    | "validateSynologyGatewayAccountStartup"
+  >;
+};
 
 function resolveOutboundAccount(
   cfg: OpenClawConfig,
@@ -193,7 +190,18 @@ function requireIncomingUrl(account: ResolvedSynologyChatAccount): string {
   return account.incomingUrl;
 }
 
-export function createSynologyChatPlugin(): SynologyChatPlugin {
+export function createSynologyChatPlugin(deps: SynologyChatPluginDeps = {}): SynologyChatPlugin {
+  const client = deps.client ?? synologyClient;
+  const gatewayRuntime = deps.gatewayRuntime ?? synologyGatewayRuntime;
+  const collectRoutingWarnings = projectAccountConfigWarningCollector<
+    ResolvedSynologyChatAccount,
+    OpenClawConfig,
+    SynologySecurityWarningContext
+  >(
+    (cfg) => cfg,
+    ({ account, cfg }) => gatewayRuntime.collectSynologyGatewayRoutingWarnings({ account, cfg }),
+  );
+
   return createChatChannelPlugin({
     base: {
       id: CHANNEL_ID,
@@ -246,14 +254,21 @@ export function createSynologyChatPlugin(): SynologyChatPlugin {
         startAccount: async (ctx: SynologyChannelGatewayContext) => {
           const { cfg, accountId, log, abortSignal } = ctx;
           const account = resolveAccount(cfg, accountId);
-          if (!validateSynologyGatewayAccountStartup({ cfg, account, accountId, log }).ok) {
+          if (
+            !gatewayRuntime.validateSynologyGatewayAccountStartup({ cfg, account, accountId, log })
+              .ok
+          ) {
             return waitUntilAbort(abortSignal);
           }
 
           log?.info?.(
             `Starting Synology Chat channel (account: ${accountId}, path: ${account.webhookPath})`,
           );
-          const unregister = registerSynologyWebhookRoute({ account, accountId, log });
+          const unregister = gatewayRuntime.registerSynologyWebhookRoute({
+            account,
+            accountId,
+            log,
+          });
 
           log?.info?.(`Registered HTTP route: ${account.webhookPath} for Synology Chat`);
 
@@ -304,7 +319,7 @@ export function createSynologyChatPlugin(): SynologyChatPlugin {
         notify: async ({ cfg, id, message }) => {
           const account = resolveAccount(cfg);
           if (!account.incomingUrl) return;
-          await sendMessage(account.incomingUrl, message, id, account.allowInsecureSsl);
+          await client.sendMessage(account.incomingUrl, message, id, account.allowInsecureSsl);
         },
       },
     },
@@ -314,7 +329,7 @@ export function createSynologyChatPlugin(): SynologyChatPlugin {
         projectAccountWarningCollector<ResolvedSynologyChatAccount, SynologySecurityWarningContext>(
           collectSynologyChatSecurityWarnings,
         ),
-        collectSynologyChatRoutingWarnings,
+        collectRoutingWarnings,
       ),
     },
     outbound: {
@@ -324,7 +339,7 @@ export function createSynologyChatPlugin(): SynologyChatPlugin {
       sendText: async ({ to, text, accountId, cfg }: SynologyChannelSendTextContext) => {
         const account = resolveOutboundAccount(cfg ?? {}, accountId);
         const incomingUrl = requireIncomingUrl(account);
-        const ok = await sendMessage(incomingUrl, text, to, account.allowInsecureSsl);
+        const ok = await client.sendMessage(incomingUrl, text, to, account.allowInsecureSsl);
         if (!ok) {
           throw new Error("Failed to send message to Synology Chat");
         }
@@ -338,7 +353,7 @@ export function createSynologyChatPlugin(): SynologyChatPlugin {
           throw new Error("No media URL provided");
         }
 
-        const ok = await sendFileUrl(incomingUrl, mediaUrl, to, account.allowInsecureSsl);
+        const ok = await client.sendFileUrl(incomingUrl, mediaUrl, to, account.allowInsecureSsl);
         if (!ok) {
           throw new Error("Failed to send media to Synology Chat");
         }

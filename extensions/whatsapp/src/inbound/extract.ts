@@ -16,6 +16,8 @@ const MESSAGE_WRAPPER_KEYS = [
   "viewOnceMessage",
   "viewOnceMessageV2",
   "viewOnceMessageV2Extension",
+  "botInvokeMessage",
+  "groupMentionedMessage",
   "documentWithCaptionMessage",
   "groupMentionedMessage",
 ] as const;

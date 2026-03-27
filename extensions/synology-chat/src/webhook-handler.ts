@@ -10,7 +10,7 @@ import {
   readRequestBodyWithLimit,
   requestBodyErrorToText,
 } from "openclaw/plugin-sdk/webhook-ingress";
-import { sendMessage, resolveLegacyWebhookNameToChatUserId } from "./client.js";
+import * as synologyClient from "./client.js";
 import { validateToken, authorizeUserForDm, sanitizeInput, RateLimiter } from "./security.js";
 import type { SynologyWebhookPayload, ResolvedSynologyChatAccount } from "./types.js";
 
@@ -308,6 +308,7 @@ function respondNoContent(res: ServerResponse) {
 export interface WebhookHandlerDeps {
   account: ResolvedSynologyChatAccount;
   deliver: (msg: import("./inbound-context.js").SynologyInboundMessage) => Promise<string | null>;
+  client?: Pick<typeof synologyClient, "resolveLegacyWebhookNameToChatUserId" | "sendMessage">;
   log?: {
     info: (...args: unknown[]) => void;
     warn: (...args: unknown[]) => void;
@@ -475,13 +476,14 @@ async function parseAndAuthorizeSynologyWebhook(params: {
 async function resolveSynologyReplyDeliveryUserId(params: {
   account: ResolvedSynologyChatAccount;
   payload: SynologyWebhookPayload;
+  client: NonNullable<WebhookHandlerDeps["client"]>;
   log?: WebhookHandlerDeps["log"];
 }): Promise<string> {
   if (!params.account.dangerouslyAllowNameMatching) {
     return params.payload.user_id;
   }
 
-  const resolvedChatApiUserId = await resolveLegacyWebhookNameToChatUserId({
+  const resolvedChatApiUserId = await params.client.resolveLegacyWebhookNameToChatUserId({
     incomingUrl: params.account.incomingUrl,
     mutableWebhookUsername: params.payload.username,
     allowInsecureSsl: params.account.allowInsecureSsl,
@@ -498,6 +500,7 @@ async function resolveSynologyReplyDeliveryUserId(params: {
 
 async function processAuthorizedSynologyWebhook(params: {
   account: ResolvedSynologyChatAccount;
+  client: NonNullable<WebhookHandlerDeps["client"]>;
   deliver: WebhookHandlerDeps["deliver"];
   log?: WebhookHandlerDeps["log"];
   message: AuthorizedSynologyWebhook;
@@ -508,6 +511,7 @@ async function processAuthorizedSynologyWebhook(params: {
     deliveryUserId = await resolveSynologyReplyDeliveryUserId({
       account: params.account,
       payload: params.message.payload,
+      client: params.client,
       log: params.log,
     });
 
@@ -529,7 +533,7 @@ async function processAuthorizedSynologyWebhook(params: {
       return;
     }
 
-    await sendMessage(
+    await params.client.sendMessage(
       params.account.incomingUrl,
       reply,
       deliveryUserId,
@@ -544,7 +548,7 @@ async function processAuthorizedSynologyWebhook(params: {
     params.log?.error?.(
       `Failed to process message from ${params.message.payload.username}: ${errMsg}`,
     );
-    await sendMessage(
+    await params.client.sendMessage(
       params.account.incomingUrl,
       "Sorry, an error occurred while processing your message.",
       deliveryUserId,
@@ -555,6 +559,7 @@ async function processAuthorizedSynologyWebhook(params: {
 
 export function createWebhookHandler(deps: WebhookHandlerDeps) {
   const { account, deliver, log } = deps;
+  const client = deps.client ?? synologyClient;
   const rateLimiter = getRateLimiter(account);
   const invalidTokenRateLimiter = getInvalidTokenRateLimiter(account);
 
@@ -584,6 +589,7 @@ export function createWebhookHandler(deps: WebhookHandlerDeps) {
     respondNoContent(res);
     await processAuthorizedSynologyWebhook({
       account,
+      client,
       deliver,
       log,
       message: authorized.message,

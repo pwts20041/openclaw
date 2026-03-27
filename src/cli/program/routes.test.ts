@@ -42,7 +42,7 @@ describe("program routes", () => {
     await expect(route?.run(argv)).resolves.toBe(false);
   }
 
-  it("matches status route and preloads plugins only for text output", () => {
+  it("matches status route and skips plugin preload for json output", () => {
     const route = expectRoute(["status"]);
     expect(typeof route?.loadPlugins).toBe("function");
     const shouldLoad = route?.loadPlugins as (argv: string[]) => boolean;

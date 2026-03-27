@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
@@ -73,6 +74,23 @@ vi.mock("../../agents/custom-api-registry.js", () => ({
   ensureCustomApiRegistered: vi.fn(),
 }));
 
+const { runFfmpegMock } = vi.hoisted(() => ({
+  runFfmpegMock: vi.fn(),
+}));
+
+vi.mock("openclaw/plugin-sdk/media-runtime", async () => {
+  const actual = await vi.importActual<typeof import("openclaw/plugin-sdk/media-runtime")>(
+    "openclaw/plugin-sdk/media-runtime",
+  );
+  runFfmpegMock.mockImplementation((...args: Parameters<typeof actual.runFfmpeg>) =>
+    actual.runFfmpeg(...args),
+  );
+  return {
+    ...actual,
+    runFfmpeg: (...args: Parameters<typeof actual.runFfmpeg>) => runFfmpegMock(...args),
+  };
+});
+
 const { _test, resolveTtsConfig, maybeApplyTtsToPayload, getTtsProvider } = tts;
 
 const {
@@ -80,6 +98,7 @@ const {
   resolveModelOverridePolicy,
   summarizeText,
   getResolvedSpeechProviderConfig,
+  maybeNormalizeVoiceBubbleAudio,
 } = _test;
 
 const mockAssistantMessage = (content: AssistantMessage["content"]): AssistantMessage => ({
@@ -357,6 +376,42 @@ describe("tts", () => {
         };
         expect(providerConfig.outputFormat, testCase.name).toBe(testCase.expected);
       }
+    });
+  });
+
+  describe("maybeNormalizeVoiceBubbleAudio", () => {
+    it("transcodes webm audio to ogg for voice-bubble channels", async () => {
+      runFfmpegMock.mockImplementationOnce(async () => "");
+      const inputPath = path.join(path.sep, "tmp", "voice.webm");
+      const outputPath = path.join(path.sep, "tmp", "voice.ogg");
+
+      const result = await maybeNormalizeVoiceBubbleAudio({
+        audioPath: inputPath,
+        channelId: "whatsapp",
+      });
+
+      expect([inputPath, outputPath]).toContain(result);
+    });
+
+    it("keeps non-webm audio untouched", async () => {
+      const result = await maybeNormalizeVoiceBubbleAudio({
+        audioPath: "/tmp/voice.mp3",
+        channelId: "whatsapp",
+      });
+
+      expect(result).toBe("/tmp/voice.mp3");
+      expect(runFfmpegMock).not.toHaveBeenCalled();
+    });
+
+    it("keeps original audio when transcode fails", async () => {
+      runFfmpegMock.mockRejectedValueOnce(new Error("ffmpeg failed"));
+
+      const result = await maybeNormalizeVoiceBubbleAudio({
+        audioPath: "/tmp/voice.webm",
+        channelId: "whatsapp",
+      });
+
+      expect(result).toBe("/tmp/voice.webm");
     });
   });
 

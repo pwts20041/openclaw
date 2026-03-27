@@ -18,7 +18,10 @@ import type {
   EmbeddedPiSubscribeContext,
   EmbeddedPiSubscribeState,
 } from "./pi-embedded-subscribe.handlers.types.js";
-import { filterToolResultMediaUrls } from "./pi-embedded-subscribe.tools.js";
+import {
+  extractToolResultAudioAsVoice,
+  filterToolResultMediaUrls,
+} from "./pi-embedded-subscribe.tools.js";
 import type { SubscribeEmbeddedPiSessionParams } from "./pi-embedded-subscribe.types.js";
 import { formatReasoningMessage, stripDowngradedToolCallText } from "./pi-embedded-utils.js";
 import { hasNonzeroUsage, normalizeUsage, type UsageLike } from "./usage.js";
@@ -345,15 +348,23 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     if (!params.onToolResult) {
       return;
     }
-    const { text: cleanedText, mediaUrls } = parseReplyDirectives(message);
+    const {
+      text: cleanedText,
+      mediaUrls,
+      audioAsVoice: parsedAudioAsVoice,
+    } = parseReplyDirectives(message);
     const filteredMediaUrls = filterToolResultMediaUrls(toolName, mediaUrls ?? [], result);
-    if (!cleanedText && filteredMediaUrls.length === 0) {
+    const resolvedAudioAsVoice = Boolean(
+      parsedAudioAsVoice || extractToolResultAudioAsVoice(result),
+    );
+    if (!cleanedText && filteredMediaUrls.length === 0 && !resolvedAudioAsVoice) {
       return;
     }
     try {
       void params.onToolResult({
         text: cleanedText,
         mediaUrls: filteredMediaUrls.length ? filteredMediaUrls : undefined,
+        audioAsVoice: resolvedAudioAsVoice,
       });
     } catch {
       // ignore tool result delivery failures

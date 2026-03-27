@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   extractToolResultMediaArtifact,
+  extractToolResultAudioAsVoice,
   extractToolResultMediaPaths,
   filterToolResultMediaUrls,
   isToolResultMediaTrusted,
@@ -285,5 +286,32 @@ describe("extractToolResultMediaPaths", () => {
         },
       }),
     ).toEqual(["https://example.com/screenshot.png"]);
+  });
+});
+
+describe("extractToolResultAudioAsVoice", () => {
+  it("reads audioAsVoice from tool-result details", () => {
+    expect(
+      extractToolResultAudioAsVoice({
+        content: [{ type: "text", text: "MEDIA:/tmp/voice.ogg" }],
+        details: { audioAsVoice: true },
+      }),
+    ).toBe(true);
+  });
+
+  it("detects audioAsVoice from inline tags in legacy tool output", () => {
+    expect(
+      extractToolResultAudioAsVoice({
+        content: [{ type: "text", text: "[[audio_as_voice]]\nMEDIA:/tmp/voice.ogg" }],
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false when the tool result has no voice marker", () => {
+    expect(
+      extractToolResultAudioAsVoice({
+        content: [{ type: "text", text: "MEDIA:/tmp/voice.ogg" }],
+      }),
+    ).toBe(false);
   });
 });

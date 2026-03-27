@@ -18,6 +18,7 @@ import type {
   TtsModelOverrideConfig,
   TtsProvider,
 } from "openclaw/plugin-sdk/config-runtime";
+import { isVoiceCompatibleAudio, runFfmpeg } from "openclaw/plugin-sdk/media-runtime";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
@@ -399,9 +400,50 @@ export function setLastTtsAttempt(entry: TtsStatusEntry | undefined): void {
 }
 
 const OPUS_CHANNELS = new Set(["telegram", "feishu", "whatsapp", "matrix"]);
+const VOICE_BUBBLE_CHANNELS = new Set<ChannelId>(["whatsapp"]);
 
 function resolveChannelId(channel: string | undefined): ChannelId | null {
   return channel ? normalizeChannelId(channel) : null;
+}
+
+async function maybeNormalizeVoiceBubbleAudio(params: {
+  audioPath: string;
+  channelId: ChannelId | null;
+}): Promise<string> {
+  if (params.channelId === null || !VOICE_BUBBLE_CHANNELS.has(params.channelId)) {
+    return params.audioPath;
+  }
+  if (path.extname(params.audioPath).toLowerCase() !== ".webm") {
+    return params.audioPath;
+  }
+
+  const outputPath = path.join(
+    path.dirname(params.audioPath),
+    `${path.basename(params.audioPath, ".webm")}.ogg`,
+  );
+
+  try {
+    await runFfmpeg([
+      "-y",
+      "-i",
+      params.audioPath,
+      "-vn",
+      "-sn",
+      "-dn",
+      "-ar",
+      "48000",
+      "-ac",
+      "1",
+      "-c:a",
+      "libopus",
+      "-b:a",
+      "64k",
+      outputPath,
+    ]);
+    return outputPath;
+  } catch {
+    return params.audioPath;
+  }
 }
 
 export function resolveTtsProviderOrder(primary: TtsProvider, cfg?: OpenClawConfig): TtsProvider[] {
@@ -530,17 +572,26 @@ export async function textToSpeech(params: {
   const tempRoot = resolvePreferredOpenClawTmpDir();
   mkdirSync(tempRoot, { recursive: true, mode: 0o700 });
   const tempDir = mkdtempSync(path.join(tempRoot, "tts-"));
-  const audioPath = path.join(tempDir, `voice-${Date.now()}${synthesis.fileExtension}`);
-  writeFileSync(audioPath, synthesis.audioBuffer);
+  const initialAudioPath = path.join(tempDir, `voice-${Date.now()}${synthesis.fileExtension}`);
+  writeFileSync(initialAudioPath, synthesis.audioBuffer);
+  const channelId = resolveChannelId(params.channel);
+  const audioPath = await maybeNormalizeVoiceBubbleAudio({
+    audioPath: initialAudioPath,
+    channelId,
+  });
   scheduleCleanup(tempDir);
+  const voiceCompatible =
+    audioPath === initialAudioPath
+      ? synthesis.voiceCompatible
+      : isVoiceCompatibleAudio({ fileName: audioPath });
 
   return {
     success: true,
     audioPath,
     latencyMs: synthesis.latencyMs,
     provider: synthesis.provider,
-    outputFormat: synthesis.outputFormat,
-    voiceCompatible: synthesis.voiceCompatible,
+    outputFormat: audioPath === initialAudioPath ? synthesis.outputFormat : "ogg-opus",
+    voiceCompatible,
   };
 }
 
@@ -846,4 +897,5 @@ export const _test = {
   resolveModelOverridePolicy,
   summarizeText,
   getResolvedSpeechProviderConfig,
+  maybeNormalizeVoiceBubbleAudio,
 };

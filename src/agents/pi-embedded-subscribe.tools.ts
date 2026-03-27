@@ -312,6 +312,38 @@ export function extractToolResultMediaPaths(result: unknown): string[] {
   return extractToolResultMediaArtifact(result)?.mediaUrls ?? [];
 }
 
+export function extractToolResultAudioAsVoice(result: unknown): boolean {
+  if (!result || typeof result !== "object") {
+    return false;
+  }
+  const record = result as Record<string, unknown>;
+  const details = readToolResultDetails(record);
+  if (details?.audioAsVoice === true) {
+    return true;
+  }
+  const detailsMedia = readToolResultDetailsMedia(record);
+  if (detailsMedia?.audioAsVoice === true) {
+    return true;
+  }
+  const content = Array.isArray(record.content) ? record.content : null;
+  if (!content) {
+    return false;
+  }
+  for (const item of content) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const entry = item as Record<string, unknown>;
+    if (entry.type === "text" && typeof entry.text === "string") {
+      const parsed = splitMediaFromOutput(entry.text);
+      if (parsed.audioAsVoice) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function isToolResultError(result: unknown): boolean {
   if (!result || typeof result !== "object") {
     return false;

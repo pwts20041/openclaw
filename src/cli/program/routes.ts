@@ -34,8 +34,8 @@ const routeHealth: RouteSpec = {
 
 const routeStatus: RouteSpec = {
   match: (path) => path[0] === "status",
-  // `status --json` can defer channel plugin loading until config/env inspection
-  // proves it is needed, which keeps the fast-path startup lightweight.
+  // `status --json` uses the fast scan path and does not need plugin preload.
+  // Keeping preload for human-readable output preserves channel/link summaries.
   loadPlugins: (argv) => !hasFlag(argv, "--json"),
   run: async (argv) => {
     const json = hasFlag(argv, "--json");

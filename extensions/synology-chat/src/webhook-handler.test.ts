@@ -1,18 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resolveLegacyWebhookNameToChatUserId, sendMessage } from "./client.js";
 import { makeFormBody, makeReq, makeRes, makeStalledReq } from "./test-http-utils.js";
 import type { ResolvedSynologyChatAccount } from "./types.js";
 import type { WebhookHandlerDeps } from "./webhook-handler.js";
-import {
-  clearSynologyWebhookRateLimiterStateForTest,
-  createWebhookHandler,
-} from "./webhook-handler.js";
+const { clearSynologyWebhookRateLimiterStateForTest, createWebhookHandler } =
+  await import("./webhook-handler.js");
 
-// Mock sendMessage and resolveLegacyWebhookNameToChatUserId to prevent real HTTP calls
-vi.mock("./client.js", () => ({
-  sendMessage: vi.fn().mockResolvedValue(true),
-  resolveLegacyWebhookNameToChatUserId: vi.fn().mockResolvedValue(undefined),
-}));
+type MockedSynologyClient = NonNullable<WebhookHandlerDeps["client"]>;
 
 function makeAccount(
   overrides: Partial<ResolvedSynologyChatAccount> = {},
@@ -43,6 +36,8 @@ const validBody = makeFormBody({
   text: "Hello bot",
 });
 
+let client: MockedSynologyClient;
+
 async function runDangerousNameMatchReply(
   log: { info: any; warn: any; error: any },
   options: {
@@ -50,9 +45,12 @@ async function runDangerousNameMatchReply(
     accountIdSuffix: string;
   },
 ) {
-  vi.mocked(resolveLegacyWebhookNameToChatUserId).mockResolvedValueOnce(options.resolvedChatUserId);
+  vi.mocked(client.resolveLegacyWebhookNameToChatUserId).mockResolvedValueOnce(
+    options.resolvedChatUserId,
+  );
   const deliver = vi.fn().mockResolvedValue("Bot reply");
   const handler = createWebhookHandler({
+    client,
     account: makeAccount({
       accountId: `${options.accountIdSuffix}-${Date.now()}`,
       dangerouslyAllowNameMatching: true,
@@ -66,7 +64,7 @@ async function runDangerousNameMatchReply(
   await handler(req, res);
 
   expect(res._status).toBe(204);
-  expect(resolveLegacyWebhookNameToChatUserId).toHaveBeenCalledWith({
+  expect(client.resolveLegacyWebhookNameToChatUserId).toHaveBeenCalledWith({
     incomingUrl: "https://nas.example.com/incoming",
     mutableWebhookUsername: "testuser",
     allowInsecureSsl: true,
@@ -81,6 +79,10 @@ describe("createWebhookHandler", () => {
 
   beforeEach(() => {
     clearSynologyWebhookRateLimiterStateForTest();
+    client = {
+      sendMessage: vi.fn().mockResolvedValue(true),
+      resolveLegacyWebhookNameToChatUserId: vi.fn().mockResolvedValue(undefined),
+    };
     log = {
       info: vi.fn(),
       warn: vi.fn(),
@@ -95,6 +97,7 @@ describe("createWebhookHandler", () => {
   }) {
     const deliver = params.deliver ?? vi.fn();
     const handler = createWebhookHandler({
+      client,
       account: makeAccount(params.account),
       deliver,
       log,
@@ -111,6 +114,7 @@ describe("createWebhookHandler", () => {
 
   it("rejects non-POST methods with 405", async () => {
     const handler = createWebhookHandler({
+      client,
       account: makeAccount(),
       deliver: vi.fn(),
       log,
@@ -125,6 +129,7 @@ describe("createWebhookHandler", () => {
 
   it("returns 400 for missing required fields", async () => {
     const handler = createWebhookHandler({
+      client,
       account: makeAccount(),
       deliver: vi.fn(),
       log,
@@ -141,6 +146,7 @@ describe("createWebhookHandler", () => {
     vi.useFakeTimers();
     try {
       const handler = createWebhookHandler({
+        client,
         account: makeAccount(),
         deliver: vi.fn(),
         log,
@@ -162,6 +168,7 @@ describe("createWebhookHandler", () => {
 
   it("returns 401 for invalid token", async () => {
     const handler = createWebhookHandler({
+      client,
       account: makeAccount(),
       deliver: vi.fn(),
       log,
@@ -184,6 +191,7 @@ describe("createWebhookHandler", () => {
     const weakToken = "00000129";
     const deliver = vi.fn().mockResolvedValue(null);
     const handler = createWebhookHandler({
+      client,
       account: makeAccount({
         accountId: "weak-token-bruteforce-" + Date.now(),
         token: weakToken,
@@ -246,6 +254,7 @@ describe("createWebhookHandler", () => {
   it("keeps pre-auth throttling scoped to the remote IP", async () => {
     const deliver = vi.fn().mockResolvedValue(null);
     const handler = createWebhookHandler({
+      client,
       account: makeAccount({
         accountId: "preauth-ip-scope-" + Date.now(),
         rateLimitPerMinute: 1,
@@ -280,6 +289,7 @@ describe("createWebhookHandler", () => {
   it("does not spend invalid-token budget on successful requests", async () => {
     const deliver = vi.fn().mockResolvedValue(null);
     const handler = createWebhookHandler({
+      client,
       account: makeAccount({
         accountId: "invalid-token-budget-" + Date.now(),
         rateLimitPerMinute: 30,
@@ -302,6 +312,7 @@ describe("createWebhookHandler", () => {
   it("accepts application/json with alias fields", async () => {
     const deliver = vi.fn().mockResolvedValue(null);
     const handler = createWebhookHandler({
+      client,
       account: makeAccount({ accountId: "json-test-" + Date.now() }),
       deliver,
       log,
@@ -334,6 +345,7 @@ describe("createWebhookHandler", () => {
   it("accepts token from query when body token is absent", async () => {
     const deliver = vi.fn().mockResolvedValue(null);
     const handler = createWebhookHandler({
+      client,
       account: makeAccount({ accountId: "query-token-test-" + Date.now() }),
       deliver,
       log,
@@ -357,6 +369,7 @@ describe("createWebhookHandler", () => {
   it("accepts token from authorization header when body token is absent", async () => {
     const deliver = vi.fn().mockResolvedValue(null);
     const handler = createWebhookHandler({
+      client,
       account: makeAccount({ accountId: "header-token-test-" + Date.now() }),
       deliver,
       log,
@@ -435,6 +448,7 @@ describe("createWebhookHandler", () => {
   it("strips trigger word from message", async () => {
     const deliver = vi.fn().mockResolvedValue(null);
     const handler = createWebhookHandler({
+      client,
       account: makeAccount({ accountId: "trigger-test-" + Date.now() }),
       deliver,
       log,
@@ -460,6 +474,7 @@ describe("createWebhookHandler", () => {
   it("responds 204 immediately and delivers async", async () => {
     const deliver = vi.fn().mockResolvedValue("Bot reply");
     const handler = createWebhookHandler({
+      client,
       account: makeAccount({ accountId: "async-test-" + Date.now() }),
       deliver,
       log,
@@ -486,6 +501,7 @@ describe("createWebhookHandler", () => {
   it("keeps replies bound to payload.user_id by default", async () => {
     const deliver = vi.fn().mockResolvedValue("Bot reply");
     const handler = createWebhookHandler({
+      client,
       account: makeAccount({ accountId: "stable-id-test-" + Date.now() }),
       deliver,
       log,
@@ -496,14 +512,14 @@ describe("createWebhookHandler", () => {
     await handler(req, res);
 
     expect(res._status).toBe(204);
-    expect(resolveLegacyWebhookNameToChatUserId).not.toHaveBeenCalled();
+    expect(client.resolveLegacyWebhookNameToChatUserId).not.toHaveBeenCalled();
     expect(deliver).toHaveBeenCalledWith(
       expect.objectContaining({
         from: "123",
         chatUserId: "123",
       }),
     );
-    expect(sendMessage).toHaveBeenCalledWith(
+    expect(client.sendMessage).toHaveBeenCalledWith(
       "https://nas.example.com/incoming",
       "Bot reply",
       "123",
@@ -522,7 +538,7 @@ describe("createWebhookHandler", () => {
         chatUserId: "456",
       }),
     );
-    expect(sendMessage).toHaveBeenCalledWith(
+    expect(client.sendMessage).toHaveBeenCalledWith(
       "https://nas.example.com/incoming",
       "Bot reply",
       "456",
@@ -543,7 +559,7 @@ describe("createWebhookHandler", () => {
         chatUserId: "123",
       }),
     );
-    expect(sendMessage).toHaveBeenCalledWith(
+    expect(client.sendMessage).toHaveBeenCalledWith(
       "https://nas.example.com/incoming",
       "Bot reply",
       "123",
@@ -554,6 +570,7 @@ describe("createWebhookHandler", () => {
   it("sanitizes input before delivery", async () => {
     const deliver = vi.fn().mockResolvedValue(null);
     const handler = createWebhookHandler({
+      client,
       account: makeAccount({ accountId: "sanitize-test-" + Date.now() }),
       deliver,
       log,

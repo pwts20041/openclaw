@@ -35,6 +35,15 @@ type ChatWebhookPayload = {
   user_ids?: number[];
 };
 
+type SynologyHttpTransport = Pick<typeof http, "get" | "request">;
+
+let transportOverridesForTest:
+  | {
+      http?: SynologyHttpTransport;
+      https?: SynologyHttpTransport;
+    }
+  | undefined;
+
 const ChatUserSchema = z
   .object({
     user_id: z.number(),
@@ -69,6 +78,24 @@ const ChatUserListResponseSchema = z.object({
 // Cache user lists per bot endpoint to avoid cross-account bleed.
 const chatUserCache = new Map<string, ChatUserCacheEntry>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+export function setSynologyTransportOverridesForTest(
+  overrides?:
+    | {
+        http?: SynologyHttpTransport;
+        https?: SynologyHttpTransport;
+      }
+    | undefined,
+): void {
+  transportOverridesForTest = overrides;
+}
+
+function resolveTransport(protocol: string): SynologyHttpTransport {
+  if (protocol === "https:") {
+    return transportOverridesForTest?.https ?? https;
+  }
+  return transportOverridesForTest?.http ?? http;
+}
 
 /**
  * Send a text message to Synology Chat via the incoming webhook.
@@ -164,7 +191,7 @@ export async function fetchChatUsers(
       resolve(cached?.users ?? []);
       return;
     }
-    const transport = parsedUrl.protocol === "https:" ? https : http;
+    const transport = resolveTransport(parsedUrl.protocol);
 
     transport
       .get(listUrl, { rejectUnauthorized: !allowInsecureSsl } as any, (res) => {
@@ -255,31 +282,30 @@ function doPost(url: string, body: string, allowInsecureSsl = true): Promise<boo
       reject(new Error(`Invalid URL: ${url}`));
       return;
     }
-    const transport = parsedUrl.protocol === "https:" ? https : http;
+    const transport = resolveTransport(parsedUrl.protocol);
+    const requestOptions: http.ClientRequestArgs = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Length": Buffer.byteLength(body),
+      },
+      timeout: 30_000,
+    };
+    if (parsedUrl.protocol === "https:") {
+      // `rejectUnauthorized` is HTTPS-only, so add it after the base options object
+      // is typed to the shared HTTP request args shape.
+      Object.assign(requestOptions, { rejectUnauthorized: !allowInsecureSsl });
+    }
 
-    const req = transport.request(
-      url,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Content-Length": Buffer.byteLength(body),
-        },
-        timeout: 30_000,
-        // Synology NAS may use self-signed certs on local network.
-        // Set allowInsecureSsl: true in channel config to skip verification.
-        rejectUnauthorized: !allowInsecureSsl,
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk: Buffer) => {
-          data += chunk.toString();
-        });
-        res.on("end", () => {
-          resolve(res.statusCode === 200);
-        });
-      },
-    );
+    const req = transport.request(url, requestOptions, (res) => {
+      let data = "";
+      res.on("data", (chunk: Buffer) => {
+        data += chunk.toString();
+      });
+      res.on("end", () => {
+        resolve(res.statusCode === 200);
+      });
+    });
 
     req.on("error", reject);
     req.on("timeout", () => {
