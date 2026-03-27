@@ -1,5 +1,6 @@
 import type { ChannelOutboundAdapter, ChannelPollResult } from "../channels/plugins/types.js";
 import type { OutboundDeliveryResult } from "../infra/outbound/deliver.js";
+import { markReplyApplied, readReplyApplied } from "../infra/outbound/reply-applied.js";
 
 export type { ChannelOutboundAdapter } from "../channels/plugins/types.js";
 
@@ -10,10 +11,16 @@ export type ChannelSendRawResult = {
 };
 
 export function attachChannelToResult<T extends object>(channel: string, result: T) {
-  return {
+  const wrapped = {
     channel,
     ...result,
   };
+  // Preserve WeakMap-based replyApplied marker across object spread.
+  const applied = readReplyApplied(result);
+  if (applied !== undefined) {
+    markReplyApplied(wrapped, applied);
+  }
+  return wrapped;
 }
 
 export function attachChannelToResults<T extends object>(channel: string, results: readonly T[]) {
@@ -80,3 +87,5 @@ export function buildChannelSendResult(channel: string, result: ChannelSendRawRe
     error: result.error ? new Error(result.error) : undefined,
   };
 }
+
+export { markReplyApplied, readReplyApplied } from "../infra/outbound/reply-applied.js";

@@ -60,6 +60,8 @@ async function sendSignalOutbound(params: {
   mediaUrl?: string;
   mediaLocalRoots?: readonly string[];
   accountId?: string;
+  replyToId?: string | null;
+  quoteAuthor?: string | null;
   deps?: { [channelId: string]: unknown };
 }) {
   const { send, maxBytes } = resolveSignalSendContext(params);
@@ -69,6 +71,8 @@ async function sendSignalOutbound(params: {
     ...(params.mediaLocalRoots?.length ? { mediaLocalRoots: params.mediaLocalRoots } : {}),
     maxBytes,
     accountId: params.accountId ?? undefined,
+    replyTo: params.replyToId ?? undefined,
+    quoteAuthor: params.quoteAuthor ?? undefined,
   });
 }
 
@@ -141,6 +145,8 @@ async function sendFormattedSignalText(ctx: {
   to: string;
   text: string;
   accountId?: string | null;
+  replyToId?: string | null;
+  quoteAuthor?: string | null;
   deps?: { [channelId: string]: unknown };
   abortSignal?: AbortSignal;
 }) {
@@ -165,6 +171,7 @@ async function sendFormattedSignalText(ctx: {
     chunks = [{ text: ctx.text, styles: [] }];
   }
   const results = [];
+  let first = true;
   for (const chunk of chunks) {
     ctx.abortSignal?.throwIfAborted();
     const result = await send(ctx.to, chunk.text, {
@@ -173,8 +180,11 @@ async function sendFormattedSignalText(ctx: {
       accountId: ctx.accountId ?? undefined,
       textMode: "plain",
       textStyles: chunk.styles,
+      replyTo: first ? (ctx.replyToId ?? undefined) : undefined,
+      quoteAuthor: first ? (ctx.quoteAuthor ?? undefined) : undefined,
     });
     results.push(result);
+    first = false;
   }
   return attachChannelToResults("signal", results);
 }
@@ -186,6 +196,8 @@ async function sendFormattedSignalMedia(ctx: {
   mediaUrl: string;
   mediaLocalRoots?: readonly string[];
   accountId?: string | null;
+  replyToId?: string | null;
+  quoteAuthor?: string | null;
   deps?: { [channelId: string]: unknown };
   abortSignal?: AbortSignal;
 }) {
@@ -214,6 +226,8 @@ async function sendFormattedSignalMedia(ctx: {
     accountId: ctx.accountId ?? undefined,
     textMode: "plain",
     textStyles: formatted.styles,
+    replyTo: ctx.replyToId ?? undefined,
+    quoteAuthor: ctx.quoteAuthor ?? undefined,
   });
   return attachChannelToResult("signal", result);
 }
@@ -309,12 +323,23 @@ export const signalPlugin: ChannelPlugin<ResolvedSignalAccount, SignalProbe> =
         chunker: (text, limit) => getSignalRuntime().channel.text.chunkText(text, limit),
         chunkerMode: "text",
         textChunkLimit: 4000,
-        sendFormattedText: async ({ cfg, to, text, accountId, deps, abortSignal }) =>
+        sendFormattedText: async ({
+          cfg,
+          to,
+          text,
+          accountId,
+          deps,
+          abortSignal,
+          replyToId,
+          quoteAuthor,
+        }) =>
           await sendFormattedSignalText({
             cfg,
             to,
             text,
             accountId,
+            replyToId,
+            quoteAuthor,
             deps,
             abortSignal,
           }),
@@ -327,6 +352,8 @@ export const signalPlugin: ChannelPlugin<ResolvedSignalAccount, SignalProbe> =
           accountId,
           deps,
           abortSignal,
+          replyToId,
+          quoteAuthor,
         }) =>
           await sendFormattedSignalMedia({
             cfg,
@@ -335,21 +362,35 @@ export const signalPlugin: ChannelPlugin<ResolvedSignalAccount, SignalProbe> =
             mediaUrl,
             mediaLocalRoots,
             accountId,
+            replyToId,
+            quoteAuthor,
             deps,
             abortSignal,
           }),
       },
       attachedResults: {
         channel: "signal",
-        sendText: async ({ cfg, to, text, accountId, deps }) =>
+        sendText: async ({ cfg, to, text, accountId, deps, replyToId, quoteAuthor }) =>
           await sendSignalOutbound({
             cfg,
             to,
             text,
             accountId: accountId ?? undefined,
+            replyToId,
+            quoteAuthor,
             deps,
           }),
-        sendMedia: async ({ cfg, to, text, mediaUrl, mediaLocalRoots, accountId, deps }) =>
+        sendMedia: async ({
+          cfg,
+          to,
+          text,
+          mediaUrl,
+          mediaLocalRoots,
+          accountId,
+          deps,
+          replyToId,
+          quoteAuthor,
+        }) =>
           await sendSignalOutbound({
             cfg,
             to,
@@ -357,6 +398,8 @@ export const signalPlugin: ChannelPlugin<ResolvedSignalAccount, SignalProbe> =
             mediaUrl,
             mediaLocalRoots,
             accountId: accountId ?? undefined,
+            replyToId,
+            quoteAuthor,
             deps,
           }),
       },
