@@ -1427,7 +1427,11 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
     const streamingEnabled = account.blockStreaming === true;
     const blockStreamingClient =
       streamingEnabled && baseUrl && botToken
-        ? createMattermostClient({ baseUrl, botToken })
+        ? createMattermostClient({
+            baseUrl,
+            botToken,
+            allowPrivateNetwork: account.config?.allowPrivateNetwork === true,
+          })
         : null;
 
     const INFLIGHT_TIMEOUT_MS = 10_000;
