@@ -49,6 +49,91 @@ function isRecoverableToolError(error: string | undefined): boolean {
   return RECOVERABLE_TOOL_ERROR_KEYWORDS.some((keyword) => errorLower.includes(keyword));
 }
 
+const FAILURE_REASON_MAX_LENGTH = 120;
+
+/**
+ * Truncate a tool error reason to a short suffix suitable for the chat warning.
+ * Takes the first non-empty line and caps at {@link FAILURE_REASON_MAX_LENGTH} chars.
+ */
+function truncateErrorReason(error: string): string {
+  // Strip external-content security wrappers and SECURITY NOTICE banners
+  // BEFORE selecting the first line, so web_fetch failures surface the actual
+  // HTTP error instead of internal security markers (#46592).
+  let stripped = error.replace(/<<<\s*(?:END_)?EXTERNAL_UNTRUSTED_CONTENT\b[^>]*>>>/g, "");
+  stripped = stripped.replace(/SECURITY NOTICE:[\s\S]*?(?=\n\n|\n(?=[^\s-]))/g, "");
+  // Skip web-fetch metadata lines prepended by wrapWebFetchContent() /
+  // wrapExternalContent() (e.g. "Source: …", "From: …", "Subject: …", "---")
+  // so the first-line extractor surfaces the actual error (#46592).
+  const lines = stripped.split("\n").map((l) => l.trim());
+  let startIdx = 0;
+  while (startIdx < lines.length) {
+    const line = lines[startIdx];
+    if (line.length === 0 || /^(?:Source|From|Subject):\s/i.test(line) || line === "---") {
+      startIdx++;
+      continue;
+    }
+    break;
+  }
+  const firstLine = lines.slice(startIdx).find((l) => l.length > 0) ?? "";
+  // Strip internal tool-context prefixes (e.g. "agent=… node=… gateway=… action=…: ")
+  // to avoid leaking implementation details into user-facing warnings (#46592).
+  let cleaned = firstLine.replace(/^(?:\w+=\S+\s+)*\w+=\S+:\s*/, "");
+  // Scrub data: URIs which may embed raw file content (e.g. base64 PDFs)
+  // and http(s) URLs which may contain signed tokens / credentials (#46592).
+  // URL scrubbing runs BEFORE path scrubbing so URLs like
+  // "https://s3.amazonaws.com/bucket/file.pdf" are not partially matched
+  // by the filesystem-path regex.
+  cleaned = cleaned.replace(/data:[a-zA-Z0-9/+._-]*[;,]\S*/g, "<data-uri>");
+  cleaned = cleaned.replace(/(?:https?|wss?):\/\/\S+/g, "<url>");
+  // Scrub absolute filesystem paths — any Unix path with 2+ segments and
+  // Windows drive-letter roots (C:\...) — to avoid leaking sandbox/host
+  // directory structure in non-verbose mode (#46592).
+  // Match path segments (no spaces) to preserve trailing reason text such as
+  // "(unsafe path)" or ": permission denied".  Excludes /dev/null which
+  // commonly appears in prose.
+  cleaned = cleaned.replace(
+    /\/(?!dev\/null\b)[a-zA-Z0-9_][a-zA-Z0-9._+-]*(?:\/[a-zA-Z0-9._+-]+)+/g,
+    "<path>",
+  );
+  // Second pass: absorb space-bearing remnants and Unicode characters/apostrophes
+  // left after the strict ASCII-only pass.  E.g. `/Users/O'Connor/…` becomes
+  // `<path>'Connor/…` after pass 1, and `/home/user name/docs/f.txt` becomes
+  // `<path> name/docs/f.txt`.  This collapses those remnants (#46592).
+  cleaned = cleaned.replace(
+    /<path>['\p{L}\p{N}._+-]*(?:\s+['\p{L}\p{N}._+-]+)*(?:\/['\p{L}\p{N}._+ -]+)*/gu,
+    "<path>",
+  );
+  // Windows paths may contain spaces (e.g. "C:\Users\Jane Doe\...") and parens
+  // ("C:\Program Files (x86)\...").  A trailing parenthetical reason like
+  // " (unsafe path)" is restored so it isn't swallowed (#46592).
+  cleaned = cleaned.replace(/[A-Za-z]:\\[\w\\. ()+-]+(?:\\[\w\\. ()+-]+)*/g, (match) => {
+    // Don't swallow trailing parenthetical reasons like " (unsafe path)".
+    // Path-internal parens such as "(x86)" are always followed by a backslash
+    // segment, so they never appear at the very end of the matched text.
+    const reasonMatch = match.match(/\s+\([a-zA-Z][a-zA-Z\s]*\)\s*$/);
+    if (reasonMatch) {
+      return "<path>" + reasonMatch[0];
+    }
+    return "<path>";
+  });
+  // UNC paths (\\server\share\...)
+  cleaned = cleaned.replace(/\\\\[\w.-]+(?:\\[\w. ()+-]+)+/g, "<path>");
+  // Scrub session keys that may embed channel-specific PII such as phone
+  // numbers or chat IDs (e.g. "agent:main:whatsapp:direct:+15555550123").
+  // P2 review thread on #46592.
+  cleaned = cleaned.replace(
+    /\b(?:agent|session):[a-zA-Z0-9_-]+(?::[a-zA-Z0-9_.+@-]+){2,}/g,
+    "<session>",
+  );
+  // Collapse runs of whitespace left after scrubbing.
+  cleaned = cleaned.replace(/\s{2,}/g, " ").trim();
+  const line = cleaned || firstLine;
+  if (line.length <= FAILURE_REASON_MAX_LENGTH) {
+    return line;
+  }
+  return line.slice(0, FAILURE_REASON_MAX_LENGTH) + "…";
+}
+
 function isVerboseToolDetailEnabled(level?: VerboseLevel): boolean {
   return level === "on" || level === "full";
 }
@@ -300,10 +385,11 @@ export function buildEmbeddedRunPayloads(params: {
         params.lastToolError.meta ? [params.lastToolError.meta] : undefined,
         { markdown: useMarkdown },
       );
-      const errorSuffix =
-        warningPolicy.includeDetails && params.lastToolError.error
+      const errorSuffix = params.lastToolError.error
+        ? warningPolicy.includeDetails
           ? `: ${params.lastToolError.error}`
-          : "";
+          : ` — ${truncateErrorReason(params.lastToolError.error)}`
+        : "";
       const warningText = `⚠️ ${toolSummary} failed${errorSuffix}`;
       const normalizedWarning = normalizeTextForComparison(warningText);
       const duplicateWarning = normalizedWarning
