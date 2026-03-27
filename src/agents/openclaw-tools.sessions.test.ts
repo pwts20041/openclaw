@@ -689,9 +689,30 @@ describe("sessions tools", () => {
     for (const call of agentCalls) {
       expect(call.params).toMatchObject({
         lane: "nested",
-        channel: "webchat",
         inputProvenance: { kind: "inter_session" },
       });
+    }
+    const initialSendCalls = agentCalls.filter(
+      (call) =>
+        typeof (call.params as { extraSystemPrompt?: string })?.extraSystemPrompt === "string" &&
+        (call.params as { extraSystemPrompt?: string })?.extraSystemPrompt?.includes(
+          "Agent-to-agent message context",
+        ),
+    );
+    expect(initialSendCalls).toHaveLength(2);
+    for (const call of initialSendCalls) {
+      expect((call.params as { channel?: string }).channel).toBeUndefined();
+    }
+    const followUpCalls = agentCalls.filter((call) => !initialSendCalls.includes(call));
+    for (const call of followUpCalls) {
+      expect((call.params as { channel?: string }).channel).not.toBe("webchat");
+    }
+    const requesterReplyCalls = followUpCalls.filter(
+      (call) => (call.params as { sessionKey?: string })?.sessionKey === requesterKey,
+    );
+    expect(requesterReplyCalls.length).toBeGreaterThan(0);
+    for (const call of requesterReplyCalls) {
+      expect((call.params as { channel?: string }).channel).toBe("discord");
     }
     expect(
       agentCalls.some(
@@ -869,9 +890,30 @@ describe("sessions tools", () => {
     for (const call of agentCalls) {
       expect(call.params).toMatchObject({
         lane: "nested",
-        channel: "webchat",
         inputProvenance: { kind: "inter_session" },
       });
+    }
+    const initialSendCalls = agentCalls.filter(
+      (call) =>
+        typeof (call.params as { extraSystemPrompt?: string })?.extraSystemPrompt === "string" &&
+        (call.params as { extraSystemPrompt?: string })?.extraSystemPrompt?.includes(
+          "Agent-to-agent message context",
+        ),
+    );
+    expect(initialSendCalls).toHaveLength(1);
+    expect(
+      (initialSendCalls[0]?.params as { channel?: string } | undefined)?.channel,
+    ).toBeUndefined();
+    const followUpCalls = agentCalls.filter((call) => !initialSendCalls.includes(call));
+    for (const call of followUpCalls) {
+      expect((call.params as { channel?: string }).channel).not.toBe("webchat");
+    }
+    const requesterReplyCalls = followUpCalls.filter(
+      (call) => (call.params as { sessionKey?: string })?.sessionKey === requesterKey,
+    );
+    expect(requesterReplyCalls.length).toBeGreaterThan(0);
+    for (const call of requesterReplyCalls) {
+      expect((call.params as { channel?: string }).channel).toBe("discord");
     }
 
     const replySteps = calls.filter(
@@ -888,6 +930,54 @@ describe("sessions tools", () => {
       channel: "discord",
       message: "announce now",
     });
+  });
+
+  it("sessions_send does not force a channel override", async () => {
+    const calls: Array<{ method?: string; params?: unknown }> = [];
+    callGatewayMock.mockImplementation(async (opts: unknown) => {
+      const request = opts as { method?: string; params?: unknown };
+      calls.push(request);
+      if (request.method === "agent") {
+        return {
+          runId: "run-no-channel",
+          status: "accepted",
+          acceptedAt: 3001,
+        };
+      }
+      return {};
+    });
+
+    const tool = createOpenClawTools({
+      agentSessionKey: "main",
+    }).find((candidate) => candidate.name === "sessions_send");
+    expect(tool).toBeDefined();
+    if (!tool) {
+      throw new Error("missing sessions_send tool");
+    }
+
+    const result = await tool.execute("call8", {
+      sessionKey: "main",
+      message: "ping",
+      timeoutSeconds: 0,
+    });
+    expect(result.details).toMatchObject({
+      status: "accepted",
+      runId: "run-no-channel",
+    });
+    const agentCall = calls.find((call) => call.method === "agent");
+    expect(agentCall?.params).toMatchObject({});
+    expect(
+      (
+        agentCall?.params as
+          | {
+              inputProvenance?: {
+                sourceChannel?: string;
+              };
+            }
+          | undefined
+      )?.inputProvenance?.sourceChannel,
+    ).toBeUndefined();
+    expect((agentCall?.params as { channel?: string } | undefined)?.channel).toBeUndefined();
   });
 
   it("subagents lists active and recent runs", async () => {
