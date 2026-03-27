@@ -17045,7 +17045,6 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
         additionalProperties: false,
         properties: {},
       },
-      speechProviders: ["typecast"],
     },
   },
   {
