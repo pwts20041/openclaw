@@ -820,6 +820,7 @@ export async function runEmbeddedAttempt(
             params.model.contextWindow ?? params.model.maxTokens ?? DEFAULT_CONTEXT_TOKENS,
           ),
         ),
+        compaction: params.config?.agents?.defaults?.toolResultContextGuard?.compaction,
       });
       const cacheTrace = createCacheTrace({
         cfg: params.config,
