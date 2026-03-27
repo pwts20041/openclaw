@@ -5,12 +5,22 @@ export type SentMessageLookup = {
 
 export type SentMessageCache = {
   remember: (scope: string, lookup: SentMessageLookup) => void;
-  has: (scope: string, lookup: SentMessageLookup) => boolean;
+  /**
+   * Check whether an inbound message matches a recently-sent outbound message.
+   *
+   * @param skipIdShortCircuit - When true, skip the early return on message-ID
+   *   mismatch and fall through to text-based matching. Use this for self-chat
+   *   `is_from_me=true` messages where the inbound ID is a numeric SQLite row ID
+   *   that will never match the GUID outbound IDs, but text matching is still
+   *   the right way to identify agent reply echoes.
+   */
+  has: (scope: string, lookup: SentMessageLookup, skipIdShortCircuit?: boolean) => boolean;
 };
 
-// Keep the text fallback short so repeated user replies like "ok" are not
-// suppressed for long; delayed reflections should match the stronger message-id key.
-const SENT_MESSAGE_TEXT_TTL_MS = 5_000;
+// Echo arrival observed at ~2.2s on M4 Mac Mini (SQLite poll interval is the bottleneck).
+// 4s provides ~80% margin. If echoes arrive after TTL expiry, the system degrades to
+// duplicate delivery (noisy but not lossy) — never message loss.
+const SENT_MESSAGE_TEXT_TTL_MS = 4_000;
 const SENT_MESSAGE_ID_TTL_MS = 60_000;
 
 function normalizeEchoTextKey(text: string | undefined): string | null {
@@ -48,13 +58,28 @@ class DefaultSentMessageCache implements SentMessageCache {
     this.cleanup();
   }
 
-  has(scope: string, lookup: SentMessageLookup): boolean {
+  has(scope: string, lookup: SentMessageLookup, skipIdShortCircuit = false): boolean {
     this.cleanup();
     const messageIdKey = normalizeEchoMessageIdKey(lookup.messageId);
     if (messageIdKey) {
       const idTimestamp = this.messageIdCache.get(`${scope}:${messageIdKey}`);
       if (idTimestamp && Date.now() - idTimestamp <= SENT_MESSAGE_ID_TTL_MS) {
         return true;
+      }
+      // If the inbound message has a valid message id that doesn't match any
+      // cached id, short-circuit only when we actually cached real message IDs
+      // for this scope. If remember() only cached text (outbound messageId was
+      // junk like "ok"/"unknown" and got normalized out), text fallback must
+      // still run.
+      //
+      // Exception: when skipIdShortCircuit=true (self-chat is_from_me=true
+      // messages), we always skip this early return so text matching can still
+      // identify agent reply echoes even though IDs never match in this scenario.
+      const hasAnyIdForScope = [...this.messageIdCache.keys()].some((key) =>
+        key.startsWith(`${scope}:`),
+      );
+      if (!skipIdShortCircuit && hasAnyIdForScope) {
+        return false;
       }
     }
     const textKey = normalizeEchoTextKey(lookup.text);
