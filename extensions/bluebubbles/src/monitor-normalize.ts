@@ -460,7 +460,7 @@ export type BlueBubblesParticipant = {
 };
 
 export type NormalizedWebhookMessage = {
-  text: string;
+  text: string | null;
   senderId: string;
   senderIdExplicit: boolean;
   senderName?: string;
