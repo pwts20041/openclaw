@@ -4,6 +4,7 @@ import {
   hasNonzeroUsage,
   derivePromptTokens,
   deriveSessionTotalTokens,
+  type UsageLike,
 } from "./usage.js";
 
 describe("normalizeUsage", () => {
@@ -116,6 +117,59 @@ describe("normalizeUsage", () => {
       cacheRead: undefined,
       cacheWrite: undefined,
       total: undefined,
+    });
+  });
+
+  it("handles Google Gemini usageMetadata field names", () => {
+    const usage = normalizeUsage({
+      promptTokenCount: 100,
+      candidatesTokenCount: 50,
+      totalTokenCount: 150,
+    });
+    expect(usage).toEqual({
+      input: 100,
+      output: 50,
+      cacheRead: undefined,
+      cacheWrite: undefined,
+      total: 150,
+    });
+  });
+
+  it("splits Google Gemini cached content tokens for correct pricing", () => {
+    // Google's promptTokenCount INCLUDES cachedContentTokenCount.
+    // We split them so estimateUsageCost() can apply the cheaper cache-read rate
+    // and derivePromptTokens() (input + cacheRead) stays correct.
+    const usage = normalizeUsage({
+      promptTokenCount: 200,
+      cachedContentTokenCount: 150,
+      candidatesTokenCount: 80,
+      totalTokenCount: 280,
+    } as UsageLike);
+    expect(usage).toEqual({
+      input: 50, // 200 - 150 (non-cached prompt tokens)
+      output: 80,
+      cacheRead: 150, // cachedContentTokenCount
+      cacheWrite: undefined,
+      total: 280,
+    });
+  });
+
+  it("does not double-count Google Gemini thoughtsTokenCount", () => {
+    // Per the Gemini SDK, totalTokenCount already includes thoughtsTokenCount
+    // (totalTokenCount = prompt + candidates + tool-use + thoughts).
+    // Verify we do NOT add thoughtsTokenCount again.
+    const usage = normalizeUsage({
+      promptTokenCount: 100,
+      candidatesTokenCount: 50,
+      thoughtsTokenCount: 300,
+      totalTokenCount: 450,
+    } as UsageLike);
+    expect(usage).toEqual({
+      input: 100,
+      output: 50,
+      cacheRead: undefined,
+      cacheWrite: undefined,
+      total: 450, // totalTokenCount already includes thoughts
     });
   });
 
