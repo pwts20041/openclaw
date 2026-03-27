@@ -716,31 +716,26 @@ export async function runMessageAction(
   if (action === "broadcast") {
     return handleBroadcastAction(input, params);
   }
+
+  // Remember if poll params were present before any normalization/cleanup
+  const hadPollParams = hasPollCreationParams(params);
+
   params = normalizeMessageActionInput({
     action,
     args: params,
     toolContext: input.toolContext,
   });
 
-  // For non-poll actions, check for poll intent early to provide clear errors
-  if (action === "send" && hasPollCreationParams(params)) {
-    throw new Error('Poll fields require action "poll"; use action "poll" instead of "send".');
-  }
-
-  // Clean up poll creation params if action is not poll to avoid false positives from wrappers
+  // For non-poll actions, clean up poll creation params to avoid false positives from wrappers
   if (action !== "poll") {
     const keysToRemove = new Set<string>();
     for (const key of POLL_CREATION_PARAM_NAMES) {
       keysToRemove.add(key);
       keysToRemove.add(toSnakeCaseKey(key));
     }
-    const filtered: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(params)) {
-      if (!keysToRemove.has(key)) {
-        filtered[key] = value;
-      }
-    }
-    params = filtered;
+    params = Object.fromEntries(
+      Object.entries(params).filter(([key]) => !keysToRemove.has(key))
+    );
   }
 
   const channel = await resolveChannel(cfg, params, input.toolContext);
@@ -802,6 +797,10 @@ export async function runMessageAction(
     cfg,
   });
 
+  if (action === "send" && hadPollParams) {
+    throw new Error('Poll fields require action "poll"; use action "poll" instead of "send".');
+  }
+
   const gateway = resolveGateway(input);
 
   if (action === "send") {
@@ -847,3 +846,4 @@ export async function runMessageAction(
     abortSignal: input.abortSignal,
   });
 }
+

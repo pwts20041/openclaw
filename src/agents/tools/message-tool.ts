@@ -803,3 +803,4 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
     },
   };
 }
+
