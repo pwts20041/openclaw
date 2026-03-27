@@ -586,4 +586,10 @@ export function saveAuthProfileStore(store: AuthProfileStore, agentDir?: string)
   } satisfies AuthProfileStore;
   saveJsonFile(authPath, payload);
   writeCachedAuthProfileStore(authPath, readAuthStoreMtimeMs(authPath), payload);
+  // Keep runtime snapshot in sync so ensureAuthProfileStore() doesn't return stale tokens
+  // after OAuth refresh rotates the refresh token. (#55389)
+  const runtimeKey = resolveRuntimeStoreKey(agentDir);
+  if (runtimeAuthStoreSnapshots.has(runtimeKey)) {
+    runtimeAuthStoreSnapshots.set(runtimeKey, cloneAuthProfileStore(store));
+  }
 }
