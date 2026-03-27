@@ -91,6 +91,7 @@ Tool params:
   - `mode: "session"` requires `thread: true`
 - `cleanup?` (`delete|keep`, default `keep`)
 - `sandbox?` (`inherit|require`, default `inherit`; `require` rejects spawn unless target child runtime is sandboxed)
+- `streamTo?` (`'parent'`; when set, streams sub-agent output to the parent session in real-time)
 - `sessions_spawn` does **not** accept channel-delivery params (`target`, `channel`, `to`, `threadId`, `replyTo`, `transport`). For delivery, use `message`/`sessions_send` from the spawned run.
 
 ## Thread-bound sessions
@@ -118,8 +119,9 @@ Manual controls:
 
 Config switches:
 
-- Global default: `session.threadBindings.enabled`, `session.threadBindings.idleHours`, `session.threadBindings.maxAgeHours`
-- Channel override and spawn auto-bind keys are adapter-specific. See **Thread supporting channels** above.
+- Global defaults (all channels): `session.threadBindings.enabled`, `session.threadBindings.idleHours`, `session.threadBindings.maxAgeHours`
+- Discord-specific overrides: `channels.discord.threadBindings.enabled`, `channels.discord.threadBindings.idleHours`, `channels.discord.threadBindings.maxAgeHours`, `channels.discord.threadBindings.spawnSubagentSessions`
+- Other channel adapters may add their own override keys. See **Thread supporting channels** above.
 
 See [Configuration Reference](/gateway/configuration-reference) and [Slash commands](/tools/slash-commands) for current adapter details.
 
@@ -139,7 +141,7 @@ Auto-archive:
 - `cleanup: "delete"` archives immediately after announce (still keeps the transcript via rename).
 - Auto-archive is best-effort; pending timers are lost if the gateway restarts.
 - `runTimeoutSeconds` does **not** auto-archive; it only stops the run. The session remains until auto-archive.
-- Auto-archive applies equally to depth-1 and depth-2 sessions.
+- Auto-archive applies to sub-agent sessions at all depths.
 
 ## Nested Sub-Agents
 
@@ -156,6 +158,7 @@ By default, sub-agents cannot spawn their own sub-agents (`maxSpawnDepth: 1`). Y
         maxChildrenPerAgent: 5, // max active children per agent session (default: 5)
         maxConcurrent: 8, // global concurrency lane cap (default: 8)
         runTimeoutSeconds: 900, // default timeout for sessions_spawn when omitted (0 = no timeout)
+        announceTimeoutMs: 90000, // how long the announce step waits before giving up (default: 90000)
       },
     },
   },
@@ -167,25 +170,30 @@ By default, sub-agents cannot spawn their own sub-agents (`maxSpawnDepth: 1`). Y
 | Depth | Session key shape                            | Role                                          | Can spawn?                   |
 | ----- | -------------------------------------------- | --------------------------------------------- | ---------------------------- |
 | 0     | `agent:<id>:main`                            | Main agent                                    | Always                       |
-| 1     | `agent:<id>:subagent:<uuid>`                 | Sub-agent (orchestrator when depth 2 allowed) | Only if `maxSpawnDepth >= 2` |
-| 2     | `agent:<id>:subagent:<uuid>:subagent:<uuid>` | Sub-sub-agent (leaf worker)                   | Never                        |
+| 1     | `agent:<id>:subagent:<uuid>`                 | Sub-agent (orchestrator when depth 2+ allowed) | Only if `maxSpawnDepth >= 2` |
+| 2     | `agent:<id>:subagent:…:subagent:<uuid>`      | Sub-sub-agent                                 | Only if `maxSpawnDepth >= 3` |
+| 3     | `agent:<id>:subagent:…:subagent:<uuid>`      | Depth-3 agent                                 | Only if `maxSpawnDepth >= 4` |
+| 4     | `agent:<id>:subagent:…:subagent:<uuid>`      | Depth-4 agent                                 | Only if `maxSpawnDepth >= 5` |
+| 5     | `agent:<id>:subagent:…:subagent:<uuid>`      | Depth-5 agent (max leaf)                      | Never                        |
+
+General rule: a session at depth *N* can spawn children when `maxSpawnDepth > N`.
 
 ### Announce chain
 
-Results flow back up the chain:
+Results flow back up the chain. For example, with `maxSpawnDepth: 2`:
 
 1. Depth-2 worker finishes → announces to its parent (depth-1 orchestrator)
 2. Depth-1 orchestrator receives the announce, synthesizes results, finishes → announces to main
 3. Main agent receives the announce and delivers to the user
 
-Each level only sees announces from its direct children.
+The same pattern generalises to deeper chains: a depth-N agent announces to its depth-(N-1) parent, and so on up to the main agent. Each level only sees announces from its direct children.
 
 ### Tool policy by depth
 
 - Role and control scope are written into session metadata at spawn time. That keeps flat or restored session keys from accidentally regaining orchestrator privileges.
-- **Depth 1 (orchestrator, when `maxSpawnDepth >= 2`)**: Gets `sessions_spawn`, `subagents`, `sessions_list`, `sessions_history` so it can manage its children. Other session/system tools remain denied.
-- **Depth 1 (leaf, when `maxSpawnDepth == 1`)**: No session tools (current default behavior).
-- **Depth 2 (leaf worker)**: No session tools — `sessions_spawn` is always denied at depth 2. Cannot spawn further children.
+- **Depth N (orchestrator, when `maxSpawnDepth > N`)**: Gets `sessions_spawn`, `subagents`, `sessions_list`, `sessions_history` so it can manage its children. `sessions_send` and other session tools remain denied.
+- **Depth N (leaf, when `maxSpawnDepth <= N`)**: No session tools.
+- At the default `maxSpawnDepth: 1`, depth-1 sessions are leaves (current default behavior). At `maxSpawnDepth: 2`, depth-1 sessions become orchestrators while depth-2 sessions are leaves, and so on.
 
 ### Per-agent spawn limit
 
@@ -193,9 +201,9 @@ Each agent session (at any depth) can have at most `maxChildrenPerAgent` (defaul
 
 ### Cascade stop
 
-Stopping a depth-1 orchestrator automatically stops all its depth-2 children:
+Stopping an orchestrator automatically stops all its children (recursively):
 
-- `/stop` in the main chat stops all depth-1 agents and cascades to their depth-2 children.
+- `/stop` in the main chat stops all sub-agents and cascades to their children at every depth.
 - `/subagents kill <id>` stops a specific sub-agent and cascades to its children.
 - `/subagents kill all` stops all sub-agents for the requester and cascades.
 
@@ -240,14 +248,15 @@ Announce payloads include a stats line at the end (even when wrapped):
 
 ## Tool Policy (sub-agent tools)
 
-By default, sub-agents get **all tools except session tools** and system tools:
+By default, sub-agents get **all tools except** these five session/orchestration tools:
 
 - `sessions_list`
 - `sessions_history`
 - `sessions_send`
 - `sessions_spawn`
+- `subagents`
 
-When `maxSpawnDepth >= 2`, depth-1 orchestrator sub-agents additionally receive `sessions_spawn`, `subagents`, `sessions_list`, and `sessions_history` so they can manage their children.
+When `maxSpawnDepth > N` (i.e. the sub-agent is an orchestrator, not a leaf), it additionally receives `sessions_spawn`, `subagents`, `sessions_list`, and `sessions_history` so it can manage its children. `sessions_send` stays denied at all depths.
 
 Override via config:
 
