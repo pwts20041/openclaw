@@ -17426,7 +17426,6 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
               },
               azureEndpoint: {
                 type: "string",
-                format: "uri",
               },
               azureDeployment: {
                 type: "string",
