@@ -66,7 +66,6 @@ Docs: https://docs.openclaw.ai
 - Daemon/Linux: stop flagging non-gateway systemd services as duplicate gateways just because their unit files mention OpenClaw, reducing false-positive doctor/log noise. (#45328) Thanks @gregretkowski.
 - Feishu: close WebSocket connections on monitor stop/abort so ghost connections no longer persist, preventing duplicate event processing and resource leaks across restart cycles. (#52844) Thanks @schumilin.
 - Feishu: use the original message `create_time` instead of `Date.now()` for inbound timestamps so offline-retried messages carry the correct authoring time, preventing mis-targeted agent actions on stale instructions. (#52809) Thanks @schumilin.
-- UI/compaction: keep the compaction indicator active when a compaction `end` event immediately retries, so the UI does not show `Context compacted` before compaction actually finishes. (#55132) Thanks @mpz4life.
 - Agents/sandbox: honor `tools.sandbox.tools.alsoAllow`, let explicit sandbox re-allows remove matching built-in default-deny tools, and keep sandbox explain/error guidance aligned with the effective sandbox tool policy. (#54492) Thanks @ngutman.
 - Agents/sandbox: make blocked-tool guidance glob-aware again, redact/sanitize session-specific explain hints for safer copy-paste, and avoid leaking control-character session keys in those hints. (#54684) Thanks @ngutman.
 - Agents/compaction: trigger timeout recovery compaction before retrying high-context LLM timeouts so embedded runs stop repeating oversized requests. (#46417) thanks @joeykrug.
@@ -88,6 +87,7 @@ Docs: https://docs.openclaw.ai
 - TUI/activation: validate `/activation` arguments in the TUI and reject invalid values instead of silently coercing them to `mention`. (#55733) Thanks @shakkernerd.
 - Agents/model switching: apply `/model` changes to active embedded runs at the next safe retry boundary, so overloaded or retrying turns switch to the newly selected model instead of staying pinned to the old provider.
 - Agents/Codex fallback: classify Codex `server_error` payloads as failoverable, sanitize `Codex error:` payloads before they reach chat, preserve context-overflow guidance for prefixed `invalid_request_error` payloads, and omit provider `request_id` values from user-facing UI copy. (#42892) Thanks @xaeon2026.
+- UI/compaction: keep the compaction indicator active when a compaction `end` event immediately retries, so the UI does not show `Context compacted` before compaction actually finishes. (#55132) Thanks @mpz4life.
 
 ## 2026.3.24
 
