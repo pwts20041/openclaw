@@ -173,6 +173,11 @@ afterEach(() => {
 });
 
 describe("models list/status", () => {
+  it("preserves non-overridden model exports for cross-suite compatibility", async () => {
+    const modelModule = await import("../agents/pi-embedded-runner/model.js");
+    expect(typeof modelModule.resolveModelAsync).toBe("function");
+  });
+
   const ZAI_MODEL = {
     provider: "zai",
     id: "glm-4.7",

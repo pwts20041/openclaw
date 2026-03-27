@@ -590,6 +590,19 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
                       exclusiveMinimum: 0,
                       maximum: 20971520,
                     },
+                    trustedDirs: {
+                      type: "array",
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                      },
+                    },
+                    allowInsecurePath: {
+                      type: "boolean",
+                    },
+                    allowSymlinkPath: {
+                      type: "boolean",
+                    },
                   },
                   required: ["source", "path"],
                   additionalProperties: false,
@@ -1480,6 +1493,15 @@ export const GENERATED_BASE_CONFIG_SCHEMA = {
               },
               workspace: {
                 type: "string",
+              },
+              sharedWorkspaceLocking: {
+                type: "object",
+                properties: {
+                  enabled: {
+                    type: "boolean",
+                  },
+                },
+                additionalProperties: false,
               },
               repoRoot: {
                 type: "string",

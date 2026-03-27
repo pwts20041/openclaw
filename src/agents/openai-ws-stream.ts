@@ -484,10 +484,20 @@ export function createOpenAIWebSocketStreamFn(
           : {}),
         ...extraParams,
       };
-      const nextPayload = options?.onPayload?.(payload, model);
-      const requestPayload = (nextPayload ?? payload) as Parameters<
-        OpenAIWebSocketManager["send"]
-      >[0];
+      const nextPayload = options?.onPayload
+        ? await Promise.resolve(options.onPayload(payload, model))
+        : undefined;
+
+      // Re-check abort after async onPayload — the signal may have fired
+      // while we were awaiting the callback.
+      if (signal?.aborted) {
+        throw Object.assign(new Error("Operation aborted."), { name: "AbortError" });
+      }
+
+      const requestPayload =
+        nextPayload && typeof nextPayload === "object"
+          ? (nextPayload as Parameters<OpenAIWebSocketManager["send"]>[0])
+          : (payload as Parameters<OpenAIWebSocketManager["send"]>[0]);
 
       try {
         session.manager.send(requestPayload);
