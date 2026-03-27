@@ -169,6 +169,18 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
         return `action=${actionVal},${argKey}=${val.trim()}`;
       }
     }
+    // Generic fallback: stable JSON fingerprint of all non-action args so that
+    // calls keyed by arrays/objects (e.g. broadcast targets:[...]) are not
+    // collapsed into the same bare action=<...> signature. This covers any future
+    // non-string field without needing individual whitelisting.
+    const { action: _action, ...restArgs } = record;
+    if (Object.keys(restArgs).length > 0) {
+      try {
+        return `action=${actionVal},args=${JSON.stringify(restArgs, Object.keys(restArgs).toSorted())}`;
+      } catch {
+        // ignore — unstringifiable args fall through to bare action signature
+      }
+    }
     return `action=${actionVal}`;
   }
   for (const key of [

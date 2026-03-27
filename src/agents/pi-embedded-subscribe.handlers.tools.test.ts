@@ -1251,3 +1251,50 @@ describe("circuit breaker arg signature for cron wake text field", () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("circuit breaker generic JSON fallback for non-string action args", () => {
+  async function runBroadcast(
+    ctx: ToolHandlerContext,
+    targets: string[],
+    isError: boolean,
+    id: string,
+  ) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "message",
+      toolCallId: id,
+      args: { action: "broadcast", targets },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "message",
+      toolCallId: id,
+      isError,
+      result: isError ? { type: "text", text: "Error: send failed" } : { ok: true },
+    });
+  }
+
+  it("does not trip circuit when broadcast failures use different target arrays", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runBroadcast(ctx, ["alice", "bob"], true, "b1");
+    await runBroadcast(ctx, ["carol", "dave"], true, "b2");
+    await runBroadcast(ctx, ["eve", "frank"], true, "b3");
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("trips circuit when broadcast failures repeatedly use the same target array", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runBroadcast(ctx, ["alice", "bob"], true, "b1");
+    await runBroadcast(ctx, ["alice", "bob"], true, "b2");
+    await runBroadcast(ctx, ["alice", "bob"], true, "b3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
