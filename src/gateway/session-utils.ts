@@ -17,7 +17,6 @@ import {
   resolveSubagentSessionStatus,
 } from "../agents/subagent-registry-read.js";
 import { type OpenClawConfig, loadConfig } from "../config/config.js";
-import { resolveStateDir } from "../config/paths.js";
 import {
   buildGroupDisplayName,
   canonicalizeMainSessionAlias,
@@ -540,20 +539,6 @@ function isStorePathTemplate(store?: string): boolean {
   return typeof store === "string" && store.includes("{agentId}");
 }
 
-function listExistingAgentIdsFromDisk(): string[] {
-  const root = resolveStateDir();
-  const agentsDir = path.join(root, "agents");
-  try {
-    const entries = fs.readdirSync(agentsDir, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => normalizeAgentId(entry.name))
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
 function listConfiguredAgentIds(cfg: OpenClawConfig): string[] {
   const ids = new Set<string>();
   const defaultId = normalizeAgentId(resolveDefaultAgentId(cfg));
@@ -563,10 +548,6 @@ function listConfiguredAgentIds(cfg: OpenClawConfig): string[] {
     if (entry?.id) {
       ids.add(normalizeAgentId(entry.id));
     }
-  }
-
-  for (const id of listExistingAgentIdsFromDisk()) {
-    ids.add(id);
   }
 
   const sorted = Array.from(ids).filter(Boolean);
