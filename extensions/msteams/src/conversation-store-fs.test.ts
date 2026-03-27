@@ -154,6 +154,30 @@ describe("msteams conversation store (memory)", () => {
           user: { id: "user-a", aadObjectId: "aad-a", name: "Alice" },
         },
       },
+      {
+        conversationId: "dm-old",
+        reference: {
+          conversation: { id: "dm-old", conversationType: "personal" },
+          user: { id: "user-shared-old", aadObjectId: "aad-shared", name: "Old DM" },
+          lastSeenAt: "2026-03-25T20:00:00.000Z",
+        },
+      },
+      {
+        conversationId: "group-shared",
+        reference: {
+          conversation: { id: "group-shared", conversationType: "groupChat" },
+          user: { id: "user-shared-group", aadObjectId: "aad-shared", name: "Group" },
+          lastSeenAt: "2026-03-25T20:30:00.000Z",
+        },
+      },
+      {
+        conversationId: "dm-new",
+        reference: {
+          conversation: { id: "dm-new", conversationType: "personal" },
+          user: { id: "user-shared-new", aadObjectId: "aad-shared", name: "New DM" },
+          lastSeenAt: "2026-03-25T21:00:00.000Z",
+        },
+      },
     ]);
 
     await store.upsert("conv-b", {
@@ -172,6 +196,30 @@ describe("msteams conversation store (memory)", () => {
         reference: {
           conversation: { id: "conv-a" },
           user: { id: "user-a", aadObjectId: "aad-a", name: "Alice" },
+        },
+      },
+      {
+        conversationId: "dm-old",
+        reference: {
+          conversation: { id: "dm-old", conversationType: "personal" },
+          user: { id: "user-shared-old", aadObjectId: "aad-shared", name: "Old DM" },
+          lastSeenAt: "2026-03-25T20:00:00.000Z",
+        },
+      },
+      {
+        conversationId: "group-shared",
+        reference: {
+          conversation: { id: "group-shared", conversationType: "groupChat" },
+          user: { id: "user-shared-group", aadObjectId: "aad-shared", name: "Group" },
+          lastSeenAt: "2026-03-25T20:30:00.000Z",
+        },
+      },
+      {
+        conversationId: "dm-new",
+        reference: {
+          conversation: { id: "dm-new", conversationType: "personal" },
+          user: { id: "user-shared-new", aadObjectId: "aad-shared", name: "New DM" },
+          lastSeenAt: "2026-03-25T21:00:00.000Z",
         },
       },
       {
@@ -195,6 +243,14 @@ describe("msteams conversation store (memory)", () => {
       reference: {
         conversation: { id: "conv-a" },
         user: { id: "user-a", aadObjectId: "aad-a", name: "Alice" },
+      },
+    });
+    await expect(store.findByUserId("aad-shared")).resolves.toEqual({
+      conversationId: "dm-new",
+      reference: {
+        conversation: { id: "dm-new", conversationType: "personal" },
+        user: { id: "user-shared-new", aadObjectId: "aad-shared", name: "New DM" },
+        lastSeenAt: "2026-03-25T21:00:00.000Z",
       },
     });
     await expect(store.findByUserId("   ")).resolves.toBeNull();
