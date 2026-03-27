@@ -15,8 +15,8 @@ export const offsetMocks: {
   deleteTelegramUpdateOffset: vi.fn().mockResolvedValue(undefined) as unknown as MockFn,
 };
 
-vi.mock("../config/config.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../config/config.js")>();
+vi.mock("../config/config.js", async () => {
+  const actual = await vi.importActual<typeof import("../config/config.js")>("../config/config.js");
   return {
     ...actual,
     readConfigFileSnapshot: configMocks.readConfigFileSnapshot,
@@ -24,17 +24,20 @@ vi.mock("../config/config.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../../extensions/telegram/api.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../extensions/telegram/api.js")>();
+vi.mock("../../extensions/telegram/api.js", async () => {
+  const actual = await vi.importActual<typeof import("../../extensions/telegram/api.js")>(
+    "../../extensions/telegram/api.js",
+  );
   return {
     ...actual,
     deleteTelegramUpdateOffset: offsetMocks.deleteTelegramUpdateOffset,
   };
 });
 
-vi.mock("../../extensions/telegram/update-offset-runtime-api.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../../extensions/telegram/update-offset-runtime-api.js")>();
+vi.mock("../../extensions/telegram/update-offset-runtime-api.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../extensions/telegram/update-offset-runtime-api.js")
+  >("../../extensions/telegram/update-offset-runtime-api.js");
   return {
     ...actual,
     deleteTelegramUpdateOffset: offsetMocks.deleteTelegramUpdateOffset,

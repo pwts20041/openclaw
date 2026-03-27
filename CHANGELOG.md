@@ -86,6 +86,7 @@ Docs: https://docs.openclaw.ai
 - TUI/activation: validate `/activation` arguments in the TUI and reject invalid values instead of silently coercing them to `mention`. (#55733) Thanks @shakkernerd.
 - Agents/model switching: apply `/model` changes to active embedded runs at the next safe retry boundary, so overloaded or retrying turns switch to the newly selected model instead of staying pinned to the old provider.
 - Agents/Codex fallback: classify Codex `server_error` payloads as failoverable, sanitize `Codex error:` payloads before they reach chat, preserve context-overflow guidance for prefixed `invalid_request_error` payloads, and omit provider `request_id` values from user-facing UI copy. (#42892) Thanks @xaeon2026.
+- Tests/onboarding/channel actions: restore drifted Telegram and Discord test/runtime exports and update the channels mock harness import style so unrelated mainline typecheck blockers stop breaking PR prep branches.
 
 ## 2026.3.24
 

@@ -1,1 +1,1 @@
-export * from "../../../../plugin-sdk/discord.js";
+export { handleDiscordMessageAction } from "../../../../../extensions/discord/src/actions/handle-action.js";
