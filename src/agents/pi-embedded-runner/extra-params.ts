@@ -100,6 +100,36 @@ export function resolveExtraParams(params: {
     delete merged.parallelToolCalls;
   }
 
+  const resolvedOpenaiWebSearch = resolveAliasedParamValue(
+    [globalParams, agentParams],
+    "openai_web_search",
+    "openaiWebSearch",
+  );
+  if (resolvedOpenaiWebSearch !== undefined) {
+    merged.openai_web_search = resolvedOpenaiWebSearch;
+    delete merged.openaiWebSearch;
+  }
+
+  const resolvedOpenaiWebSearchRequired = resolveAliasedParamValue(
+    [globalParams, agentParams],
+    "openai_web_search_required",
+    "openaiWebSearchRequired",
+  );
+  if (resolvedOpenaiWebSearchRequired !== undefined) {
+    merged.openai_web_search_required = resolvedOpenaiWebSearchRequired;
+    delete merged.openaiWebSearchRequired;
+  }
+
+  const resolvedOpenaiWebSearchToolType = resolveAliasedParamValue(
+    [globalParams, agentParams],
+    "openai_web_search_tool_type",
+    "openaiWebSearchToolType",
+  );
+  if (resolvedOpenaiWebSearchToolType !== undefined) {
+    merged.openai_web_search_tool_type = resolvedOpenaiWebSearchToolType;
+    delete merged.openaiWebSearchToolType;
+  }
+
   return merged;
 }
 
@@ -186,6 +216,77 @@ export function resolveAgentTransportOverride(params: {
   return resolveSupportedTransport(params.effectiveExtraParams?.transport);
 }
 
+function resolveOpenAIBuiltInTools(
+  extraParams: Record<string, unknown> | undefined,
+): Array<Record<string, unknown>> {
+  if (!extraParams) {
+    return [];
+  }
+
+  const configured: Array<Record<string, unknown>> = [];
+  const webSearchEnabled = extraParams.openai_web_search === true;
+  if (webSearchEnabled) {
+    const rawToolType = extraParams.openai_web_search_tool_type;
+    const toolType = typeof rawToolType === "string" ? rawToolType.trim() || "web_search_preview" : "web_search_preview";
+    configured.push({ type: toolType });
+  }
+
+  const rawBuiltInTools = extraParams.openaiBuiltInTools ?? extraParams.openai_built_in_tools;
+  if (Array.isArray(rawBuiltInTools)) {
+    for (const entry of rawBuiltInTools) {
+      if (entry && typeof entry === "object") {
+        configured.push(entry as Record<string, unknown>);
+      }
+    }
+  }
+
+  const deduped: Array<Record<string, unknown>> = [];
+  const seenTypes = new Set<string>();
+  for (const entry of configured) {
+    const type = typeof entry.type === "string" ? entry.type : "";
+    if (!type) {
+      deduped.push(entry);
+      continue;
+    }
+    if (seenTypes.has(type)) {
+      continue;
+    }
+    seenTypes.add(type);
+    deduped.push(entry);
+  }
+
+  return deduped;
+}
+
+function filterConflictingOpenClawTools(
+  existingTools: Array<Record<string, unknown>>,
+  builtInTools: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const builtInTypes = new Set(
+    builtInTools
+      .map((tool) => (typeof tool.type === "string" ? tool.type : ""))
+      .filter((type) => type.length > 0),
+  );
+
+  if (builtInTypes.size === 0) {
+    return existingTools;
+  }
+
+  return existingTools.filter((tool) => {
+    const toolType = typeof tool.type === "string" ? tool.type : "";
+    if (toolType && builtInTypes.has(toolType)) {
+      return false;
+    }
+
+    const toolName = typeof tool.name === "string" ? tool.name : "";
+    if (toolName && builtInTypes.has(toolName)) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 function createStreamFnWithExtraParams(
   baseStreamFn: StreamFn | undefined,
   extraParams: Record<string, unknown> | undefined,
@@ -219,19 +320,58 @@ function createStreamFnWithExtraParams(
   if (cacheRetention) {
     streamParams.cacheRetention = cacheRetention;
   }
+  const openaiBuiltInTools = resolveOpenAIBuiltInTools(extraParams);
+  const rawOpenaiWebSearchRequired = resolveAliasedParamValue(
+    [extraParams],
+    "openai_web_search_required",
+    "openaiWebSearchRequired",
+  );
+  const openaiWebSearchRequired = rawOpenaiWebSearchRequired === true;
+  if (openaiWebSearchRequired && openaiBuiltInTools.length === 0) {
+    log.warn("ignoring openaiWebSearchRequired because no OpenAI built-in tools were configured");
+  }
 
-  if (Object.keys(streamParams).length === 0) {
+  if (Object.keys(streamParams).length === 0 && openaiBuiltInTools.length === 0) {
     return undefined;
   }
 
   log.debug(`creating streamFn wrapper with params: ${JSON.stringify(streamParams)}`);
+  if (openaiBuiltInTools.length > 0) {
+    log.debug(`OpenAI built-in tools enabled: ${JSON.stringify(openaiBuiltInTools)}`);
+  }
 
   const underlying = baseStreamFn ?? streamSimple;
   const wrappedStreamFn: StreamFn = (model, context, options) => {
-    return underlying(model, context, {
+    const nextOptions: SimpleStreamOptions = {
       ...streamParams,
       ...options,
-    });
+    };
+
+    if (
+      openaiBuiltInTools.length > 0 &&
+      (model.api === "openai-responses" || model.api === "openai-codex-responses")
+    ) {
+      const originalOnPayload = options?.onPayload;
+      nextOptions.onPayload = (payload) => {
+        if (payload && typeof payload === "object") {
+          const payloadRecord = payload as Record<string, unknown>;
+          const existingTools = Array.isArray(payloadRecord.tools)
+            ? (payloadRecord.tools as Array<Record<string, unknown>>)
+            : [];
+          const filteredExistingTools = filterConflictingOpenClawTools(
+            existingTools,
+            openaiBuiltInTools,
+          );
+          payloadRecord.tools = [...filteredExistingTools, ...openaiBuiltInTools];
+          if (openaiWebSearchRequired) {
+            payloadRecord.tool_choice = "required";
+          }
+        }
+        return originalOnPayload?.(payload, model);
+      };
+    }
+
+    return underlying(model, context, nextOptions);
   };
 
   return wrappedStreamFn;
