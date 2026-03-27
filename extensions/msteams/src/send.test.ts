@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../runtime-api.js";
-import { deleteMessageMSTeams, editMessageMSTeams, sendMessageMSTeams } from "./send.js";
+
+let sendMessageMSTeams: typeof import("./send.js").sendMessageMSTeams;
+let editMessageMSTeams: typeof import("./send.js").editMessageMSTeams;
+let deleteMessageMSTeams: typeof import("./send.js").deleteMessageMSTeams;
 
 const mockState = vi.hoisted(() => ({
   loadOutboundMediaFromUrl: vi.fn(),
@@ -14,49 +17,46 @@ const mockState = vi.hoisted(() => ({
   buildTeamsFileInfoCard: vi.fn(),
 }));
 
-vi.mock("../runtime-api.js", () => ({
-  loadOutboundMediaFromUrl: mockState.loadOutboundMediaFromUrl,
-}));
-
-vi.mock("./send-context.js", () => ({
-  resolveMSTeamsSendContext: mockState.resolveMSTeamsSendContext,
-}));
-
-vi.mock("./file-consent-helpers.js", () => ({
-  requiresFileConsent: mockState.requiresFileConsent,
-  prepareFileConsentActivity: mockState.prepareFileConsentActivity,
-}));
-
-vi.mock("./media-helpers.js", () => ({
-  extractFilename: mockState.extractFilename,
-  extractMessageId: () => "message-1",
-}));
-
-vi.mock("./messenger.js", () => ({
-  sendMSTeamsMessages: mockState.sendMSTeamsMessages,
-  buildConversationReference: () => ({}),
-}));
-
-vi.mock("./runtime.js", () => ({
-  getMSTeamsRuntime: () => ({
-    channel: {
-      text: {
-        resolveMarkdownTableMode: () => "off",
-        convertMarkdownTables: (text: string) => text,
+beforeEach(async () => {
+  vi.resetModules();
+  vi.doMock("../runtime-api.js", () => ({
+    loadOutboundMediaFromUrl: mockState.loadOutboundMediaFromUrl,
+  }));
+  vi.doMock("./send-context.js", () => ({
+    resolveMSTeamsSendContext: mockState.resolveMSTeamsSendContext,
+  }));
+  vi.doMock("./file-consent-helpers.js", () => ({
+    requiresFileConsent: mockState.requiresFileConsent,
+    prepareFileConsentActivity: mockState.prepareFileConsentActivity,
+  }));
+  vi.doMock("./media-helpers.js", () => ({
+    extractFilename: mockState.extractFilename,
+    extractMessageId: () => "message-1",
+  }));
+  vi.doMock("./messenger.js", () => ({
+    sendMSTeamsMessages: mockState.sendMSTeamsMessages,
+    buildConversationReference: () => ({}),
+  }));
+  vi.doMock("./runtime.js", () => ({
+    getMSTeamsRuntime: () => ({
+      channel: {
+        text: {
+          resolveMarkdownTableMode: () => "off",
+          convertMarkdownTables: (text: string) => text,
+        },
       },
-    },
-  }),
-}));
-
-vi.mock("./graph-upload.js", () => ({
-  uploadAndShareSharePoint: mockState.uploadAndShareSharePoint,
-  getDriveItemProperties: mockState.getDriveItemProperties,
-  uploadAndShareOneDrive: vi.fn(),
-}));
-
-vi.mock("./graph-chat.js", () => ({
-  buildTeamsFileInfoCard: mockState.buildTeamsFileInfoCard,
-}));
+    }),
+  }));
+  vi.doMock("./graph-upload.js", () => ({
+    uploadAndShareSharePoint: mockState.uploadAndShareSharePoint,
+    getDriveItemProperties: mockState.getDriveItemProperties,
+    uploadAndShareOneDrive: vi.fn(),
+  }));
+  vi.doMock("./graph-chat.js", () => ({
+    buildTeamsFileInfoCard: mockState.buildTeamsFileInfoCard,
+  }));
+  ({ sendMessageMSTeams, editMessageMSTeams, deleteMessageMSTeams } = await import("./send.js"));
+});
 
 function mockContinueConversationFailure(error: string) {
   const mockContinueConversation = vi.fn().mockRejectedValue(new Error(error));

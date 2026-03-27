@@ -259,6 +259,64 @@ describe("registerPluginCommand", () => {
     });
   });
 
+  it("resolves Teams DM command bindings with the user target prefix intact", () => {
+    expect(
+      __testing.resolveBindingConversationFromCommand({
+        channel: "msteams",
+        from: "msteams:29:sender-id",
+        to: "user:29:sender-id",
+        accountId: "default",
+      }),
+    ).toEqual({
+      channel: "msteams",
+      accountId: "default",
+      conversationId: "user:29:sender-id",
+    });
+  });
+
+  it("resolves Teams group command bindings with the conversation target prefix intact", () => {
+    expect(
+      __testing.resolveBindingConversationFromCommand({
+        channel: "msteams",
+        from: "msteams:group:19:conversation-id@thread.v2",
+        to: "conversation:19:conversation-id@thread.v2",
+        accountId: "default",
+      }),
+    ).toEqual({
+      channel: "msteams",
+      accountId: "default",
+      conversationId: "conversation:19:conversation-id@thread.v2",
+    });
+  });
+
+  it("falls back to Teams sender metadata when the current command target is missing", () => {
+    expect(
+      __testing.resolveBindingConversationFromCommand({
+        channel: "msteams",
+        from: "msteams:channel:19:conversation-id@thread.tacv2",
+        accountId: "default",
+      }),
+    ).toEqual({
+      channel: "msteams",
+      accountId: "default",
+      conversationId: "conversation:19:conversation-id@thread.tacv2",
+    });
+  });
+
+  it("normalizes Teams DM sender fallback to the user target shape", () => {
+    expect(
+      __testing.resolveBindingConversationFromCommand({
+        channel: "msteams",
+        from: "msteams:29:sender-id",
+        accountId: "default",
+      }),
+    ).toEqual({
+      channel: "msteams",
+      accountId: "default",
+      conversationId: "user:29:sender-id",
+    });
+  });
+
   it("does not resolve binding conversations for unsupported command channels", () => {
     expect(
       __testing.resolveBindingConversationFromCommand({

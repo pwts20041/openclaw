@@ -168,6 +168,27 @@ function resolveBindingConversationFromCommand(params: {
       conversationId: `${target.chatType === "direct" ? "user" : "channel"}:${target.to}`,
     };
   }
+  if (params.channel === "msteams") {
+    const rawTarget =
+      params.to ??
+      (params.from?.startsWith("msteams:") &&
+      !params.from.startsWith("msteams:channel:") &&
+      !params.from.startsWith("msteams:group:")
+        ? `user:${stripPrefix(params.from, "msteams:")}`
+        : params.from);
+    if (!rawTarget) {
+      return null;
+    }
+    const target = parseExplicitTargetForChannel("msteams", rawTarget);
+    if (!target) {
+      return null;
+    }
+    return {
+      channel: "msteams",
+      accountId,
+      conversationId: target.to,
+    };
+  }
   return null;
 }
 

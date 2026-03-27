@@ -82,6 +82,16 @@ describe("plugin runtime command execution", () => {
     expect(runtime.system.requestHeartbeatNow).toBe(requestHeartbeatNow);
   });
 
+  it("exposes runtime.channel.msteams helpers", () => {
+    const runtime = createPluginRuntime();
+    expect(typeof runtime.channel.msteams.sendMessageMSTeams).toBe("function");
+    expect(typeof runtime.channel.msteams.sendAdaptiveCardMSTeams).toBe("function");
+    expect(typeof runtime.channel.msteams.typing.start).toBe("function");
+    expect(typeof runtime.channel.msteams.conversationActions.editMessage).toBe("function");
+    expect(typeof runtime.channel.msteams.conversationActions.deleteMessage).toBe("function");
+    expect(typeof runtime.channel.msteams.conversationActions.editChannel).toBe("function");
+  });
+
   it("exposes runtime.agent host helpers", () => {
     const runtime = createPluginRuntime();
     expect(runtime.agent.defaults).toEqual({
