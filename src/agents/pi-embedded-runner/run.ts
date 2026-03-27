@@ -113,6 +113,7 @@ export async function runEmbeddedPiAgent(
 
   return enqueueSession(() =>
     enqueueGlobal(async () => {
+      params.onLaneAcquired?.();
       const started = Date.now();
       const workspaceResolution = resolveRunWorkspaceDir({
         workspaceDir: params.workspaceDir,

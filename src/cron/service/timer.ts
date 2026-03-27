@@ -73,14 +73,21 @@ export async function executeJobCoreWithTimeout(
 
   const runAbortController = new AbortController();
   let timeoutId: NodeJS.Timeout | undefined;
+  let rejectTimeout: ((reason?: unknown) => void) | undefined;
+  const startTimer = () => {
+    if (timeoutId) {
+      return;
+    }
+    timeoutId = setTimeout(() => {
+      runAbortController.abort(timeoutErrorMessage());
+      rejectTimeout?.(new Error(timeoutErrorMessage()));
+    }, jobTimeoutMs);
+  };
   try {
     return await Promise.race([
-      executeJobCore(state, job, runAbortController.signal),
+      executeJobCore(state, job, runAbortController.signal, startTimer),
       new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          runAbortController.abort(timeoutErrorMessage());
-          reject(new Error(timeoutErrorMessage()));
-        }, jobTimeoutMs);
+        rejectTimeout = reject;
       }),
     ]);
   } finally {
@@ -1008,6 +1015,7 @@ export async function executeJobCore(
   state: CronServiceState,
   job: CronJob,
   abortSignal?: AbortSignal,
+  onExecutionStart?: () => void,
 ): Promise<
   CronRunOutcome & CronRunTelemetry & { delivered?: boolean; deliveryAttempted?: boolean }
 > {
@@ -1052,6 +1060,10 @@ export async function executeJobCore(
             : 'main job requires payload.kind="systemEvent"',
       };
     }
+    if (abortSignal?.aborted) {
+      return resolveAbortError();
+    }
+    onExecutionStart?.();
     // Preserve the job session namespace for main-target reminders so heartbeat
     // routing can deliver follow-through in the originating channel/thread.
     // Downstream gateway wiring canonicalizes/guards this key per agent.
@@ -1136,6 +1148,7 @@ export async function executeJobCore(
     job,
     message: job.payload.message,
     abortSignal,
+    onExecutionStart,
   });
 
   if (abortSignal?.aborted) {
