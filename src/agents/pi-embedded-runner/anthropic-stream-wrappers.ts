@@ -390,7 +390,52 @@ export function createBedrockNoCacheWrapper(baseStreamFn: StreamFn | undefined):
     });
 }
 
-export function isAnthropicBedrockModel(modelId: string): boolean {
+export function isAnthropicBedrockModel(modelId: string, modelName?: string): boolean {
   const normalized = modelId.toLowerCase();
-  return normalized.includes("anthropic.claude") || normalized.includes("anthropic/claude");
+
+  // Direct Anthropic Claude model IDs (e.g., anthropic.claude-sonnet-4-6, global.anthropic.claude-opus-4-6-v1)
+  if (normalized.includes("anthropic.claude") || normalized.includes("anthropic/claude")) {
+    return true;
+  }
+
+  // Application Inference Profile ARN — detect Claude via profile ID segment or model name.
+  // ARN format: arn:<partition>:bedrock:<region>:<account>:application-inference-profile/<id>
+  // Supports all AWS partitions with Bedrock: aws, aws-cn, aws-us-gov.
+  // Note: model name (`models[].name`) is a user-chosen display label, so this is best-effort.
+  // A profile ID or name containing "claude" is treated as an Anthropic Claude model; if neither
+  // contains "claude", the no-cache wrapper is applied (safe default).
+  if (
+    /^arn:aws(-cn|-us-gov)?:bedrock:/.test(normalized) &&
+    normalized.includes(":application-inference-profile/")
+  ) {
+    const profileId = normalized.split(":application-inference-profile/")[1] ?? "";
+    if (profileId.includes("claude")) {
+      return true;
+    }
+    return modelName ? modelName.toLowerCase().includes("claude") : false;
+  }
+
+  // Short/opaque inference profile IDs — fall back to ID or model name for IDs
+  // that look like short profile IDs (alphanumeric, no dots/colons/slashes).
+  // Excludes standard model IDs, other ARN resource types, and any dotted identifiers.
+  // Note: the regex is intentionally broad; it is safe because standard Bedrock model IDs
+  // always contain dots or colons (e.g. "amazon.nova-micro-v1:0") which exclude them here.
+  if (looksLikeShortProfileId(normalized)) {
+    if (normalized.includes("claude")) {
+      return true;
+    }
+    return modelName ? modelName.toLowerCase().includes("claude") : false;
+  }
+
+  return false;
+}
+
+/**
+ * Returns true when the ID looks like a short Application Inference Profile ID
+ * (opaque alphanumeric-and-hyphen string, cannot start/end with a hyphen).
+ * Requires at least 2 characters; single-char IDs are not realistic model IDs.
+ * Examples: "gdkqufd9flgg", "s3rr0t98ews8", "my-claude-profile"
+ */
+function looksLikeShortProfileId(normalizedId: string): boolean {
+  return /^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(normalizedId);
 }
