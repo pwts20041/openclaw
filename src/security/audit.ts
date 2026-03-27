@@ -1395,6 +1395,7 @@ export async function runSecurityAudit(opts: SecurityAuditOptions): Promise<Secu
   findings.push(...auditNonDeep.collectNodeDangerousAllowCommandFindings(cfg));
   findings.push(...auditNonDeep.collectMinimalProfileOverrideFindings(cfg));
   findings.push(...auditNonDeep.collectSecretsInConfigFindings(cfg));
+  findings.push(...auditNonDeep.collectChineseDeploymentFindings(cfg));
   findings.push(...auditNonDeep.collectModelHygieneFindings(cfg));
   findings.push(...auditNonDeep.collectSmallModelRiskFindings({ cfg, env }));
   findings.push(...auditNonDeep.collectExposureMatrixFindings(cfg));

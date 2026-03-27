@@ -1328,6 +1328,131 @@ export function collectExposureMatrixFindings(cfg: OpenClawConfig): SecurityAudi
   return findings;
 }
 
+// --------------------------------------------------------------------------
+// Chinese deployment scenario checks (Issue #7)
+// --------------------------------------------------------------------------
+
+/**
+ * Detect Chinese deployment scenarios that may have specific security blind spots.
+ *
+ * Checks:
+ * 1. Feishu webhook mode without encryptKey configured (signature verification gap).
+ * 2. Gateway exposed beyond loopback without trustedProxies — common in Chinese cloud
+ *    (Tencent Cloud / Alibaba Cloud / Huawei Cloud) Nginx/CDN reverse proxy setups.
+ * 3. Feishu verificationToken stored as plaintext in config (should use SecretRef or env).
+ */
+export function collectChineseDeploymentFindings(cfg: OpenClawConfig): SecurityAuditFinding[] {
+  const findings: SecurityAuditFinding[] = [];
+  const channels = cfg.channels as Record<string, unknown> | undefined;
+
+  // --- Feishu webhook security checks ---
+  const feishu = channels?.feishu as Record<string, unknown> | undefined;
+  if (feishu && feishu.enabled !== false) {
+    const connectionMode =
+      typeof feishu.connectionMode === "string" ? feishu.connectionMode : "websocket";
+    const topLevelEncryptKey = feishu.encryptKey;
+
+    if (connectionMode === "webhook") {
+      // Check top-level feishu webhook config
+      if (
+        !topLevelEncryptKey ||
+        (typeof topLevelEncryptKey === "string" && !topLevelEncryptKey.trim())
+      ) {
+        findings.push({
+          checkId: "channels.feishu.webhook_no_encrypt_key",
+          severity: "critical",
+          title: "Feishu webhook mode without encrypt key",
+          detail:
+            "channels.feishu uses webhook connectionMode but encryptKey is not configured. " +
+            "Without encryptKey, inbound event payloads are not encrypted and may be tampered with in transit.",
+          remediation:
+            "Set channels.feishu.encryptKey (or use a SecretRef/env variable) to enable Feishu event payload encryption.",
+        });
+      }
+
+      const verificationToken = feishu.verificationToken;
+      if (
+        typeof verificationToken === "string" &&
+        verificationToken.trim() &&
+        !looksLikeEnvRef(verificationToken)
+      ) {
+        findings.push({
+          checkId: "channels.feishu.webhook_verification_token_plaintext",
+          severity: "warn",
+          title: "Feishu verification token stored as plaintext in config",
+          detail:
+            "channels.feishu.verificationToken is stored as a plaintext string in the config file. " +
+            "This token is used to verify webhook event authenticity and should be treated as a secret.",
+          remediation:
+            'Use a SecretRef (e.g., {"source":"env","provider":"default","id":"FEISHU_VERIFICATION_TOKEN"}) ' +
+            "or an env template (${FEISHU_VERIFICATION_TOKEN}) instead of embedding the token directly.",
+        });
+      }
+    }
+
+    // Check per-account feishu webhook configs
+    const accounts = feishu.accounts as Record<string, unknown> | undefined;
+    if (accounts && typeof accounts === "object") {
+      for (const [accountId, accountValue] of Object.entries(accounts)) {
+        const account = accountValue as Record<string, unknown> | undefined;
+        if (!account || account.enabled === false) {
+          continue;
+        }
+        const accountConnectionMode =
+          typeof account.connectionMode === "string" ? account.connectionMode : connectionMode;
+        if (accountConnectionMode !== "webhook") {
+          continue;
+        }
+        const accountEncryptKey = account.encryptKey ?? topLevelEncryptKey;
+        if (
+          !accountEncryptKey ||
+          (typeof accountEncryptKey === "string" && !accountEncryptKey.trim())
+        ) {
+          findings.push({
+            checkId: `channels.feishu.accounts.${accountId}.webhook_no_encrypt_key`,
+            severity: "critical",
+            title: `Feishu account "${accountId}" webhook mode without encrypt key`,
+            detail:
+              `channels.feishu.accounts.${accountId} uses webhook connectionMode but encryptKey is not configured (neither at account level nor inherited from top-level). ` +
+              "Without encryptKey, inbound event payloads are not encrypted.",
+            remediation: `Set channels.feishu.accounts.${accountId}.encryptKey or channels.feishu.encryptKey to enable Feishu event payload encryption.`,
+          });
+        }
+      }
+    }
+  }
+
+  // --- Reverse proxy configuration for Chinese cloud deployments ---
+  const bind = typeof cfg.gateway?.bind === "string" ? cfg.gateway.bind : "loopback";
+  const trustedProxies = Array.isArray(cfg.gateway?.trustedProxies)
+    ? cfg.gateway.trustedProxies
+    : [];
+
+  // When gateway binds to non-loopback (common in Docker/cloud setups) but has no trusted proxies,
+  // Chinese users commonly deploy behind Nginx/Caddy without configuring trustedProxies.
+  if (bind !== "loopback" && trustedProxies.length === 0) {
+    const controlUiEnabled = cfg.gateway?.controlUi?.enabled !== false;
+    if (controlUiEnabled) {
+      findings.push({
+        checkId: "gateway.reverse_proxy_chinese_cloud",
+        severity: "warn",
+        title: "Non-loopback gateway without trusted proxies (common in Chinese cloud setups)",
+        detail:
+          "gateway.bind is not loopback and gateway.trustedProxies is empty. " +
+          "If you deploy behind Nginx, Caddy, or a cloud CDN (common on Tencent Cloud, Alibaba Cloud, or Huawei Cloud), " +
+          "the gateway cannot distinguish proxy traffic from direct client connections. " +
+          "This may allow X-Forwarded-For spoofing and bypass local-client checks.",
+        remediation:
+          "Set gateway.trustedProxies to your reverse proxy IP(s). " +
+          "For Docker Compose setups, use the Docker network gateway IP (typically 172.17.0.1 or your custom bridge IP). " +
+          "For cloud CDN/WAF setups, add the CDN edge IPs to the trusted list.",
+      });
+    }
+  }
+
+  return findings;
+}
+
 export function collectLikelyMultiUserSetupFindings(cfg: OpenClawConfig): SecurityAuditFinding[] {
   const findings: SecurityAuditFinding[] = [];
   const signals = listPotentialMultiUserSignals(cfg);

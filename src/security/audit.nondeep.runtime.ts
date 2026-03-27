@@ -1,5 +1,6 @@
 export {
   collectAttackSurfaceSummaryFindings,
+  collectChineseDeploymentFindings,
   collectExposureMatrixFindings,
   collectGatewayHttpNoAuthFindings,
   collectGatewayHttpSessionKeyOverrideFindings,
