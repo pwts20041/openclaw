@@ -587,7 +587,7 @@ async function switchChatModel(state: AppViewState, nextModel: string) {
   }
 }
 
-/* ── Channel display labels ────────────────────────────── */
+/* ── Channel display labels ───────────────────────────────────────────── */
 const CHANNEL_LABELS: Record<string, string> = {
   bluebubbles: "iMessage",
   telegram: "Telegram",
@@ -621,7 +621,7 @@ function capitalize(s: string): string {
 export function parseSessionKey(key: string): SessionKeyInfo {
   const normalized = key.toLowerCase();
 
-  // ── Main session ─────────────────────────────────
+  // ── Main session ──────────────────────────────────
   if (key === "main" || key === "agent:main:main") {
     return { prefix: "", fallbackName: "Main Session" };
   }
@@ -772,9 +772,22 @@ export function resolveSessionOptionGroups(
     });
   };
 
+  // Parse the current session's agent ID once so we can compare below.
+  const currentParsed = parseAgentSessionKey(sessionKey);
+
   for (const row of rows) {
     if (row.key !== sessionKey && (row.kind === "global" || row.kind === "unknown")) {
-      continue;
+      // Cross-agent global sessions should remain visible so the user can
+      // switch between agents. Only suppress within the same agent's scope
+      // (e.g. background / webhook sessions of the current agent).
+      const rowParsed = parseAgentSessionKey(row.key);
+      const sameAgentScope =
+        !rowParsed ||
+        !currentParsed ||
+        rowParsed.agentId.toLowerCase() === currentParsed.agentId.toLowerCase();
+      if (sameAgentScope) {
+        continue;
+      }
     }
     if (hideCron && row.key !== sessionKey && isCronSessionKey(row.key)) {
       continue;
