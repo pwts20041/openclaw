@@ -214,6 +214,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     process.exit(3);
   }
 
-  process.stdout.write(JSON.stringify(resolved));
-  process.exit(0);
+  const output = JSON.stringify(resolved);
+  process.stdout.write(output, () => {
+    process.exit(0);
+  });
 }

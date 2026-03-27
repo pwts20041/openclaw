@@ -12671,6 +12671,9 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
               requireMention: {
                 type: "boolean",
               },
+              requireMentionInThreads: {
+                type: "boolean",
+              },
               groupPolicy: {
                 default: "allowlist",
                 type: "string",
@@ -13004,6 +13007,9 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
                       type: "boolean",
                     },
                     requireMention: {
+                      type: "boolean",
+                    },
+                    requireMentionInThreads: {
                       type: "boolean",
                     },
                     tools: {
@@ -13480,6 +13486,9 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
                     requireMention: {
                       type: "boolean",
                     },
+                    requireMentionInThreads: {
+                      type: "boolean",
+                    },
                     groupPolicy: {
                       type: "string",
                       enum: ["open", "disabled", "allowlist"],
@@ -13812,6 +13821,9 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
                             type: "boolean",
                           },
                           requireMention: {
+                            type: "boolean",
+                          },
+                          requireMentionInThreads: {
                             type: "boolean",
                           },
                           tools: {
