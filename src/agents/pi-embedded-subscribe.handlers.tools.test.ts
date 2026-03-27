@@ -1298,3 +1298,87 @@ describe("circuit breaker generic JSON fallback for non-string action args", () 
     expect(onError).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("circuit breaker arg signature key-order stability", () => {
+  async function runWithArgs(
+    ctx: ToolHandlerContext,
+    toolName: string,
+    args: Record<string, unknown>,
+    isError: boolean,
+    id: string,
+  ) {
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName,
+      toolCallId: id,
+      args,
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName,
+      toolCallId: id,
+      isError,
+      result: isError ? { type: "text", text: "Error: failed" } : { ok: true },
+    });
+  }
+
+  it("treats the same action args in different key order as identical", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    // Same logical call, keys in different insertion order
+    await runWithArgs(
+      ctx,
+      "gateway",
+      { action: "config.set", key: "foo", value: "bar" },
+      true,
+      "g1",
+    );
+    await runWithArgs(
+      ctx,
+      "gateway",
+      { value: "bar", action: "config.set", key: "foo" },
+      true,
+      "g2",
+    );
+    await runWithArgs(
+      ctx,
+      "gateway",
+      { key: "foo", value: "bar", action: "config.set" },
+      true,
+      "g3",
+    );
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats same non-action args in different key order as identical", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    await runWithArgs(ctx, "write", { path: "/tmp/a.txt", content: "hello" }, true, "w1");
+    await runWithArgs(ctx, "write", { content: "hello", path: "/tmp/a.txt" }, true, "w2");
+    await runWithArgs(ctx, "write", { path: "/tmp/a.txt", content: "hello" }, true, "w3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats same nested args in different key order as identical", async () => {
+    const { ctx } = createTestContext();
+    const onError = vi.fn();
+    ctx.params.onConsecutiveToolError = onError;
+
+    // cron add with job object keys in different order
+    const job1 = { cron: "0 9 * * *", name: "morning", action: "add" };
+    const job2 = { name: "morning", action: "add", cron: "0 9 * * *" };
+    const job3 = { action: "add", cron: "0 9 * * *", name: "morning" };
+
+    await runWithArgs(ctx, "cron", { action: "add", job: job1 }, true, "c1");
+    await runWithArgs(ctx, "cron", { action: "add", job: job2 }, true, "c2");
+    await runWithArgs(ctx, "cron", { action: "add", job: job3 }, true, "c3");
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});

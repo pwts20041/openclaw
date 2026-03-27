@@ -80,6 +80,23 @@ function extendExecMeta(toolName: string, args: unknown, meta?: string): string 
 }
 
 /**
+ * Stable JSON serialization with recursively sorted object keys so that
+ * identical args in different key-insertion order produce the same string.
+ * Array element order is preserved (arrays are ordered by definition).
+ */
+function stableJsonStringify(val: unknown): string {
+  return JSON.stringify(val, (_key, v: unknown) => {
+    if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+      const sorted = v as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.entries(sorted).toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+      );
+    }
+    return v;
+  });
+}
+
+/**
  * Build a circuit-breaker arg signature from raw tool args.
  *
  * Three paths:
@@ -124,7 +141,7 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
     const { action: _action, ...restArgs } = record;
     if (Object.keys(restArgs).length > 0) {
       try {
-        return `action=${actionVal},args=${JSON.stringify(restArgs)}`;
+        return `action=${actionVal},args=${stableJsonStringify(restArgs)}`;
       } catch {
         // ignore — unstringifiable args fall through to bare action signature
       }
@@ -135,7 +152,7 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
   // Non-action tools: stable JSON fingerprint of all args.
   if (Object.keys(record).length > 0) {
     try {
-      return JSON.stringify(record);
+      return stableJsonStringify(record);
     } catch {
       // ignore
     }
