@@ -22,6 +22,10 @@ import {
   type SessionListRow,
   stripToolMessages,
 } from "./sessions-helpers.js";
+import {
+  hasVisibleHistoryPreviewContent,
+  sanitizeHistoryMessage,
+} from "./sessions-history-sanitize.js";
 
 const SessionsListToolSchema = Type.Object({
   kinds: Type.Optional(Type.Array(Type.String())),
@@ -294,8 +298,11 @@ export function createSessionsListTool(opts?: {
             });
             const rawMessages = Array.isArray(history?.messages) ? history.messages : [];
             const filtered = stripToolMessages(rawMessages);
+            const sanitized = filtered
+              .map((message) => sanitizeHistoryMessage(message).message)
+              .filter((message) => hasVisibleHistoryPreviewContent(message));
             target.row.messages =
-              filtered.length > messageLimit ? filtered.slice(-messageLimit) : filtered;
+              sanitized.length > messageLimit ? sanitized.slice(-messageLimit) : sanitized;
           }
         };
         await Promise.all(Array.from({ length: maxConcurrent }, () => worker()));

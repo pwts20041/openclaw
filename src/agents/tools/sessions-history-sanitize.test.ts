@@ -1,0 +1,92 @@
+import { describe, expect, it } from "vitest";
+import {
+  hasVisibleHistoryPreviewContent,
+  sanitizeHistoryMessage,
+} from "./sessions-history-sanitize.js";
+
+describe("sanitizeHistoryMessage", () => {
+  it("strips reasoning blocks from returned assistant messages", () => {
+    const result = sanitizeHistoryMessage({
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "private chain of thought", thinkingSignature: "sig" },
+        { type: "redacted_thinking", data: "sealed" },
+        { type: "text", text: "public answer" },
+      ],
+    });
+
+    expect(result.truncated).toBe(true);
+    expect(result.message).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "public answer" }],
+    });
+
+    const serialized = JSON.stringify(result.message);
+    expect(serialized).not.toContain("private chain of thought");
+    expect(serialized).not.toContain("redacted_thinking");
+    expect(serialized).not.toContain("thinkingSignature");
+  });
+
+  it("preserves assistant turn structure when all content blocks are reasoning-only", () => {
+    const result = sanitizeHistoryMessage({
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "private chain of thought" },
+        { type: "redacted_thinking", data: "sealed" },
+      ],
+    });
+
+    expect(result.truncated).toBe(true);
+    expect(result.message).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "" }],
+    });
+  });
+
+  it("preserves empty non-assistant content arrays after stripping reasoning blocks", () => {
+    const result = sanitizeHistoryMessage({
+      role: "toolResult",
+      content: [
+        { type: "thinking", thinking: "private chain of thought" },
+        { type: "redacted_thinking", data: "sealed" },
+      ],
+    });
+
+    expect(result.truncated).toBe(true);
+    expect(result.message).toEqual({
+      role: "toolResult",
+      content: [],
+    });
+  });
+
+  it("preserves reasoning blocks when explicitly requested for replayable turns", () => {
+    const message = {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "private chain of thought", thinkingSignature: "sig" },
+        { type: "redacted_thinking", data: "sealed" },
+        { type: "text", text: "public answer" },
+      ],
+    };
+
+    const result = sanitizeHistoryMessage(message, { preserveReasoningBlocks: true });
+
+    expect(result.truncated).toBe(false);
+    expect(result.message).toEqual(message);
+  });
+
+  it("treats blank assistant placeholders as preview-invisible", () => {
+    expect(
+      hasVisibleHistoryPreviewContent({
+        role: "assistant",
+        content: [{ type: "text", text: "" }],
+      }),
+    ).toBe(false);
+    expect(
+      hasVisibleHistoryPreviewContent({
+        role: "assistant",
+        content: [{ type: "text", text: "visible" }],
+      }),
+    ).toBe(true);
+  });
+});
