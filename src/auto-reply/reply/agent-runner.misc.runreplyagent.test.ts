@@ -174,6 +174,7 @@ describe("runReplyAgent onAgentRunStart", () => {
       defaultModel: `${provider}/${model}`,
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -301,6 +302,7 @@ describe("runReplyAgent authProfileId fallback scoping", () => {
       agentCfgContextTokens: 100_000,
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -454,6 +456,7 @@ describe("runReplyAgent auto-compaction token update", () => {
       agentCfgContextTokens: 200_000,
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -521,6 +524,7 @@ describe("runReplyAgent auto-compaction token update", () => {
       agentCfgContextTokens: 200_000,
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -610,6 +614,7 @@ describe("runReplyAgent auto-compaction token update", () => {
       agentCfgContextTokens: 200_000,
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -695,6 +700,7 @@ describe("runReplyAgent auto-compaction token update", () => {
       agentCfgContextTokens: 200_000,
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -752,6 +758,7 @@ describe("runReplyAgent auto-compaction token update", () => {
       agentCfgContextTokens: 200_000,
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -833,6 +840,7 @@ describe("runReplyAgent auto-compaction token update", () => {
       agentCfgContextTokens: 200_000,
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -918,6 +926,7 @@ describe("runReplyAgent block streaming", () => {
       defaultModel: "anthropic/claude-opus-4-5",
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: true,
       blockReplyChunking: {
         minChars: 1,
@@ -1020,6 +1029,7 @@ describe("runReplyAgent block streaming", () => {
       defaultModel: "anthropic/claude-opus-4-5",
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: true,
       blockReplyChunking: {
         minChars: 1,
@@ -1090,6 +1100,7 @@ describe("runReplyAgent claude-cli routing", () => {
       defaultModel: "claude-cli/opus-4.5",
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -1191,6 +1202,7 @@ describe("runReplyAgent messaging tool suppression", () => {
       defaultModel: "anthropic/claude-opus-4-5",
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -1413,6 +1425,7 @@ describe("runReplyAgent reminder commitment guard", () => {
       defaultModel: "anthropic/claude-opus-4-5",
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -1636,6 +1649,7 @@ describe("runReplyAgent fallback reasoning tags", () => {
       agentCfgContextTokens: params?.agentCfgContextTokens,
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -1756,6 +1770,7 @@ describe("runReplyAgent response usage footer", () => {
       defaultModel: "anthropic/claude-opus-4-5",
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -1863,6 +1878,7 @@ describe("runReplyAgent transient HTTP retry", () => {
       defaultModel: "anthropic/claude-opus-4-5",
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -1939,6 +1955,7 @@ describe("runReplyAgent billing error classification", () => {
       defaultModel: "anthropic/claude",
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -2000,6 +2017,7 @@ describe("runReplyAgent mid-turn rate-limit fallback", () => {
       defaultModel: "anthropic/claude",
       resolvedVerboseLevel: "off",
       isNewSession: false,
+      resetNoticeDelivered: false,
       blockStreamingEnabled: false,
       resolvedBlockStreamingBreak: "message_end",
       shouldInjectGroupIntro: false,
@@ -2042,5 +2060,99 @@ describe("runReplyAgent mid-turn rate-limit fallback", () => {
       mediaUrl: "https://example.test/image.png",
     });
     expect(payload?.text).toBeUndefined();
+  });
+});
+
+describe("runReplyAgent resetNoticeDelivered verbose notice guard", () => {
+  function createRun(overrides: { resetNoticeDelivered: boolean }) {
+    const typing = createMockTypingController();
+    const sessionCtx = {
+      Provider: "telegram",
+      MessageSid: "msg",
+    } as unknown as TemplateContext;
+    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
+    const followupRun = {
+      prompt: "hello",
+      summaryLine: "hello",
+      enqueuedAt: Date.now(),
+      run: {
+        sessionId: "session-abc",
+        sessionKey: "main",
+        messageProvider: "telegram",
+        sessionFile: "/tmp/session.jsonl",
+        workspaceDir: "/tmp",
+        config: {},
+        skillsSnapshot: {},
+        provider: "anthropic",
+        model: "claude",
+        thinkLevel: "low",
+        verboseLevel: "on",
+        elevatedLevel: "off",
+        bashElevated: {
+          enabled: false,
+          allowed: false,
+          defaultLevel: "off",
+        },
+        timeoutMs: 1_000,
+        blockReplyBreak: "message_end",
+      },
+    } as unknown as FollowupRun;
+
+    return runReplyAgent({
+      commandBody: "hello",
+      followupRun,
+      queueKey: "main",
+      resolvedQueue,
+      shouldSteer: false,
+      shouldFollowup: false,
+      isActive: false,
+      isStreaming: false,
+      typing,
+      sessionCtx,
+      defaultModel: "anthropic/claude",
+      resolvedVerboseLevel: "on",
+      isNewSession: true,
+      resetNoticeDelivered: overrides.resetNoticeDelivered,
+      blockStreamingEnabled: false,
+      resolvedBlockStreamingBreak: "message_end",
+      shouldInjectGroupIntro: false,
+      typingMode: "instant",
+    });
+  }
+
+  it("suppresses new-session notice when reset notice was delivered", async () => {
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "ok" }],
+      meta: {
+        agentMeta: {
+          provider: "anthropic",
+          model: "claude",
+        },
+      },
+    });
+
+    const result = await createRun({ resetNoticeDelivered: true });
+    const payloads = Array.isArray(result) ? result : [result];
+    const texts = payloads.map((p) => (p as { text?: string })?.text ?? "");
+
+    expect(texts.some((t) => t.includes("🧭 New session"))).toBe(false);
+  });
+
+  it("emits new-session notice when reset notice was not delivered", async () => {
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "ok" }],
+      meta: {
+        agentMeta: {
+          provider: "anthropic",
+          model: "claude",
+        },
+      },
+    });
+
+    const result = await createRun({ resetNoticeDelivered: false });
+    const payloads = Array.isArray(result) ? result : [result];
+    const texts = payloads.map((p) => (p as { text?: string })?.text ?? "");
+
+    expect(texts.some((t) => t.includes("🧭 New session"))).toBe(true);
   });
 });
