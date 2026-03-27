@@ -927,4 +927,24 @@ describe("classifyFailoverReason", () => {
       ),
     ).toBe("auth_permanent");
   });
+  it("classifies HTTP 500 with billing message as billing, not timeout (#52185)", () => {
+    // MiniMax returns HTTP 500 with "insufficient balance" (code 1008)
+    expect(classifyFailoverReason("500 insufficient balance")).toBe("billing");
+    expect(
+      classifyFailoverReason('500 {"error":{"code":1008,"message":"insufficient balance"}}'),
+    ).toBe("billing");
+    // HTTP status variant
+    expect(classifyFailoverReasonFromHttpStatus(500, "insufficient balance")).toBe("billing");
+    expect(
+      classifyFailoverReasonFromHttpStatus(500, '{"code":1008,"message":"insufficient balance"}'),
+    ).toBe("billing");
+    // Plain 500 without billing signal stays timeout
+    expect(classifyFailoverReasonFromHttpStatus(500, "internal server error")).toBe("timeout");
+    expect(classifyFailoverReason("500 internal server error")).toBe("timeout");
+    // HTTP 500 with overload signal preserves overloaded classification
+    expect(classifyFailoverReasonFromHttpStatus(500, "The model is overloaded")).toBe("overloaded");
+    expect(
+      classifyFailoverReasonFromHttpStatus(500, "service unavailable due to capacity limits"),
+    ).toBe("overloaded");
+  });
 });
