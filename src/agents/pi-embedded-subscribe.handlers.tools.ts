@@ -124,7 +124,7 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
     const { action: _action, ...restArgs } = record;
     if (Object.keys(restArgs).length > 0) {
       try {
-        return `action=${actionVal},args=${JSON.stringify(restArgs, Object.keys(restArgs).toSorted())}`;
+        return `action=${actionVal},args=${JSON.stringify(restArgs)}`;
       } catch {
         // ignore — unstringifiable args fall through to bare action signature
       }
@@ -135,7 +135,7 @@ function buildCircuitBreakerArgSig(toolName: string, args: unknown): string {
   // Non-action tools: stable JSON fingerprint of all args.
   if (Object.keys(record).length > 0) {
     try {
-      return JSON.stringify(record, Object.keys(record).toSorted());
+      return JSON.stringify(record);
     } catch {
       // ignore
     }
