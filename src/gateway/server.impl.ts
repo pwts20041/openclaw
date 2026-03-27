@@ -527,6 +527,7 @@ export async function startGatewayServer(
     config: cfgAtStart,
     writeConfig: writeConfigFile,
     log,
+    bindOverride: opts.bind,
   });
   await runStartupMatrixMigration({
     cfg: cfgAtStart,
