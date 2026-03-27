@@ -1014,6 +1014,12 @@ export function attachGatewayUpgradeHandler(opts: {
 }) {
   const { httpServer, wss, canvasHost, clients, resolvedAuth, rateLimiter } = opts;
   httpServer.on("upgrade", (req, socket, head) => {
+    // prevent TLS/network errors on the raw socket from becoming uncaught exceptions
+    if (!socket.listenerCount("error")) {
+      socket.on("error", (_err) => {
+        socket.destroy();
+      });
+    }
     void (async () => {
       const scopedCanvas = normalizeCanvasScopedUrl(req.url ?? "/");
       if (scopedCanvas.malformedScopedPath) {
