@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resolveRetryConfig, retryAsync } from "./retry.js";
+import { resolveRetryConfig, retryAsync, TIMER_SAFE_MAX_MS } from "./retry.js";
 
 async function runRetryAfterCase(params: {
   minDelayMs: number;
@@ -160,6 +160,18 @@ describe("retryAsync", () => {
       retryAfterMs: 65_000,
     });
     expect(delays[0]).toBeGreaterThanOrEqual(65_000);
+  });
+
+  it("clamps retryAfterMs exceeding Node timer max to TIMER_SAFE_MAX_MS to prevent overflow", async () => {
+    // 3_000_000_000 ms (3B) exceeds Node.js setTimeout max of 2^31-1 (~2.147B ms).
+    // Without clamping it silently overflows to ~1 ms, becoming an instant retry hammer.
+    const delays = await runRetryAfterCase({
+      minDelayMs: 0,
+      maxDelayMs: Number.POSITIVE_INFINITY,
+      retryAfterMs: 3_000_000_000,
+    });
+    expect(delays[0]).toBe(TIMER_SAFE_MAX_MS);
+    expect(delays[0]).toBeLessThan(3_000_000_000);
   });
 });
 
