@@ -1,6 +1,5 @@
 import { html } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
-import { handleCodeBlockCopyClick } from "../code-block-copy.ts";
 import { icons } from "../icons.ts";
 import { toSanitizedMarkdownHtml } from "../markdown.ts";
 
@@ -18,7 +17,7 @@ export function renderMarkdownSidebar(props: MarkdownSidebarProps) {
         <div class="sidebar-title">Tool Output</div>
         <button @click=${props.onClose} class="btn" title="Close sidebar">${icons.x}</button>
       </div>
-      <div class="sidebar-content" @click=${handleCodeBlockCopyClick}>
+      <div class="sidebar-content">
         ${
           props.error
             ? html`

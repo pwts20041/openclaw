@@ -74,6 +74,14 @@ vi.mock("../../../../extensions/whatsapp/src/auto-reply/deliver-reply.js", () =>
   deliverWebReply: vi.fn(async () => {}),
 }));
 
+const { finalizeInboundContext } = await import("../../../auto-reply/reply/inbound-context.js");
+const { prepareSlackMessage } =
+  await import("../../../../extensions/slack/src/monitor/message-handler/prepare.js");
+const { createInboundSlackTestContext } =
+  await import("../../../../extensions/slack/src/monitor/message-handler/prepare.test-helpers.js");
+const { buildTelegramMessageContextForTest } =
+  await import("../../../../extensions/telegram/src/bot-message-context.test-harness.js");
+
 function createSlackAccount(config: ResolvedSlackAccount["config"] = {}): ResolvedSlackAccount {
   return {
     accountId: "default",
@@ -112,7 +120,6 @@ describe("channel inbound contract", () => {
   });
 
   it("keeps Signal inbound context finalized", async () => {
-    const { finalizeInboundContext } = await import("../../../auto-reply/reply/inbound-context.js");
     const ctx = finalizeInboundContext({
       Body: "Alice: hi",
       BodyForAgent: "hi",
@@ -140,10 +147,6 @@ describe("channel inbound contract", () => {
   });
 
   it("keeps Slack inbound context finalized", async () => {
-    const { prepareSlackMessage } =
-      await import("../../../../extensions/slack/src/monitor/message-handler/prepare.js");
-    const { createInboundSlackTestContext } =
-      await import("../../../../extensions/slack/src/monitor/message-handler/prepare.test-helpers.js");
     await withTempHome(async () => {
       const ctx = createInboundSlackTestContext({
         cfg: {
@@ -166,8 +169,6 @@ describe("channel inbound contract", () => {
   });
 
   it("keeps Telegram inbound context finalized", async () => {
-    const { buildTelegramMessageContextForTest } =
-      await import("../../../../extensions/telegram/src/bot-message-context.test-harness.js");
     const context = await buildTelegramMessageContextForTest({
       cfg: {
         agents: {
@@ -202,7 +203,6 @@ describe("channel inbound contract", () => {
   });
 
   it("keeps WhatsApp inbound context finalized", async () => {
-    const { finalizeInboundContext } = await import("../../../auto-reply/reply/inbound-context.js");
     const ctx = finalizeInboundContext({
       Body: "Alice: hi",
       BodyForAgent: "hi",
