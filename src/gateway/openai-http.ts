@@ -27,7 +27,12 @@ import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "./auth.js";
 import { sendJson, setSseHeaders, writeDone } from "./http-common.js";
 import { handleGatewayPostJsonEndpoint } from "./http-endpoint-helpers.js";
-import { resolveGatewayRequestContext, resolveOpenAiCompatModelOverride } from "./http-utils.js";
+import {
+  resolveGatewayRequestContext,
+  resolveOpenAiCompatModelOverride,
+  resolveProviderForAgent,
+  resolveAgentIdForRequest,
+} from "./http-utils.js";
 import { normalizeInputHostnameAllowlist } from "./input-allowlist.js";
 
 type OpenAiHttpOptions = {
@@ -434,11 +439,14 @@ export async function handleOpenAiHttpRequest(
   const model = typeof payload.model === "string" ? payload.model : "openclaw";
   const user = typeof payload.user === "string" ? payload.user : undefined;
 
+  const resolvedAgentId = resolveAgentIdForRequest({ req, model });
+  const providerPrefix = resolveProviderForAgent(resolvedAgentId, "api");
   const { agentId, sessionKey, messageChannel } = resolveGatewayRequestContext({
     req,
     model,
     user,
-    sessionPrefix: "openai",
+    agentId: resolvedAgentId,
+    sessionPrefix: providerPrefix,
     defaultMessageChannel: "webchat",
     useMessageChannelHeader: true,
   });
