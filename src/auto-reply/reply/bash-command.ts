@@ -1,6 +1,7 @@
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { getFinishedSession, getSession } from "../../agents/bash-process-registry.js";
 import { createExecTool } from "../../agents/bash-tools.js";
+import { startRpcDaemon } from "../../agents/cli-runner/rpc-daemon.js";
 import { resolveSandboxRuntimeStatus } from "../../agents/sandbox.js";
 import { isCommandFlagEnabled } from "../../config/commands.js";
 import type { OpenClawConfig } from "../../config/config.js";
@@ -335,6 +336,10 @@ export async function handleBashChatCommand(params: {
     const timeoutSec = params.cfg.tools?.exec?.timeoutSec;
     const notifyOnExit = params.cfg.tools?.exec?.notifyOnExit;
     const notifyOnExitEmptySuccess = params.cfg.tools?.exec?.notifyOnExitEmptySuccess;
+
+    // Start the RPC Daemon to support openclaw-tool cli operations in the bash environment
+    startRpcDaemon();
+
     const execTool = createExecTool({
       scopeKey: CHAT_BASH_SCOPE_KEY,
       allowBackground: true,
