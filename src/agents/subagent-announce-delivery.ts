@@ -369,6 +369,7 @@ async function maybeQueueSubagentAnnounce(params: {
   sourceTool?: string;
   internalEvents?: AgentInternalEvent[];
   signal?: AbortSignal;
+  requesterMessageId?: string;
 }): Promise<"steered" | "queued" | "none" | "dropped"> {
   if (params.signal?.aborted) {
     return "none";
@@ -415,6 +416,7 @@ async function maybeQueueSubagentAnnounce(params: {
         sourceSessionKey: params.sourceSessionKey,
         sourceChannel: params.sourceChannel,
         sourceTool: params.sourceTool,
+        requesterMessageId: params.requesterMessageId,
       },
       settings: queueSettings,
       send: sendAnnounce,
@@ -431,6 +433,7 @@ async function sendSubagentAnnounceDirectly(params: {
   internalEvents?: AgentInternalEvent[];
   expectsCompletionMessage: boolean;
   bestEffortDeliver?: boolean;
+  requesterMessageId?: string;
   directIdempotencyKey: string;
   completionDirectOrigin?: DeliveryContext;
   directOrigin?: DeliveryContext;
@@ -508,6 +511,7 @@ async function sendSubagentAnnounceDirectly(params: {
               sourceTool: params.sourceTool ?? "subagent_announce",
             },
             idempotencyKey: params.directIdempotencyKey,
+            currentMessageId: params.requesterMessageId,
           },
           expectFinal: true,
           timeoutMs: announceTimeoutMs,
@@ -544,6 +548,7 @@ export async function deliverSubagentAnnouncement(params: {
   requesterIsSubagent: boolean;
   expectsCompletionMessage: boolean;
   bestEffortDeliver?: boolean;
+  requesterMessageId?: string;
   directIdempotencyKey: string;
   signal?: AbortSignal;
 }): Promise<SubagentAnnounceDeliveryResult> {
@@ -563,6 +568,7 @@ export async function deliverSubagentAnnouncement(params: {
         sourceTool: params.sourceTool,
         internalEvents: params.internalEvents,
         signal: params.signal,
+        requesterMessageId: params.requesterMessageId,
       }),
     direct: async () =>
       await sendSubagentAnnounceDirectly({
@@ -579,6 +585,7 @@ export async function deliverSubagentAnnouncement(params: {
         expectsCompletionMessage: params.expectsCompletionMessage,
         signal: params.signal,
         bestEffortDeliver: params.bestEffortDeliver,
+        requesterMessageId: params.requesterMessageId,
       }),
   });
 }
