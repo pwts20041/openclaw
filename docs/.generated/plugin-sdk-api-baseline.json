@@ -4810,7 +4810,7 @@
           "exportName": "buildSecretInputSchema",
           "kind": "function",
           "source": {
-            "line": 54,
+            "line": 11,
             "path": "src/plugin-sdk/secret-input-schema.ts"
           }
         },
