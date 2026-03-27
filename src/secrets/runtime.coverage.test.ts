@@ -18,7 +18,6 @@ const mockedModuleIds = [
   "../plugins/web-search-providers.runtime.js",
 ] as const;
 
-let clearSecretsRuntimeSnapshot: typeof import("./runtime.js").clearSecretsRuntimeSnapshot;
 let prepareSecretsRuntimeSnapshot: typeof import("./runtime.js").prepareSecretsRuntimeSnapshot;
 
 vi.mock("../plugins/web-search-providers.js", () => ({
@@ -247,7 +246,8 @@ function buildAuthStoreForTarget(entry: SecretRegistryEntry, envId: string): Aut
 }
 
 describe("secrets runtime target coverage", () => {
-  afterEach(() => {
+  afterEach(async () => {
+    const { clearSecretsRuntimeSnapshot } = await import("./runtime.js");
     clearSecretsRuntimeSnapshot();
     resolveBundledPluginWebSearchProvidersMock.mockReset();
     resolvePluginWebSearchProvidersMock.mockReset();
@@ -255,7 +255,7 @@ describe("secrets runtime target coverage", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    ({ clearSecretsRuntimeSnapshot, prepareSecretsRuntimeSnapshot } = await import("./runtime.js"));
+    ({ prepareSecretsRuntimeSnapshot } = await import("./runtime.js"));
   });
 
   afterAll(() => {
