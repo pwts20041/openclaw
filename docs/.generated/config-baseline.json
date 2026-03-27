@@ -58823,6 +58823,16 @@
       "hasChildren": false
     },
     {
+      "path": "session.resetNoticeText",
+      "kind": "core",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
       "path": "session.resetTriggers",
       "kind": "core",
       "type": "array",
