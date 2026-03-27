@@ -10,6 +10,34 @@ import {
 } from "./scope-errors.ts";
 
 const SILENT_REPLY_PATTERN = /^\s*NO_REPLY\s*$/;
+const DEFAULT_MAIN_SESSION_ALIAS = "main";
+const DEFAULT_MAIN_SESSION_KEY = "agent:main:main";
+
+function normalizeSessionKey(sessionKey: string | undefined | null): string {
+  return (sessionKey ?? "").trim();
+}
+
+function matchesSessionKey(
+  current: string | undefined | null,
+  incoming: string | undefined | null,
+): boolean {
+  const currentNormalized = normalizeSessionKey(current);
+  const incomingNormalized = normalizeSessionKey(incoming);
+  if (!currentNormalized || !incomingNormalized) {
+    return false;
+  }
+  if (currentNormalized === incomingNormalized) {
+    return true;
+  }
+  const currentAliasKey = currentNormalized.toLowerCase();
+  const incomingAliasKey = incomingNormalized.toLowerCase();
+  return (
+    (currentAliasKey === DEFAULT_MAIN_SESSION_ALIAS &&
+      incomingAliasKey === DEFAULT_MAIN_SESSION_KEY) ||
+    (currentAliasKey === DEFAULT_MAIN_SESSION_KEY &&
+      incomingAliasKey === DEFAULT_MAIN_SESSION_ALIAS)
+  );
+}
 
 function isSilentReplyStream(text: string): boolean {
   return SILENT_REPLY_PATTERN.test(text);
@@ -274,7 +302,7 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
   if (!payload) {
     return null;
   }
-  if (payload.sessionKey !== state.sessionKey) {
+  if (!matchesSessionKey(state.sessionKey, payload.sessionKey)) {
     return null;
   }
 
