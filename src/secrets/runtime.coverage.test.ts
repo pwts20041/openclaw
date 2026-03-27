@@ -56,7 +56,7 @@ function createTestProvider(params: {
     getCredentialValue: readSearchConfigKey,
     setCredentialValue: (searchConfigTarget, value) => {
       const providerConfig =
-        params.id === "baidu" || params.id === "brave" || params.id === "firecrawl"
+        params.id === "brave" || params.id === "firecrawl"
           ? searchConfigTarget
           : ((searchConfigTarget[params.id] ??= {}) as { apiKey?: unknown });
       providerConfig.apiKey = value;

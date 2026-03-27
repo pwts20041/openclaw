@@ -219,7 +219,7 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
   },
   {
     dirName: "baidu",
-    idHint: "baidu-plugin",
+    idHint: "baidu",
     source: {
       source: "./index.ts",
       built: "index.js",
@@ -257,6 +257,9 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
           sensitive: true,
           placeholder: "bce-...",
         },
+      },
+      contracts: {
+        webSearchProviders: ["baidu"],
       },
     },
   },
