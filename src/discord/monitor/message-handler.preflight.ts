@@ -50,6 +50,7 @@ import { resolveDiscordChannelInfo, resolveDiscordMessageText } from "./message-
 import { resolveDiscordSenderIdentity, resolveDiscordWebhookId } from "./sender-identity.js";
 import { resolveDiscordSystemEvent } from "./system-events.js";
 import { resolveDiscordThreadChannel, resolveDiscordThreadParentInfo } from "./threading.js";
+import { resolveDiscordClaimOwnership } from "./instance-claims.js";
 
 export type {
   DiscordMessagePreflightContext,
@@ -306,6 +307,22 @@ export async function preflightDiscordMessage(
 
   const threadChannelSlug = channelName ? normalizeDiscordSlug(channelName) : "";
   const threadParentSlug = threadParentName ? normalizeDiscordSlug(threadParentName) : "";
+
+  const claimOwnership = isGuildMessage
+    ? await resolveDiscordClaimOwnership({
+        cfg: params.cfg,
+        accountId: params.accountId,
+        botId: params.botUserId,
+        channelId: message.channelId,
+        parentId: threadParentId ?? undefined,
+      })
+    : { status: "owned", instanceKey: "" };
+  if (isGuildMessage && claimOwnership.status === "not-owned") {
+    logVerbose(
+      `discord: skip channel ${message.channelId} (instance=${claimOwnership.instanceKey} bot=${claimOwnership.botId ?? params.botUserId ?? ""})`,
+    );
+    return null;
+  }
 
   const baseSessionKey = route.sessionKey;
   const channelConfig = isGuildMessage

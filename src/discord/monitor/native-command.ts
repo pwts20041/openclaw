@@ -53,6 +53,7 @@ import {
 import { resolveDiscordChannelInfo } from "./message-utils.js";
 import { resolveDiscordSenderIdentity } from "./sender-identity.js";
 import { resolveDiscordThreadParentInfo } from "./threading.js";
+import { resolveDiscordClaimOwnership } from "./instance-claims.js";
 
 type DiscordConfig = NonNullable<OpenClawConfig["channels"]>["discord"];
 
@@ -573,6 +574,25 @@ async function dispatchDiscordCommandInteraction(params: {
     threadParentId = parentInfo.id;
     threadParentName = parentInfo.name;
     threadParentSlug = threadParentName ? normalizeDiscordSlug(threadParentName) : "";
+  }
+  const claimOwnership = await resolveDiscordClaimOwnership({
+    cfg,
+    accountId,
+    botId: interaction.applicationId ?? interaction.client?.application?.id,
+    channelId: rawChannelId,
+    parentId: threadParentId,
+  });
+  if (interaction.guild && claimOwnership.status === "not-owned") {
+    console.error(
+      "[DISCORD CLAIM SKIP:slash-dispatch]",
+      JSON.stringify({
+        channelId: rawChannelId,
+        parentId: threadParentId,
+        instanceKey: claimOwnership.instanceKey,
+        botId: claimOwnership.botId ?? interaction.applicationId ?? interaction.client?.application?.id ?? "",
+      }),
+    );
+    return;
   }
   const channelConfig = interaction.guild
     ? resolveDiscordChannelConfigWithFallback({

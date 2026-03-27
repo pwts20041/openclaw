@@ -39,6 +39,7 @@ import {
   createDiscordCommandArgFallbackButton,
   createDiscordNativeCommand,
 } from "./native-command.js";
+import { DISCORD_CLAIMS_PATH, refreshDiscordClaims } from "./instance-claims.js";
 
 export type MonitorDiscordOpts = {
   token?: string;
@@ -516,6 +517,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
   const logger = createSubsystemLogger("discord/monitor");
   const guildHistories = new Map<string, HistoryEntry[]>();
   let botUserId: string | undefined;
+  let claimsRefreshTimer: ReturnType<typeof setInterval> | undefined;
 
   if (nativeDisabledExplicit) {
     await clearDiscordNativeCommands({
@@ -528,6 +530,26 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
   try {
     const botUser = await client.fetchUser("@me");
     botUserId = botUser?.id;
+    const claimsInfo = await refreshDiscordClaims({
+      cfg,
+      accountId: account.accountId,
+      botId: applicationId ?? botUser?.id ?? account.accountId,
+      guildEntries,
+    });
+    runtime.log?.(
+      `discord claims registered path=${DISCORD_CLAIMS_PATH} instance=${claimsInfo.instanceKey} bot=${claimsInfo.botId} channels=${claimsInfo.channelCount}`,
+    );
+    claimsRefreshTimer = setInterval(() => {
+      refreshDiscordClaims({
+        cfg,
+        accountId: account.accountId,
+        botId: applicationId ?? botUser?.id ?? account.accountId,
+        guildEntries,
+      }).catch((error) =>
+        runtime.error?.(danger(`discord claims refresh failed: ${String(error)}`)),
+      );
+    }, 30_000);
+    claimsRefreshTimer.unref?.();
   } catch (err) {
     runtime.error?.(danger(`discord: failed to fetch bot identity: ${String(err)}`));
   }
@@ -598,6 +620,10 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
   });
   const abortSignal = opts.abortSignal;
   const onAbort = () => {
+    if (claimsRefreshTimer) {
+      clearInterval(claimsRefreshTimer);
+      claimsRefreshTimer = undefined;
+    }
     if (!gateway) {
       return;
     }
