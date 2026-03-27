@@ -311,40 +311,88 @@ export function registerNodesStatusCommands(nodes: Command) {
           const now = Date.now();
           const hasFilters = connectedOnly || sinceMs !== undefined;
           const pendingRows = hasFilters ? [] : pending;
-          const connectedById = hasFilters
-            ? new Map(
-                parseNodeList(await callGatewayCli("node.list", opts, {})).map((node) => [
-                  node.nodeId,
-                  node,
-                ]),
-              )
-            : null;
-          const filteredPaired = paired.filter((node) => {
-            if (connectedOnly) {
-              const live = connectedById?.get(node.nodeId);
-              if (!live?.connected) {
-                return false;
-              }
+          // Always fetch live node list to get current connection status.
+          // For the unfiltered listing path, fall back to pairing data if node.list RPC fails
+          // to preserve the previous resilience (paired nodes still come from node.pair.list).
+          let liveNodes: ReturnType<typeof parseNodeList> = [];
+          try {
+            liveNodes = parseNodeList(await callGatewayCli("node.list", opts, {}));
+          } catch (err) {
+            if (hasFilters) {
+              throw err;
             }
-            if (sinceMs !== undefined) {
-              const live = connectedById?.get(node.nodeId);
+            liveNodes = [];
+          }
+          const connectedById = new Map(liveNodes.map((node) => [node.nodeId, node]));
+
+          // Merge connection status (live) into pairing entries.
+          // Important: when `pairingData` exists, spread it to preserve the original `paired` object
+          // shape in `--json` output (token/platform/version/permissions/...).
+          const pairedById = new Map(paired.map((node) => [node.nodeId, node]));
+          const allPairedNodeIds = new Set([
+            ...liveNodes.filter((n) => n.paired).map((n) => n.nodeId),
+            ...paired.map((n) => n.nodeId),
+          ]);
+          const filteredPaired = Array.from(allPairedNodeIds)
+            .map((nodeId) => {
+              const pairingData = pairedById.get(nodeId);
+              const liveData = connectedById.get(nodeId);
               const lastConnectedAtMs =
-                typeof node.lastConnectedAtMs === "number"
-                  ? node.lastConnectedAtMs
-                  : typeof live?.connectedAtMs === "number"
-                    ? live.connectedAtMs
+                typeof pairingData?.lastConnectedAtMs === "number"
+                  ? pairingData.lastConnectedAtMs
+                  : typeof liveData?.connectedAtMs === "number"
+                    ? liveData.connectedAtMs
                     : undefined;
-              if (typeof lastConnectedAtMs !== "number") {
+
+              // Only set `connected` when we actually have live status for this node.
+              // If node.list failed (fallback path), leave it unset so JSON output reflects "unknown"
+              // rather than synthesizing "disconnected".
+              const connected = liveData?.connected;
+
+              if (pairingData) {
+                return {
+                  ...pairingData,
+                  displayName: liveData?.displayName ?? pairingData.displayName,
+                  remoteIp: liveData?.remoteIp ?? pairingData.remoteIp,
+                  lastConnectedAtMs,
+                  connected,
+                };
+              }
+
+              // Pairing data missing (should be rare). Fall back to live node fields so
+              // `--json` still contains a useful paired entry for this nodeId.
+              return {
+                nodeId,
+                displayName: liveData?.displayName,
+                platform: liveData?.platform,
+                version: liveData?.version,
+                coreVersion: liveData?.coreVersion,
+                uiVersion: liveData?.uiVersion,
+                remoteIp: liveData?.remoteIp,
+                permissions: liveData?.permissions,
+                lastConnectedAtMs,
+                connected,
+              };
+            })
+            .filter((node) => {
+              if (connectedOnly && !node.connected) {
                 return false;
               }
-              if (now - lastConnectedAtMs > sinceMs) {
-                return false;
+              if (sinceMs !== undefined) {
+                if (typeof node.lastConnectedAtMs !== "number") {
+                  return false;
+                }
+                if (now - node.lastConnectedAtMs > sinceMs) {
+                  return false;
+                }
               }
-            }
-            return true;
-          });
+              return true;
+            });
+          const totalPairedCount = allPairedNodeIds.size;
           const filteredLabel =
-            hasFilters && filteredPaired.length !== paired.length ? ` (of ${paired.length})` : "";
+            hasFilters && filteredPaired.length !== totalPairedCount
+              ? ` (of ${totalPairedCount})`
+              : "";
           defaultRuntime.log(
             `Pending: ${pendingRows.length} · Paired: ${filteredPaired.length}${filteredLabel}`,
           );
@@ -368,20 +416,13 @@ export function registerNodesStatusCommands(nodes: Command) {
 
           if (filteredPaired.length > 0) {
             const pairedRows = filteredPaired.map((n) => {
-              const live = connectedById?.get(n.nodeId);
-              const lastConnectedAtMs =
-                typeof n.lastConnectedAtMs === "number"
-                  ? n.lastConnectedAtMs
-                  : typeof live?.connectedAtMs === "number"
-                    ? live.connectedAtMs
-                    : undefined;
               return {
                 Node: n.displayName?.trim() ? n.displayName.trim() : n.nodeId,
                 Id: n.nodeId,
                 IP: n.remoteIp ?? "",
                 LastConnect:
-                  typeof lastConnectedAtMs === "number"
-                    ? formatTimeAgo(Math.max(0, now - lastConnectedAtMs))
+                  typeof n.lastConnectedAtMs === "number"
+                    ? formatTimeAgo(Math.max(0, now - n.lastConnectedAtMs))
                     : muted("unknown"),
               };
             });
