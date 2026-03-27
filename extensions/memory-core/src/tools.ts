@@ -92,7 +92,7 @@ export function createMemoryGetTool(options: {
       "Safe snippet read from MEMORY.md or memory/*.md with optional from/lines; use after memory_search to pull only the needed lines and keep context small.",
     parameters: MemoryGetSchema,
     execute:
-      ({ cfg, agentId }) =>
+      ({ cfg, agentId, userId }) =>
       async (_toolCallId, params) => {
         const relPath = readStringParam(params, "path", { required: true });
         const from = readNumberParam(params, "from", { integer: true });
@@ -104,6 +104,7 @@ export function createMemoryGetTool(options: {
             const result = await readAgentMemoryFile({
               cfg,
               agentId,
+              userId,
               relPath,
               from: from ?? undefined,
               lines: lines ?? undefined,
@@ -117,6 +118,7 @@ export function createMemoryGetTool(options: {
         const memory = await getMemoryManagerContextWithPurpose({
           cfg,
           agentId,
+          userId,
           purpose: "status",
         });
         if ("error" in memory) {
