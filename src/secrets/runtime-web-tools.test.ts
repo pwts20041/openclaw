@@ -2,7 +2,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { OpenClawConfig } from "../config/config.js";
 import type { PluginWebSearchProviderEntry } from "../plugins/types.js";
 
-type ProviderUnderTest = "brave" | "gemini" | "grok" | "kimi" | "perplexity" | "duckduckgo";
+type ProviderUnderTest =
+  | "aimlapi"
+  | "brave"
+  | "gemini"
+  | "grok"
+  | "kimi"
+  | "perplexity"
+  | "duckduckgo";
 
 const { resolvePluginWebSearchProvidersMock } = vi.hoisted(() => ({
   resolvePluginWebSearchProvidersMock: vi.fn(() => buildTestWebSearchProviders()),
@@ -122,6 +129,7 @@ function createTestProvider(params: {
 
 function buildTestWebSearchProviders(): PluginWebSearchProviderEntry[] {
   return [
+    createTestProvider({ provider: "aimlapi", pluginId: "aimlapi", order: 15 }),
     createTestProvider({ provider: "brave", pluginId: "brave", order: 10 }),
     createTestProvider({ provider: "gemini", pluginId: "google", order: 20 }),
     createTestProvider({ provider: "grok", pluginId: "xai", order: 30 }),
@@ -283,6 +291,11 @@ describe("runtime web tools resolution", () => {
 
   it.each([
     {
+      provider: "aimlapi" as const,
+      envRefId: "AIMLAPI_PROVIDER_REF",
+      resolvedKey: "aimlapi-provider-key",
+    },
+    {
       provider: "brave" as const,
       envRefId: "BRAVE_PROVIDER_REF",
       resolvedKey: "brave-provider-key",
@@ -343,6 +356,12 @@ describe("runtime web tools resolution", () => {
         },
         plugins: {
           entries: {
+            aimlapi: {
+              enabled: true,
+              config: {
+                webSearch: { apiKey: { source: "env", provider: "default", id: "AIMLAPI_REF" } },
+              },
+            },
             brave: {
               enabled: true,
               config: {
@@ -378,6 +397,7 @@ describe("runtime web tools resolution", () => {
       }),
       env: {
         BRAVE_REF: "brave-precedence-key",
+        AIMLAPI_REF: "aimlapi-precedence-key",
         GEMINI_REF: "gemini-precedence-key",
         GROK_REF: "grok-precedence-key",
         KIMI_REF: "kimi-precedence-key",
@@ -390,6 +410,7 @@ describe("runtime web tools resolution", () => {
     expect(readProviderKey(resolvedConfig, "brave")).toBe("brave-precedence-key");
     expect(context.warnings).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({ path: "plugins.entries.aimlapi.config.webSearch.apiKey" }),
         expect.objectContaining({ path: "plugins.entries.google.config.webSearch.apiKey" }),
         expect.objectContaining({ path: "plugins.entries.xai.config.webSearch.apiKey" }),
         expect.objectContaining({ path: "plugins.entries.moonshot.config.webSearch.apiKey" }),

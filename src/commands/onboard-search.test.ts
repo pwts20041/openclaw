@@ -177,6 +177,18 @@ describe("setupSearch", () => {
     expect(result.plugins?.entries?.perplexity?.enabled).toBe(true);
   });
 
+  it("sets provider and key for aimlapi", async () => {
+    const cfg: OpenClawConfig = {};
+    const { prompter } = createPrompter({
+      selectValue: "aimlapi",
+      textValue: "aiml-test-key",
+    });
+    const result = await setupSearch(cfg, runtime, prompter);
+    expect(result.tools?.web?.search?.provider).toBe("aimlapi");
+    expect(result.tools?.web?.search?.aimlapi?.apiKey).toBe("aiml-test-key");
+    expect(result.tools?.web?.search?.enabled).toBe(true);
+  });
+
   it("sets provider and key for brave", async () => {
     const cfg: OpenClawConfig = {};
     const { prompter } = createPrompter({
@@ -591,11 +603,14 @@ describe("setupSearch", () => {
     expect(pluginWebSearchApiKey(result, "brave")).toBe("BSA-plain");
   });
 
-  it("exports all 7 providers in alphabetical order", () => {
+  it("exports all providers in alphabetical order", () => {
     const values = SEARCH_PROVIDER_OPTIONS.map((e) => e.id);
-    expect(SEARCH_PROVIDER_OPTIONS).toHaveLength(7);
+    expect(SEARCH_PROVIDER_OPTIONS).toHaveLength(10);
     expect(values).toEqual([
+      "aimlapi",
       "brave",
+      "duckduckgo",
+      "exa",
       "firecrawl",
       "gemini",
       "grok",

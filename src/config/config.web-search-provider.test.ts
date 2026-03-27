@@ -17,7 +17,16 @@ const getConfiguredPluginWebSearchCredential =
 
 const mockWebSearchProviders = [
   {
+    id: "aimlapi",
+    autoDetectOrder: 15,
+    envVars: ["AIMLAPI_API_KEY"],
+    credentialPath: "plugins.entries.aimlapi.config.webSearch.apiKey",
+    getCredentialValue: getScopedWebSearchCredential("aimlapi"),
+    getConfiguredCredentialValue: getConfiguredPluginWebSearchCredential("aimlapi"),
+  },
+  {
     id: "brave",
+    autoDetectOrder: 10,
     envVars: ["BRAVE_API_KEY"],
     credentialPath: "plugins.entries.brave.config.webSearch.apiKey",
     getCredentialValue: (search?: Record<string, unknown>) => search?.apiKey,
@@ -25,6 +34,7 @@ const mockWebSearchProviders = [
   },
   {
     id: "firecrawl",
+    autoDetectOrder: 60,
     envVars: ["FIRECRAWL_API_KEY"],
     credentialPath: "plugins.entries.firecrawl.config.webSearch.apiKey",
     getCredentialValue: getScopedWebSearchCredential("firecrawl"),
@@ -32,6 +42,7 @@ const mockWebSearchProviders = [
   },
   {
     id: "gemini",
+    autoDetectOrder: 20,
     envVars: ["GEMINI_API_KEY"],
     credentialPath: "plugins.entries.google.config.webSearch.apiKey",
     getCredentialValue: getScopedWebSearchCredential("gemini"),
@@ -39,6 +50,7 @@ const mockWebSearchProviders = [
   },
   {
     id: "grok",
+    autoDetectOrder: 30,
     envVars: ["XAI_API_KEY"],
     credentialPath: "plugins.entries.xai.config.webSearch.apiKey",
     getCredentialValue: getScopedWebSearchCredential("grok"),
@@ -46,6 +58,7 @@ const mockWebSearchProviders = [
   },
   {
     id: "kimi",
+    autoDetectOrder: 40,
     envVars: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
     credentialPath: "plugins.entries.moonshot.config.webSearch.apiKey",
     getCredentialValue: getScopedWebSearchCredential("kimi"),
@@ -53,6 +66,7 @@ const mockWebSearchProviders = [
   },
   {
     id: "perplexity",
+    autoDetectOrder: 50,
     envVars: ["PERPLEXITY_API_KEY", "OPENROUTER_API_KEY"],
     credentialPath: "plugins.entries.perplexity.config.webSearch.apiKey",
     getCredentialValue: getScopedWebSearchCredential("perplexity"),
@@ -60,6 +74,7 @@ const mockWebSearchProviders = [
   },
   {
     id: "tavily",
+    autoDetectOrder: 70,
     envVars: ["TAVILY_API_KEY"],
     credentialPath: "plugins.entries.tavily.config.webSearch.apiKey",
     getCredentialValue: getScopedWebSearchCredential("tavily"),
@@ -134,6 +149,22 @@ describe("web search provider config", () => {
         providerConfig: {
           apiKey: "test-key", // pragma: allowlist secret
           baseUrl: "https://openrouter.ai/api/v1",
+          model: "perplexity/sonar-pro",
+        },
+      }),
+    );
+
+    expect(res.ok).toBe(true);
+  });
+
+  it("accepts aimlapi provider and config", () => {
+    const res = validateConfigObjectWithPlugins(
+      buildWebSearchProviderConfig({
+        enabled: true,
+        provider: "aimlapi",
+        providerConfig: {
+          apiKey: "aiml-test-key", // pragma: allowlist secret
+          baseUrl: "https://api.aimlapi.com/v1",
           model: "perplexity/sonar-pro",
         },
       }),
@@ -258,6 +289,7 @@ describe("web search provider auto-detection", () => {
 
   beforeEach(() => {
     delete process.env.BRAVE_API_KEY;
+    delete process.env.AIMLAPI_API_KEY;
     delete process.env.FIRECRAWL_API_KEY;
     delete process.env.GEMINI_API_KEY;
     delete process.env.KIMI_API_KEY;
@@ -282,6 +314,11 @@ describe("web search provider auto-detection", () => {
   it("auto-detects brave when only BRAVE_API_KEY is set", () => {
     process.env.BRAVE_API_KEY = "test-brave-key"; // pragma: allowlist secret
     expect(resolveSearchProvider({})).toBe("brave");
+  });
+
+  it("auto-detects aimlapi when only AIMLAPI_API_KEY is set", () => {
+    process.env.AIMLAPI_API_KEY = "aiml-test-key"; // pragma: allowlist secret
+    expect(resolveSearchProvider({})).toBe("aimlapi");
   });
 
   it("auto-detects gemini when only GEMINI_API_KEY is set", () => {
@@ -329,7 +366,7 @@ describe("web search provider auto-detection", () => {
     expect(resolveSearchProvider({})).toBe("kimi");
   });
 
-  it("follows alphabetical order — brave wins when multiple keys available", () => {
+  it("follows runtime auto-detect order — brave wins when multiple keys available", () => {
     process.env.BRAVE_API_KEY = "test-brave-key"; // pragma: allowlist secret
     process.env.GEMINI_API_KEY = "test-gemini-key"; // pragma: allowlist secret
     process.env.PERPLEXITY_API_KEY = "test-perplexity-key"; // pragma: allowlist secret
@@ -337,7 +374,15 @@ describe("web search provider auto-detection", () => {
     expect(resolveSearchProvider({})).toBe("brave");
   });
 
-  it("gemini wins over grok, kimi, and perplexity when brave unavailable", () => {
+  it("aimlapi wins over gemini, grok, kimi, and perplexity when brave unavailable", () => {
+    process.env.AIMLAPI_API_KEY = "aiml-test-key"; // pragma: allowlist secret
+    process.env.GEMINI_API_KEY = "test-gemini-key"; // pragma: allowlist secret
+    process.env.PERPLEXITY_API_KEY = "test-perplexity-key"; // pragma: allowlist secret
+    process.env.XAI_API_KEY = "test-xai-key"; // pragma: allowlist secret
+    expect(resolveSearchProvider({})).toBe("aimlapi");
+  });
+
+  it("gemini wins over grok, kimi, and perplexity when brave and aimlapi unavailable", () => {
     process.env.GEMINI_API_KEY = "test-gemini-key"; // pragma: allowlist secret
     process.env.PERPLEXITY_API_KEY = "test-perplexity-key"; // pragma: allowlist secret
     process.env.XAI_API_KEY = "test-xai-key"; // pragma: allowlist secret

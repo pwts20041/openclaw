@@ -8,9 +8,12 @@ import { resolveBootstrapWarningSignaturesSeen } from "../../agents/bootstrap-bu
 import { runCliAgent } from "../../agents/cli-runner.js";
 import { getCliSessionBinding } from "../../agents/cli-session.js";
 import { LiveSessionModelSwitchError } from "../../agents/live-model-switch.js";
+import { describeFailoverError, isFailoverError } from "../../agents/failover-error.js";
 import { runWithModelFallback, isFallbackSummaryError } from "../../agents/model-fallback.js";
 import { isCliProvider } from "../../agents/model-selection.js";
 import {
+  isAimlapiCredentialErrorMessage,
+  isAuthErrorMessage,
   BILLING_ERROR_USER_MESSAGE,
   isCompactionFailureError,
   isContextOverflowError,
@@ -623,6 +626,14 @@ export async function runAgentTurnWithFallback(params: {
       const isSessionCorruption = /function call turn comes immediately after/i.test(message);
       const isRoleOrderingError = /incorrect role information|roles must alternate/i.test(message);
       const isTransientHttp = isTransientHttpError(message);
+      const failoverInfo = describeFailoverError(err);
+      const isAuthFailure =
+        failoverInfo.reason === "auth" ||
+        failoverInfo.status === 401 ||
+        isAuthErrorMessage(message);
+      const isAimlapiFailure =
+        (isFailoverError(err) && err.provider === "aimlapi") ||
+        message.toLowerCase().includes("aimlapi");
 
       if (
         isCompactionFailure &&
@@ -647,6 +658,19 @@ export async function runAgentTurnWithFallback(params: {
             },
           };
         }
+      }
+
+      if (isAuthFailure && isAimlapiFailure && isAimlapiCredentialErrorMessage(message)) {
+        return {
+          kind: "final",
+          payload: {
+            text: [
+              "🔑 It looks like your AI/ML API key is missing or invalid.",
+              "Do you already have a key? If not, open https://aimlapi.com/app/keys/,",
+              "sign up/subscribe, then paste the key into the bot.",
+            ].join("\n"),
+          },
+        };
       }
 
       // Auto-recover from Gemini session corruption by resetting the session

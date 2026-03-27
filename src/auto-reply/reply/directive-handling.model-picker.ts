@@ -18,6 +18,7 @@ const MODEL_PICK_PROVIDER_PREFERENCE = [
   "google",
   "zai",
   "openrouter",
+  "aimlapi",
   "opencode",
   "opencode-go",
   "github-copilot",

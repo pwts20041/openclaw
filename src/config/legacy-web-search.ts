@@ -12,6 +12,7 @@ const GENERIC_WEB_SEARCH_KEYS = new Set([
 ]);
 
 const LEGACY_PROVIDER_MAP = {
+  aimlapi: "aimlapi",
   brave: "brave",
   firecrawl: "firecrawl",
   gemini: "google",
@@ -191,6 +192,18 @@ function normalizeLegacyWebSearchConfigRecord<T extends JsonRecord>(
     }
   }
   web.search = nextSearch;
+
+  const aimlapiConfig = copyLegacyProviderConfig(search, "aimlapi");
+  if (aimlapiConfig && Object.keys(aimlapiConfig).length > 0) {
+    migratePluginWebSearchConfig({
+      root: nextRoot,
+      legacyPath: "tools.web.search.aimlapi",
+      targetPath: "plugins.entries.aimlapi.config.webSearch",
+      pluginId: LEGACY_PROVIDER_MAP.aimlapi,
+      payload: aimlapiConfig,
+      changes,
+    });
+  }
 
   const legacyBraveConfig = copyLegacyProviderConfig(search, "brave");
   const braveConfig = legacyBraveConfig ?? {};

@@ -17,6 +17,15 @@ import {
 } from "../plugin-sdk/provider-catalog.js";
 import { isRecord } from "../utils.js";
 import { normalizeOptionalSecretInput } from "../utils/normalize-secret-input.js";
+import {
+  AIMLAPI_BASE_URL,
+  AIMLAPI_DEFAULT_CONTEXT_WINDOW,
+  AIMLAPI_DEFAULT_COST,
+  AIMLAPI_DEFAULT_MAX_TOKENS,
+  AIMLAPI_DEFAULT_MODEL_ID,
+  AIMLAPI_DEFAULT_MODEL_NAME,
+  discoverAimlapiModels,
+} from "./aimlapi-models.js";
 import { hasAnthropicVertexAvailableAuth } from "./anthropic-vertex-provider.js";
 import { ensureAuthProfileStore, listProfilesForProvider } from "./auth-profiles.js";
 import { discoverBedrockModels } from "./bedrock-discovery.js";
@@ -45,6 +54,7 @@ import {
   resolvePluginDiscoveryProviders,
   runProviderCatalog,
 } from "../plugins/provider-discovery.js";
+import { resolvePluginProviders } from "../plugins/providers.runtime.js";
 import {
   isNonSecretApiKeyMarker,
   resolveNonEnvSecretRefApiKeyMarker,
@@ -76,6 +86,29 @@ const MODELSTUDIO_NATIVE_BASE_URLS = new Set([
 const log = createSubsystemLogger("agents/model-providers");
 
 const ENV_VAR_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
+
+export { AIMLAPI_BASE_URL, AIMLAPI_DEFAULT_MODEL_ID };
+
+export function buildAimlapiModelDefinition() {
+  return {
+    id: AIMLAPI_DEFAULT_MODEL_ID,
+    name: AIMLAPI_DEFAULT_MODEL_NAME,
+    reasoning: false,
+    input: ["text", "image"] as Array<"text" | "image">,
+    cost: AIMLAPI_DEFAULT_COST,
+    contextWindow: AIMLAPI_DEFAULT_CONTEXT_WINDOW,
+    maxTokens: AIMLAPI_DEFAULT_MAX_TOKENS,
+  };
+}
+
+async function buildAimlapiProviderWithModels(): Promise<ProviderConfig> {
+  const models = await discoverAimlapiModels();
+  return {
+    baseUrl: AIMLAPI_BASE_URL,
+    api: "openai-completions",
+    models,
+  };
+}
 
 function resolveLiveProviderCatalogTimeoutMs(env: NodeJS.ProcessEnv): number | null {
   const live =
@@ -700,6 +733,59 @@ function mergeImplicitProviderSet(
   }
 }
 
+function isBundledImplicitProviderAllowed(params: {
+  provider: string;
+  config?: OpenClawConfig;
+  env: NodeJS.ProcessEnv;
+}): boolean {
+  // Keep bundled implicit-provider discovery compatible with plugins.allow,
+  // but still honor explicit deny/disabled config for the owning plugin.
+  const allowedProviders = resolvePluginProviders({
+    config: params.config,
+    env: params.env,
+    onlyPluginIds: [params.provider],
+    activate: false,
+    cache: false,
+    bundledProviderAllowlistCompat: true,
+  });
+  return allowedProviders.some((provider) => provider.id === params.provider);
+}
+
+async function resolveImplicitAimlapiProvider(params: {
+  config?: OpenClawConfig;
+  explicitProviders?: Record<string, ProviderConfig> | null;
+  authStore: ReturnType<typeof ensureAuthProfileStore>;
+  env: NodeJS.ProcessEnv;
+}): Promise<ProviderConfig | undefined> {
+  if (params.explicitProviders?.aimlapi) {
+    return undefined;
+  }
+  if (
+    !isBundledImplicitProviderAllowed({
+      provider: "aimlapi",
+      config: params.config,
+      env: params.env,
+    })
+  ) {
+    return undefined;
+  }
+  const envVar = resolveEnvApiKeyVarName("aimlapi", params.env);
+  const apiKey =
+    envVar ??
+    resolveApiKeyFromProfiles({
+      provider: "aimlapi",
+      store: params.authStore,
+      env: params.env,
+    })?.apiKey;
+  if (!apiKey) {
+    return undefined;
+  }
+  return {
+    ...(await buildAimlapiProviderWithModels()),
+    apiKey,
+  };
+}
+
 async function resolvePluginImplicitProviders(
   ctx: ImplicitProviderContext,
   order: import("../plugins/types.js").ProviderDiscoveryOrder,
@@ -876,6 +962,26 @@ export async function resolveImplicitProviders(
   mergeImplicitProviderSet(providers, await resolvePluginImplicitProviders(context, "profile"));
   mergeImplicitProviderSet(providers, await resolvePluginImplicitProviders(context, "paired"));
   mergeImplicitProviderSet(providers, await resolvePluginImplicitProviders(context, "late"));
+
+  const implicitAimlapi = await resolveImplicitAimlapiProvider({
+    config: params.config,
+    explicitProviders: params.explicitProviders,
+    authStore,
+    env,
+  });
+  if (implicitAimlapi) {
+    const existing = providers.aimlapi;
+    providers.aimlapi = existing
+      ? {
+          ...implicitAimlapi,
+          ...existing,
+          models:
+            Array.isArray(existing.models) && existing.models.length > 0
+              ? existing.models
+              : implicitAimlapi.models,
+        }
+      : implicitAimlapi;
+  }
 
   const implicitBedrock = await resolveImplicitBedrockProvider({
     agentDir: params.agentDir,

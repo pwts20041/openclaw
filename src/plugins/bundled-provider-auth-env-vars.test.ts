@@ -23,6 +23,7 @@ describe("bundled provider auth env vars", () => {
   });
 
   it("reads bundled provider auth env vars from plugin manifests", () => {
+    expect(BUNDLED_PROVIDER_AUTH_ENV_VAR_CANDIDATES.aimlapi).toEqual(["AIMLAPI_API_KEY"]);
     expect(BUNDLED_PROVIDER_AUTH_ENV_VAR_CANDIDATES.brave).toEqual(["BRAVE_API_KEY"]);
     expect(BUNDLED_PROVIDER_AUTH_ENV_VAR_CANDIDATES.firecrawl).toEqual(["FIRECRAWL_API_KEY"]);
     expect(BUNDLED_PROVIDER_AUTH_ENV_VAR_CANDIDATES["github-copilot"]).toEqual([

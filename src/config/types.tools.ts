@@ -482,6 +482,8 @@ export type ToolsConfig = {
       timeoutSeconds?: number;
       /** Cache TTL in minutes for search results. */
       cacheTtlMinutes?: number;
+      /** @deprecated Legacy AIMLAPI scoped config. */
+      aimlapi?: WebSearchLegacyProviderConfig;
       /** @deprecated Legacy Brave scoped config. */
       brave?: WebSearchLegacyProviderConfig;
       /** @deprecated Legacy Firecrawl scoped config. */

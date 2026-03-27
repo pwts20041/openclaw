@@ -148,6 +148,7 @@ export const HUGGINGFACE_DEFAULT_MODEL_REF = "huggingface/deepseek-ai/DeepSeek-R
 export const TOGETHER_DEFAULT_MODEL_REF = "together/moonshotai/Kimi-K2.5";
 export const LITELLM_DEFAULT_MODEL_REF = "litellm/claude-opus-4-6";
 export const VERCEL_AI_GATEWAY_DEFAULT_MODEL_REF = "vercel-ai-gateway/anthropic/claude-opus-4.6";
+export const AIMLAPI_DEFAULT_MODEL_REF = "aimlapi/openai/gpt-5-nano-2025-08-07";
 
 export async function setZaiApiKey(
   key: SecretInput,
@@ -182,6 +183,20 @@ export async function setOpenrouterApiKey(
   upsertAuthProfile({
     profileId: "openrouter:default",
     credential: buildApiKeyCredential("openrouter", safeKey, undefined, options),
+    agentDir: resolveAuthAgentDir(agentDir),
+  });
+}
+
+export async function setAimlapiApiKey(
+  key: SecretInput,
+  agentDir?: string,
+  options?: ApiKeyStorageOptions,
+) {
+  // Never persist the literal "undefined" (e.g. when prompt returns undefined and caller used String(key)).
+  const safeKey = typeof key === "string" && key === "undefined" ? "" : key;
+  upsertAuthProfile({
+    profileId: "aimlapi:default",
+    credential: buildApiKeyCredential("aimlapi", safeKey, undefined, options),
     agentDir: resolveAuthAgentDir(agentDir),
   });
 }

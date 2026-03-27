@@ -30,12 +30,15 @@ vi.mock("../plugins/web-search-providers.runtime.js", () => ({
 }));
 
 function createTestProvider(params: {
-  id: "brave" | "gemini" | "grok" | "kimi" | "perplexity" | "firecrawl" | "tavily";
+  id: "aimlapi" | "brave" | "gemini" | "grok" | "kimi" | "perplexity" | "firecrawl" | "tavily";
   pluginId: string;
   order: number;
 }): PluginWebSearchProviderEntry {
   const credentialPath = `plugins.entries.${params.pluginId}.config.webSearch.apiKey`;
   const readSearchConfigKey = (searchConfig?: Record<string, unknown>): unknown => {
+    if (params.id === "brave") {
+      return searchConfig?.apiKey;
+    }
     const providerConfig =
       searchConfig?.[params.id] && typeof searchConfig[params.id] === "object"
         ? (searchConfig[params.id] as { apiKey?: unknown })
@@ -84,6 +87,7 @@ function createTestProvider(params: {
 
 function buildTestWebSearchProviders(): PluginWebSearchProviderEntry[] {
   return [
+    createTestProvider({ id: "aimlapi", pluginId: "aimlapi", order: 15 }),
     createTestProvider({ id: "brave", pluginId: "brave", order: 10 }),
     createTestProvider({ id: "gemini", pluginId: "google", order: 20 }),
     createTestProvider({ id: "grok", pluginId: "xai", order: 30 }),
@@ -178,11 +182,20 @@ function buildConfigForOpenClawTarget(entry: SecretRegistryEntry, envId: string)
   if (entry.id === "plugins.entries.brave.config.webSearch.apiKey") {
     setPathCreateStrict(config, ["tools", "web", "search", "provider"], "brave");
   }
+  if (entry.id === "tools.web.search.apiKey") {
+    setPathCreateStrict(config, ["tools", "web", "search", "provider"], "brave");
+  }
   if (entry.id === "tools.web.search.gemini.apiKey") {
     setPathCreateStrict(config, ["tools", "web", "search", "provider"], "gemini");
   }
   if (entry.id === "plugins.entries.google.config.webSearch.apiKey") {
     setPathCreateStrict(config, ["tools", "web", "search", "provider"], "gemini");
+  }
+  if (entry.id === "tools.web.search.aimlapi.apiKey") {
+    setPathCreateStrict(config, ["tools", "web", "search", "provider"], "aimlapi");
+  }
+  if (entry.id === "plugins.entries.aimlapi.config.webSearch.apiKey") {
+    setPathCreateStrict(config, ["tools", "web", "search", "provider"], "aimlapi");
   }
   if (entry.id === "tools.web.search.grok.apiKey") {
     setPathCreateStrict(config, ["tools", "web", "search", "provider"], "grok");
