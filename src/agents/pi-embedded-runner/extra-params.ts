@@ -8,8 +8,10 @@ import {
   prepareProviderExtraParams as prepareProviderExtraParamsRuntime,
   wrapProviderStreamFn as wrapProviderStreamFnRuntime,
 } from "../../plugins/provider-runtime.js";
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../system-prompt.js";
 import {
   createAnthropicBetaHeadersWrapper,
+  createAnthropicSystemPromptCacheSplitWrapper,
   createBedrockNoCacheWrapper,
   createAnthropicFastModeWrapper,
   createAnthropicToolPayloadCompatibilityWrapper,
@@ -346,6 +348,23 @@ export function applyExtraParamsToAgent(
       `applying Anthropic beta header for ${provider}/${modelId}: ${anthropicBetas.join(",")}`,
     );
     agent.streamFn = createAnthropicBetaHeadersWrapper(agent.streamFn, anthropicBetas);
+  }
+
+  // Always strip the cache boundary delimiter from the system prompt so it never
+  // leaks to the model. For Anthropic providers with caching enabled, the wrapper
+  // also splits the prompt into static (cached) and dynamic (uncached) blocks.
+  {
+    const cacheRetentionForSplit = resolveCacheRetention(effectiveExtraParams, provider);
+    const shouldSplit =
+      cacheRetentionForSplit != null &&
+      cacheRetentionForSplit !== "none" &&
+      (provider === "anthropic" ||
+        (provider === "amazon-bedrock" && isAnthropicBedrockModel(modelId)));
+    agent.streamFn = createAnthropicSystemPromptCacheSplitWrapper(
+      agent.streamFn,
+      SYSTEM_PROMPT_CACHE_BOUNDARY,
+      shouldSplit,
+    );
   }
 
   if (shouldApplySiliconFlowThinkingOffCompat({ provider, modelId, thinkingLevel })) {
