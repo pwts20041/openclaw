@@ -210,6 +210,8 @@ export type ChatRunState = {
   /** Stashed sourceRunId → ChatRunEntry for runs that have ended, so late usage
    *  events can still resolve clientRunId after the registry entry is removed. */
   finishedRunLinks: Map<string, ChatRunEntry>;
+  /** Timers that evict stale finishedRunLinks entries if no usage event arrives. */
+  finishedRunLinkTimers: Map<string, ReturnType<typeof setTimeout>>;
   clear: () => void;
 };
 
@@ -220,6 +222,7 @@ export function createChatRunState(): ChatRunState {
   const deltaLastBroadcastLen = new Map<string, number>();
   const abortedRuns = new Map<string, number>();
   const finishedRunLinks = new Map<string, ChatRunEntry>();
+  const finishedRunLinkTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   const clear = () => {
     registry.clear();
@@ -228,6 +231,10 @@ export function createChatRunState(): ChatRunState {
     deltaLastBroadcastLen.clear();
     abortedRuns.clear();
     finishedRunLinks.clear();
+    for (const timer of finishedRunLinkTimers.values()) {
+      clearTimeout(timer);
+    }
+    finishedRunLinkTimers.clear();
   };
 
   return {
@@ -237,6 +244,7 @@ export function createChatRunState(): ChatRunState {
     deltaLastBroadcastLen,
     abortedRuns,
     finishedRunLinks,
+    finishedRunLinkTimers,
     clear,
   };
 }
@@ -809,7 +817,13 @@ export function createAgentEventHandler({
             return;
           }
           // Stash the link so late usage events can still resolve clientRunId.
+          // Auto-evict after 60s to prevent unbounded growth if no usage event arrives.
           chatRunState.finishedRunLinks.set(evt.runId, finished);
+          const evictTimer = setTimeout(() => {
+            chatRunState.finishedRunLinks.delete(evt.runId);
+            chatRunState.finishedRunLinkTimers.delete(evt.runId);
+          }, 60_000);
+          chatRunState.finishedRunLinkTimers.set(evt.runId, evictTimer);
           emitChatFinal(
             finished.sessionKey,
             finished.clientRunId,
@@ -855,6 +869,11 @@ export function createAgentEventHandler({
       agentRunSeq.delete(evt.runId);
       agentRunSeq.delete(clientRunId);
       chatRunState.finishedRunLinks.delete(evt.runId);
+      const evictTimer = chatRunState.finishedRunLinkTimers.get(evt.runId);
+      if (evictTimer) {
+        clearTimeout(evictTimer);
+        chatRunState.finishedRunLinkTimers.delete(evt.runId);
+      }
     }
 
     if (
