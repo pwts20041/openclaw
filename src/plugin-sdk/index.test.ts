@@ -43,6 +43,15 @@ async function collectRuntimeExports(filePath: string, seen = new Set<string>())
 }
 
 describe("plugin-sdk exports", () => {
+  it("exposes native command listing helpers for plugins", async () => {
+    const runtimeExports = await collectRuntimeExports(path.join(import.meta.dirname, "index.ts"));
+    expect(runtimeExports.has("listNativeCommandSpecs")).toBe(true);
+    expect(runtimeExports.has("listNativeCommandSpecsForConfig")).toBe(true);
+    expect(runtimeExports.has("listSkillCommandsForAgents")).toBe(true);
+    expect(runtimeExports.has("listSkillCommandsForWorkspace")).toBe(true);
+    expect(runtimeExports.has("getPluginCommandSpecs")).toBe(true);
+  });
+
   it("does not expose runtime modules", async () => {
     const runtimeExports = await collectRuntimeExports(path.join(import.meta.dirname, "index.ts"));
     const forbidden = [
@@ -91,6 +100,11 @@ describe("plugin-sdk exports", () => {
     expect([...runtimeExports].toSorted()).toEqual([
       "delegateCompactionToRuntime",
       "emptyPluginConfigSchema",
+      "getPluginCommandSpecs",
+      "listNativeCommandSpecs",
+      "listNativeCommandSpecsForConfig",
+      "listSkillCommandsForAgents",
+      "listSkillCommandsForWorkspace",
       "onDiagnosticEvent",
       "registerContextEngine",
     ]);
