@@ -875,6 +875,19 @@ export async function runEmbeddedAttempt(
         activeSession.agent.streamFn = defaultSessionStreamFn;
       }
 
+      // Restore getApiKey callback after streamFn override for custom/OAuth providers.
+      // In pi-coding-agent 0.63.0+, createAgentSession() wraps streamFn to inject API keys,
+      // but OpenClaw overwrites streamFn above, losing the auth-injection wrapper.
+      // This fix restores the callback so pi-agent-core can resolve API keys from authStorage.
+      // Guard is forward-compat only — as of SDK 0.63.0, createAgentSession() never pre-populates getApiKey.
+      type AgentWithCallback = typeof activeSession.agent & {
+        getApiKey?: (provider: string) => Promise<string | undefined>;
+      };
+      if (!(activeSession.agent as AgentWithCallback).getApiKey) {
+        (activeSession.agent as AgentWithCallback).getApiKey = (provider: string) =>
+          params.authStorage.getApiKey(provider);
+      }
+
       const { effectiveExtraParams } = applyExtraParamsToAgent(
         activeSession.agent,
         params.config,
