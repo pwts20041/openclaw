@@ -193,12 +193,14 @@ export function createOpenClawTools(
       sandboxed: options?.sandboxed,
       config: resolvedConfig,
       callGateway: openClawToolsDeps.callGateway,
+      requesterAgentIdOverride: options?.requesterAgentIdOverride,
     }),
     createSessionsHistoryTool({
       agentSessionKey: options?.agentSessionKey,
       sandboxed: options?.sandboxed,
       config: resolvedConfig,
       callGateway: openClawToolsDeps.callGateway,
+      requesterAgentIdOverride: options?.requesterAgentIdOverride,
     }),
     createSessionsSendTool({
       agentSessionKey: options?.agentSessionKey,
@@ -206,6 +208,7 @@ export function createOpenClawTools(
       sandboxed: options?.sandboxed,
       config: resolvedConfig,
       callGateway: openClawToolsDeps.callGateway,
+      requesterAgentIdOverride: options?.requesterAgentIdOverride,
     }),
     createSessionsYieldTool({
       sessionId: options?.sessionId,
