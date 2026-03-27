@@ -194,6 +194,8 @@ import {
   SessionsAbortParamsSchema,
   type SessionsCompactParams,
   SessionsCompactParamsSchema,
+  type SessionsTruncateParams,
+  SessionsTruncateParamsSchema,
   type SessionsCreateParams,
   SessionsCreateParamsSchema,
   type SessionsDeleteParams,
@@ -361,6 +363,9 @@ export const validateSessionsDeleteParams = ajv.compile<SessionsDeleteParams>(
 );
 export const validateSessionsCompactParams = ajv.compile<SessionsCompactParams>(
   SessionsCompactParamsSchema,
+);
+export const validateSessionsTruncateParams = ajv.compile<SessionsTruncateParams>(
+  SessionsTruncateParamsSchema,
 );
 export const validateSessionsUsageParams =
   ajv.compile<SessionsUsageParams>(SessionsUsageParamsSchema);
@@ -695,6 +700,7 @@ export type {
   SessionsResetParams,
   SessionsDeleteParams,
   SessionsCompactParams,
+  SessionsTruncateParams,
   SessionsUsageParams,
   CronJob,
   CronListParams,
