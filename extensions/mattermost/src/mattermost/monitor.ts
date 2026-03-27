@@ -35,7 +35,10 @@ import {
   fetchMattermostChannel,
   fetchMattermostMe,
   fetchMattermostUser,
+  fetchMattermostUserTeams,
+  deleteMattermostPost,
   normalizeMattermostBaseUrl,
+  patchMattermostPost,
   sendMattermostTyping,
   updateMattermostPost,
   type MattermostChannel,
@@ -1399,28 +1402,485 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
         },
       },
     });
+    // ── P4: Edit-in-place streaming state ──────────────────────────────────────
+    // Uses onPartialReply (full cumulative text each tick) + 200ms throttled
+    // setInterval to progressively edit a single Mattermost post in-place.
+    let streamMessageId: string | null = null;
+    let pendingPatchText = "";
+    let lastSentText = "";
+    let patchInterval: ReturnType<typeof setInterval> | null = null;
+    let patchSending = false; // prevents concurrent network calls
+    // Tracks the currently in-flight sendMessageMattermost / patchMattermostPost
+    // promise so that flushPendingPatch, onAssistantMessageStart, and onSettled
+    // can await it directly instead of busy-waiting on patchSending. Null when idle.
+    let patchInflight: Promise<unknown> | null = null;
+    // Latches true after the first send/edit failure to prevent the interval
+    // from being re-armed by a later onPartialReply call (ID=2964357928).
+    let previewSendFailed = false;
+    // Monotonically-increasing turn counter. Incremented at every
+    // onAssistantMessageStart boundary. The schedulePatch send path captures
+    // the current value and compares it after the async POST resolves; if
+    // the value has changed the turn boundary has passed and the result is stale.
+    let currentTurnSeq = 0;
+    // Turn sequence for which the current patchInterval is scheduled.
+    // Used to prevent turn B partials from corrupting turn A finalization (ID=2991100636).
+    let scheduledTurnSeq = 0;
+    // Set of turn sequence numbers that were successfully finalized via streaming.
+    // Used to skip re-delivery of those turns in the final reply array. Keyed by
+    // currentTurnSeq at finalization time so out-of-order completion is handled
+    // correctly (ID=2991100644).
+    const streamedTurnSeqs = new Set<number>();
+    // Monotonic counter tracking which turn sequence deliver() is processing.
+    // Incremented on each isFinal deliver() call so the Set lookup stays in sync.
+    let deliveryTurnSeq = 0;
+    // Over-limit preview posts waiting to be deleted after their re-delivery succeeds.
+    // FIFO queue: each entry is dequeued and deleted only when the corresponding
+    // turn's re-delivery completes in deliver(), preventing one turn's delivery
+    // from removing another turn's preview (ID=2965255734).
+    const pendingOrphanDeletes: string[] = [];
+    // FIFO queue of preview post IDs that were successfully finalized via
+    // patchMattermostPost in onAssistantMessageStart (normal streamedTurnSeqs path).
+    // Used by the skipped-turn media branch to delete the finalized preview and
+    // replace it with a combined text+media post (ID=2969665547).
+    const finalizedPreviewIds: string[] = [];
+    const STREAM_PATCH_INTERVAL_MS = 200;
+
+    // Edit-in-place streaming is opt-in: only activate when blockStreaming is
+    // explicitly true. When the config key is absent (undefined) we leave the
+    // agent's blockStreamingDefault in place and do not inject onPartialReply.
+    const streamingEnabled = account.blockStreaming === true;
+    const blockStreamingClient =
+      streamingEnabled && baseUrl && botToken
+        ? createMattermostClient({ baseUrl, botToken })
+        : null;
+
+    const stopPatchInterval = () => {
+      if (patchInterval) {
+        clearInterval(patchInterval);
+        patchInterval = null;
+      }
+    };
+
+    const flushPendingPatch = async () => {
+      stopPatchInterval();
+      if (!blockStreamingClient) return;
+      // Capture the turn sequence before any await so we can detect turn-boundary
+      // crossings that happen while the flush is in flight. A stale flush from
+      // turn A must not write lastSentText for turn B (ID=2970547761).
+      const flushTurnSeq = currentTurnSeq;
+      // Await the in-flight promise directly so we never miss a late-resolving
+      // POST/PATCH — the busy-wait on patchSending had a race where patchSending
+      // could clear before the network request settled (ID=2965256849).
+      if (patchInflight) {
+        await patchInflight.catch(() => {});
+      }
+      const rawText = pendingPatchText;
+      if (!rawText) return;
+      // Truncate to textLimit so intermediate patches never exceed the server limit.
+      // Final delivery applies full chunking; streaming posts only need the first chunk.
+      const text = rawText.length > textLimit ? rawText.slice(0, textLimit) : rawText;
+      // Guard on the truncated text so long replies (past textLimit) do not keep
+      // re-patching with the same truncated content every 200 ms and hit rate limits.
+      if (text === lastSentText) return;
+      if (!streamMessageId) {
+        try {
+          const result = await sendMessageMattermost(to, text, {
+            accountId: account.accountId,
+            replyToId: effectiveReplyToId,
+          });
+          // Only update state if we are still on the same turn. A boundary that
+          // fired while the POST was in flight will have incremented currentTurnSeq.
+          if (currentTurnSeq === flushTurnSeq) {
+            streamMessageId = result.messageId;
+            lastSentText = text;
+            runtime.log?.(`stream-patch started ${streamMessageId}`);
+          } else {
+            // Stale result — delete the orphaned post best-effort.
+            void deleteMattermostPost(blockStreamingClient, result.messageId).catch(() => {});
+          }
+        } catch (err) {
+          logVerboseMessage(`mattermost stream-patch flush send failed: ${String(err)}`);
+        }
+      } else {
+        try {
+          await patchMattermostPost(blockStreamingClient, {
+            postId: streamMessageId,
+            message: text,
+          });
+          // Only update lastSentText if still on the same turn (ID=2970547761).
+          if (currentTurnSeq === flushTurnSeq) {
+            lastSentText = text;
+          }
+          runtime.log?.(`stream-patch flushed ${streamMessageId}`);
+        } catch (err) {
+          logVerboseMessage(`mattermost stream-patch flush failed: ${String(err)}`);
+        }
+      }
+    };
+
+    const schedulePatch = (fullText: string) => {
+      if (!blockStreamingClient) return;
+      // Do not re-arm if a permanent send/edit failure has been latched.
+      if (previewSendFailed) return;
+      // Only accept partials for the currently scheduled turn to prevent
+      // turn B partials from corrupting turn A finalization text (ID=2991100636).
+      if (patchInterval && currentTurnSeq !== scheduledTurnSeq) return;
+      pendingPatchText = fullText;
+      if (patchInterval) return;
+      // Capture current turn sequence when the interval is first armed.
+      scheduledTurnSeq = currentTurnSeq;
+      patchInterval = setInterval(() => {
+        // Skip if we're no longer on the same turn. This prevents stale
+        // turn B partials from corrupting turn A finalization (ID=2991100636).
+        if (currentTurnSeq !== scheduledTurnSeq) return;
+        const rawText = pendingPatchText;
+        if (!rawText || patchSending) return;
+        // Truncate to textLimit so intermediate patches never exceed the server limit.
+        const text = rawText.length > textLimit ? rawText.slice(0, textLimit) : rawText;
+        // Guard on the truncated text so long replies (past textLimit) do not keep
+        // re-patching with the same truncated content every 200 ms and hit rate limits.
+        if (text === lastSentText) return;
+        patchSending = true;
+        const runTick = async () => {
+          try {
+            if (!streamMessageId) {
+              const sendTurnSeq = currentTurnSeq;
+              try {
+                // Capture the turn sequence BEFORE the async POST so we can
+                // detect whether a turn boundary fired while we were waiting.
+                const result = await sendMessageMattermost(to, text, {
+                  accountId: account.accountId,
+                  replyToId: effectiveReplyToId,
+                });
+                // Guard: discard the result if a turn boundary has advanced
+                // currentTurnSeq while this send was in flight. Using the
+                // sequence counter (instead of pendingPatchText) prevents the
+                // false-positive where turn B has already written to
+                // pendingPatchText by the time turn A's POST resolves.
+                if (currentTurnSeq === sendTurnSeq) {
+                  streamMessageId = result.messageId;
+                  lastSentText = text;
+                  runtime.log?.(`stream-patch started ${streamMessageId}`);
+                } else {
+                  // Turn boundary passed — delete the now-orphaned post best-effort.
+                  runtime.log?.(
+                    `stream-patch discarding stale send result ${result.messageId} (turn boundary seq ${sendTurnSeq} → ${currentTurnSeq})`,
+                  );
+                  void deleteMattermostPost(blockStreamingClient, result.messageId).catch(() => {});
+                }
+              } catch (err) {
+                logVerboseMessage(`mattermost stream-patch send failed: ${String(err)}`);
+                // Only latch the failure for the current turn. If a turn boundary
+                // already fired while this send was in flight (currentTurnSeq !=
+                // sendTurnSeq), the failure belongs to the previous (abandoned) turn
+                // and must not stop streaming for the new turn (ID=2969630961).
+                if (currentTurnSeq === sendTurnSeq) {
+                  previewSendFailed = true;
+                  stopPatchInterval();
+                }
+              }
+            } else {
+              try {
+                const sendTurnSeq = currentTurnSeq;
+                await patchMattermostPost(blockStreamingClient, {
+                  postId: streamMessageId,
+                  message: text,
+                });
+                // Only update lastSentText if still on the same turn to prevent
+                // stale edit completions from poisoning future ticks (ID=2991100644).
+                if (currentTurnSeq === sendTurnSeq) {
+                  lastSentText = text;
+                }
+                runtime.log?.(`stream-patch edited ${streamMessageId}`);
+              } catch (err) {
+                logVerboseMessage(`mattermost stream-patch edit failed: ${String(err)}`);
+                // Latch the failure so schedulePatch() does not re-arm the interval
+                // on subsequent onPartialReply calls.
+                previewSendFailed = true;
+                stopPatchInterval();
+              }
+            }
+          } finally {
+            patchSending = false;
+          }
+        };
+        const inflightRun = runTick();
+        patchInflight = inflightRun;
+        inflightRun.finally(() => {
+          if (patchInflight === inflightRun) patchInflight = null;
+        });
+        void inflightRun;
+      }, STREAM_PATCH_INTERVAL_MS);
+    };
+    // ── End P4 streaming state ────────────────────────────────────────────────
+
     const { dispatcher, replyOptions, markDispatchIdle } =
       core.channel.reply.createReplyDispatcherWithTyping({
         ...replyPipeline,
         humanDelay: core.channel.reply.resolveHumanDelayConfig(cfg, route.agentId),
         typingCallbacks,
-        deliver: async (payload: ReplyPayload) => {
-          await deliverMattermostReplyPayload({
-            core,
-            cfg,
-            payload,
-            to,
-            accountId: account.accountId,
-            agentId: route.agentId,
-            replyToId: resolveMattermostReplyRootId({
-              threadRootId: effectiveReplyToId,
-              replyToId: payload.replyToId,
-            }),
-            textLimit,
-            tableMode,
-            sendMessage: sendMessageMattermost,
+        deliver: async (payload: ReplyPayload, info) => {
+          const isFinal = info.kind === "final";
+          // Track which turn sequence deliver() is processing so the Set lookup
+          // stays aligned even when turns finalize out of order.
+          const thisTurnSeq = isFinal ? deliveryTurnSeq++ : -1;
+
+          // Skip turns that were already posted via streaming.
+          // onAssistantMessageStart flushes each completed turn's streaming message
+          // before the next turn starts. The core still returns all turns as final
+          // replies, so we skip the ones we already delivered.
+          if (isFinal && streamedTurnSeqs.has(thisTurnSeq)) {
+            streamedTurnSeqs.delete(thisTurnSeq);
+            runtime.log?.(
+              `stream-patch skipping already-delivered turn seq=${thisTurnSeq} (${streamedTurnSeqs.size} remaining)`,
+            );
+            // Even though the text was already delivered via streaming, the final
+            // payload may carry media attachments (e.g. TTS audio) that onPartialReply
+            // never receives. Deliver the full payload (including text as caption) via
+            // the normal path (ID=2965091869, ID=2966838451).
+            const hasMedia = payload.mediaUrls?.length || payload.mediaUrl;
+            if (hasMedia) {
+              // The streamed preview post already contains the text. Delivering the
+              // full payload (text + media) creates a duplicate caption alongside the
+              // preview. Delete the preview first, then deliver text+media as one post.
+              //
+              // Source priority for the preview ID to delete (ID=2969665547):
+              // 1. finalizedPreviewIds: set by onAssistantMessageStart after a
+              //    successful patchMattermostPost (normal streamedTurnSeqs path).
+              // 2. pendingOrphanDeletes: set when the boundary patch was over-limit
+              //    or failed — do NOT shift here if turn A's preview is queued and
+              //    turn B triggers this branch (ID=2969665550). Only shift when the
+              //    queue head belongs to this specific turn (turn matched in
+              //    streamedTurnSeqs, i.e. the front of finalizedPreviewIds is empty).
+              const orphanId = finalizedPreviewIds.length > 0 ? finalizedPreviewIds.shift() : null;
+              let mediaDeliverySucceeded = false;
+              try {
+                await deliverMattermostReplyPayload({
+                  core,
+                  cfg,
+                  payload,
+                  to,
+                  accountId: account.accountId,
+                  agentId: route.agentId,
+                  replyToId: resolveMattermostReplyRootId({
+                    threadRootId: effectiveReplyToId,
+                    replyToId: payload.replyToId,
+                  }),
+                  textLimit,
+                  tableMode,
+                  sendMessage: sendMessageMattermost,
+                });
+                mediaDeliverySucceeded = true;
+              } finally {
+                if (mediaDeliverySucceeded && orphanId && blockStreamingClient) {
+                  await deleteMattermostPost(blockStreamingClient, orphanId).catch(() => {});
+                }
+              }
+            } else {
+              // Consume this turn's finalized preview ID to keep queue alignment.
+              // Do NOT delete the post — it is the correctly finalized content (ID=2969701179).
+              finalizedPreviewIds.shift();
+            }
+            return;
+          }
+
+          // Compute reply target divergence before flushing, so we don't
+          // accidentally create a preview post in the wrong thread on flush.
+          // Compute the reply target for this payload. When payload.replyToId resolves
+          // to a different Mattermost thread root than effectiveReplyToId, we must not
+          // patch the preview in-place (different thread).
+          //
+          // Both sides go through resolveMattermostReplyRootId so that child-post IDs
+          // (e.g. from [[reply_to_current]] inside a thread) are normalized to the same
+          // thread root as effectiveReplyToId before comparing. Raw payload.replyToId
+          // comparison was wrong: [[reply_to_current]] sets a child-post id that differs
+          // from the thread root but resolves to the same thread (ID=2965488514).
+          const finalReplyToId = resolveMattermostReplyRootId({
+            threadRootId: effectiveReplyToId,
+            replyToId: payload.replyToId,
           });
-          runtime.log?.(`delivered reply to ${to}`);
+          const baseReplyToId = resolveMattermostReplyRootId({
+            threadRootId: effectiveReplyToId,
+          });
+          const replyTargetDiverged =
+            payload.replyToId != null &&
+            payload.replyToId.trim() !== "" &&
+            finalReplyToId !== baseReplyToId;
+
+          if (isFinal && blockStreamingClient) {
+            if (replyTargetDiverged) {
+              // Divergent target: don't flush (we don't want to create a preview in
+              // the wrong thread), but do stop the interval and wait for any in-flight
+              // tick/send to settle. This ensures streamMessageId is populated if the
+              // first sendMessageMattermost resolves during this window, so the orphan
+              // cleanup below can capture and delete it.
+              stopPatchInterval();
+              if (patchInflight) {
+                await patchInflight.catch(() => {});
+              }
+            } else {
+              // Same thread: flush pending patches normally.
+              await flushPendingPatch();
+            }
+          }
+
+          // Final + streaming active: patch the streamed message with authoritative
+          // complete text, or fall back to a new message (with orphan cleanup).
+          // (When replyTargetDiverged the preview is cleaned up further below.)
+          if (isFinal && streamMessageId && payload.text && !replyTargetDiverged) {
+            const hasMedia = payload.mediaUrls?.length || payload.mediaUrl;
+            // When the payload also has media, skip the in-place patch: patching
+            // the preview with only the text and then posting captionless media
+            // separately splits a single captioned-file reply into two posts.
+            // Fall through to deliverMattermostReplyPayload which sends
+            // text+media together in the correct Mattermost format (ID=2965096969).
+            if (!hasMedia) {
+              const text = core.channel.text.convertMarkdownTables(payload.text, tableMode);
+              try {
+                await patchMattermostPost(blockStreamingClient!, {
+                  postId: streamMessageId,
+                  message: text,
+                });
+                runtime.log?.(`stream-patch final edit ${streamMessageId}`);
+                // Successful text-only patch. Reset streaming state and return.
+                streamMessageId = null;
+                pendingPatchText = "";
+                lastSentText = "";
+                patchSending = false;
+                return;
+              } catch (err) {
+                logVerboseMessage(
+                  `mattermost stream-patch final edit failed: ${String(err)}, sending new message`,
+                );
+                // Fall through to deliverMattermostReplyPayload below.
+              }
+            }
+            // Media payload or patch failure: deliver the full payload via the
+            // normal path (handles text+media together, chunking, etc.).
+            // Delete the preview only after successful delivery.
+            const orphanId = streamMessageId;
+            streamMessageId = null;
+            pendingPatchText = "";
+            lastSentText = "";
+            patchSending = false;
+            await deliverMattermostReplyPayload({
+              core,
+              cfg,
+              payload,
+              to,
+              accountId: account.accountId,
+              agentId: route.agentId,
+              replyToId: resolveMattermostReplyRootId({
+                threadRootId: effectiveReplyToId,
+                replyToId: payload.replyToId,
+              }),
+              textLimit,
+              tableMode,
+              sendMessage: sendMessageMattermost,
+            });
+            // Delivery succeeded — clean up the orphaned preview.
+            if (orphanId) {
+              void deleteMattermostPost(blockStreamingClient!, orphanId).catch(() => {});
+            }
+            return;
+          }
+
+          if (isFinal) {
+            stopPatchInterval();
+            // Capture and clear the stream ID so normal delivery below can proceed.
+            const orphanedStreamId = streamMessageId;
+            streamMessageId = null;
+            pendingPatchText = "";
+            lastSentText = "";
+            patchSending = false;
+
+            if (replyTargetDiverged && orphanedStreamId) {
+              // Divergent target: deliver to the correct thread first, then clean
+              // up the orphan. If delivery fails the user keeps the partial preview.
+              await deliverMattermostReplyPayload({
+                core,
+                cfg,
+                payload,
+                to,
+                accountId: account.accountId,
+                agentId: route.agentId,
+                replyToId: finalReplyToId,
+                textLimit,
+                tableMode,
+                sendMessage: sendMessageMattermost,
+              });
+              try {
+                await deleteMattermostPost(blockStreamingClient!, orphanedStreamId);
+              } catch {
+                // Ignore — the complete message was already delivered.
+              }
+              return;
+            }
+
+            if (orphanedStreamId && !payload.text) {
+              // Media-only final with a streamed text-preview: deliver media first,
+              // then delete the orphaned preview so users don't see stale partial
+              // text alongside the attachment. If delivery fails, the preview stays.
+              await deliverMattermostReplyPayload({
+                core,
+                cfg,
+                payload,
+                to,
+                accountId: account.accountId,
+                agentId: route.agentId,
+                replyToId: finalReplyToId,
+                textLimit,
+                tableMode,
+                sendMessage: sendMessageMattermost,
+              });
+              try {
+                await deleteMattermostPost(blockStreamingClient!, orphanedStreamId);
+              } catch {
+                // Ignore — media was already delivered.
+              }
+              return;
+            }
+            // Otherwise fall through to normal delivery.
+          }
+
+          // Normal delivery — streaming not active or non-final partial.
+          // Track delivery success so pendingOrphanDeletes is only shifted on
+          // confirmed success — a failed resend must not consume the queue entry
+          // or the next successful turn will delete the wrong preview (ID=2967028345).
+          let deliverySucceeded = false;
+          try {
+            await deliverMattermostReplyPayload({
+              core,
+              cfg,
+              payload,
+              to,
+              accountId: account.accountId,
+              agentId: route.agentId,
+              replyToId: resolveMattermostReplyRootId({
+                threadRootId: effectiveReplyToId,
+                replyToId: payload.replyToId,
+              }),
+              textLimit,
+              tableMode,
+              sendMessage: sendMessageMattermost,
+            });
+            deliverySucceeded = true;
+          } finally {
+            if (deliverySucceeded) {
+              runtime.log?.(`delivered reply to ${to}`);
+              // Dequeue and delete the over-limit preview for this turn — but ONLY
+              // on final payloads that are not skipped-turn re-deliveries. The same
+              // deliver() callback fires for tool summaries and block messages; shifting
+              // unconditionally would consume a queue entry on the wrong payload and
+              // delete a preview before its own final has been re-sent (ID=2965341948).
+              if (isFinal && pendingOrphanDeletes.length > 0 && blockStreamingClient) {
+                const orphanToDelete = pendingOrphanDeletes.shift();
+                if (orphanToDelete) {
+                  void deleteMattermostPost(blockStreamingClient, orphanToDelete).catch(() => {});
+                }
+              }
+            }
+          }
         },
         onError: (err, info) => {
           runtime.error?.(`mattermost ${info.kind} reply failed: ${String(err)}`);
@@ -1431,6 +1891,52 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
       dispatcher,
       onSettled: () => {
         markDispatchIdle();
+        // Clean up any streaming preview that was never finalized — this happens when
+        // the reply pipeline produces no final payload (e.g. messaging-tool sends that
+        // are suppressed, or empty/heartbeat responses). Without this, onPartialReply
+        // can create a Mattermost post that is never deleted or patched with final text.
+        //
+        // We must also handle the race where the first preview POST is still in flight
+        // (patchSending=true, streamMessageId=null): stopPatchInterval() prevents new
+        // ticks, and the async cleanup waits for patchSending to clear so it can capture
+        // the messageId that the in-flight send will set.
+        if ((streamMessageId || patchSending || patchInterval) && blockStreamingClient) {
+          stopPatchInterval();
+          pendingPatchText = "";
+          lastSentText = "";
+          const client = blockStreamingClient;
+          void (async () => {
+            // Await the in-flight promise directly so we never miss a late-resolving
+            // POST — a 3s timeout would race on slow Mattermost links (ID=2964616785).
+            if (patchInflight) {
+              await patchInflight.catch(() => {});
+            }
+            patchSending = false;
+            const orphanId = streamMessageId;
+            streamMessageId = null;
+            if (orphanId) {
+              await deleteMattermostPost(client, orphanId).catch(() => {
+                // Best-effort — the run is already complete.
+              });
+            }
+            // Also drain any queued orphan previews that were never re-delivered
+            // (aborted run, no-final path). Without this, stale partial preview
+            // posts remain in-channel (ID=2969630963).
+            const orphansToDelete = [...pendingOrphanDeletes.splice(0)];
+            for (const id of orphansToDelete) {
+              void deleteMattermostPost(client, id).catch(() => {});
+            }
+          })();
+        }
+        // Fallback: drain orphans even when no active stream state existed at settle
+        // time. Orphans can be queued after boundary finalization and the run may
+        // settle without streamMessageId/patchSending/patchInterval being truthy.
+        if (pendingOrphanDeletes.length > 0 && blockStreamingClient) {
+          const orphansToDelete = [...pendingOrphanDeletes.splice(0)];
+          for (const id of orphansToDelete) {
+            void deleteMattermostPost(blockStreamingClient, id).catch(() => {});
+          }
+        }
       },
       run: () =>
         core.channel.reply.dispatchReplyFromConfig({
@@ -1439,8 +1945,117 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
           dispatcher,
           replyOptions: {
             ...replyOptions,
-            disableBlockStreaming:
-              typeof account.blockStreaming === "boolean" ? !account.blockStreaming : undefined,
+            // Use onPartialReply (full cumulative text) for edit-in-place streaming.
+            onPartialReply: blockStreamingClient
+              ? (payload: ReplyPayload) => {
+                  const rawText = payload.text ?? "";
+                  const fullText = core.channel.text.convertMarkdownTables(rawText, tableMode);
+                  if (fullText) {
+                    schedulePatch(fullText);
+                  }
+                }
+              : undefined,
+            // Finalize the current streaming message when a new assistant turn starts
+            // (after a tool call). This ensures each turn gets its own streamed post
+            // instead of overwriting the previous one. See GH issue #43020.
+            onAssistantMessageStart: blockStreamingClient
+              ? async () => {
+                  // Capture turn state FIRST, before any resets.
+                  const finalizeId = streamMessageId;
+                  const finalizeText = pendingPatchText;
+
+                  // Capture the finishing turn's sequence for streamedTurnSeqs tracking.
+                  const finalizingTurnSeq = currentTurnSeq;
+                  // Advance the turn sequence counter BEFORE clearing state.
+                  // schedulePatch captures this value when it starts a send; if the
+                  // value has changed by the time the POST resolves, the result belongs
+                  // to the previous turn and must be discarded / the post deleted.
+                  currentTurnSeq++;
+                  // Reset the failure latch so each turn can independently attempt
+                  // streaming — a transient 429/500 in turn A should not prevent
+                  // turns B, C, etc. from streaming (ID=2965341951).
+                  previewSendFailed = false;
+
+                  // Stop the interval and reset turn-local text/ID state immediately
+                  // so new onPartialReply calls start fresh for the next turn.
+                  // patchSending is intentionally NOT cleared here — it stays set until
+                  // after the wait-loop below so the loop is not a no-op.
+                  stopPatchInterval();
+                  streamMessageId = null;
+                  pendingPatchText = "";
+                  lastSentText = "";
+
+                  // Short-turn path: no stream post existed (the 200ms ticker never
+                  // fired or the send is still in flight). Await patchInflight
+                  // before clearing the lock so the next turn cannot launch a
+                  // concurrent send while the previous one is still settling
+                  // (ID=2984546455).
+                  if (!finalizeId || !finalizeText) {
+                    if (patchInflight) {
+                      await patchInflight.catch(() => {});
+                    }
+                    patchSending = false;
+                    return;
+                  }
+
+                  // Wait for any in-flight patch to settle before finalizing.
+                  // This must run before patchSending is cleared so the wait is not a no-op.
+                  if (patchInflight) {
+                    await patchInflight.catch(() => {});
+                  }
+                  patchSending = false;
+                  // Truncate to textLimit — the same cap applied by schedulePatch/
+                  // Only add to streamedTurnSeqs when the full turn text fits within
+                  // textLimit. If the text is longer, the patch would only store the
+                  // first chunk — deliver() would then skip this turn and the remainder
+                  // would be silently dropped. Instead, skip the turn-finalization patch
+                  // entirely and let deliver() run normally via deliverMattermostReplyPayload,
+                  // which applies proper multi-chunk delivery. The preview post is deleted
+                  // so there is no orphaned partial-text post alongside the chunked reply.
+                  if (finalizeText.length > textLimit) {
+                    // Queue for deletion after deliver() successfully re-sends
+                    // this turn via deliverMattermostReplyPayload. The fixed
+                    // setTimeout approach was unreliable: tool calls or network
+                    // delays >5s could remove the preview before the replacement
+                    // arrived (ID=2965091873).
+                    pendingOrphanDeletes.push(finalizeId);
+                    runtime.log?.(
+                      `stream-patch skipping over-limit turn ${finalizeId} (${finalizeText.length} > ${textLimit}), will re-deliver`,
+                    );
+                  } else {
+                    try {
+                      await patchMattermostPost(blockStreamingClient, {
+                        postId: finalizeId,
+                        message: finalizeText,
+                      });
+                      // Increment only after a successful patch so deliver() only
+                      // skips this turn if we know the complete text is visible.
+                      // If the patch fails, deliver() falls back to normal re-delivery.
+                      streamedTurnSeqs.add(finalizingTurnSeq);
+                      // Record the finalized preview ID so the skipped-turn media
+                      // branch can delete it and deliver text+media as one post.
+                      finalizedPreviewIds.push(finalizeId);
+                      runtime.log?.(`stream-patch finalized turn ${finalizeId}`);
+                    } catch (err) {
+                      logVerboseMessage(
+                        `mattermost stream-patch turn finalize failed: ${String(err)}`,
+                      );
+                      // Patch failed: queue the preview for cleanup after the
+                      // authoritative re-delivery in deliver() (ID=2966838455).
+                      // Without this, the stale preview stays in-channel alongside
+                      // the re-delivered reply since streamedTurnSeqs was not
+                      // updated and deliver() won't know to clean up.
+                      pendingOrphanDeletes.push(finalizeId);
+                    }
+                  }
+                }
+              : undefined,
+            // Disable core block streaming since we handle streaming via onPartialReply.
+            disableBlockStreaming: blockStreamingClient
+              ? true
+              : typeof account.blockStreaming === "boolean"
+                ? !account.blockStreaming
+                : undefined,
             onModelSelected,
           },
         }),
