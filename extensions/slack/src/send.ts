@@ -16,10 +16,11 @@ import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { loadWebMedia } from "openclaw/plugin-sdk/web-media";
 import type { SlackTokenSource } from "./accounts.js";
 import { resolveSlackAccount } from "./accounts.js";
+import { markdownTablesToBlockKitAttachment } from "./block-kit-tables.js";
 import { buildSlackBlocksFallbackText } from "./blocks-fallback.js";
 import { validateSlackBlocksArray } from "./blocks-input.js";
 import { createSlackWebClient } from "./client.js";
-import { markdownToSlackMrkdwnChunks } from "./format.js";
+import { markdownToSlackMrkdwnChunks, markdownToSlackMrkdwnWithTables } from "./format.js";
 import { SLACK_TEXT_LIMIT } from "./limits.js";
 import { parseSlackTarget } from "./targets.js";
 import { resolveSlackBotToken } from "./token.js";
@@ -58,6 +59,8 @@ type SlackSendOpts = {
   threadTs?: string;
   identity?: SlackSendIdentity;
   blocks?: (Block | KnownBlock)[];
+  /** Override the markdown table mode (useful for testing without plugin registry). */
+  tableMode?: import("openclaw/plugin-sdk/config-runtime").MarkdownTableMode;
 };
 
 function hasCustomIdentity(identity?: SlackSendIdentity): boolean {
@@ -97,12 +100,14 @@ async function postSlackMessageBestEffort(params: {
   threadTs?: string;
   identity?: SlackSendIdentity;
   blocks?: (Block | KnownBlock)[];
+  attachments?: Record<string, unknown>[];
 }) {
   const basePayload = {
     channel: params.channelId,
     text: params.text,
     thread_ts: params.threadTs,
     ...(params.blocks?.length ? { blocks: params.blocks } : {}),
+    ...(params.attachments?.length ? { attachments: params.attachments } : {}),
   };
   try {
     // Slack Web API types model icon_url and icon_emoji as mutually exclusive.
@@ -345,7 +350,7 @@ export async function sendMessageSlack(
     fallbackLimit: SLACK_TEXT_LIMIT,
   });
   const chunkLimit = Math.min(textLimit, SLACK_TEXT_LIMIT);
-  const tableMode = resolveMarkdownTableMode({
+  const tableMode = opts.tableMode ?? resolveMarkdownTableMode({
     cfg,
     channel: "slack",
     accountId: account.accountId,
@@ -355,10 +360,37 @@ export async function sendMessageSlack(
     chunkMode === "newline"
       ? chunkMarkdownTextWithMode(trimmedMessage, chunkLimit, chunkMode)
       : [trimmedMessage];
-  const chunks = markdownChunks.flatMap((markdown) =>
-    markdownToSlackMrkdwnChunks(markdown, chunkLimit, { tableMode }),
-  );
-  const resolvedChunks = resolveTextChunksWithFallback(trimmedMessage, chunks);
+
+  // When tableMode is "block", extract table data alongside text chunks
+  // so we can send Block Kit table blocks as attachments.
+  let tableAttachments: Record<string, unknown>[] | undefined;
+  const chunks: string[] = [];
+
+  if (tableMode === "block") {
+    const allTables: import("openclaw/plugin-sdk/text-runtime").MarkdownTableData[] = [];
+    for (const markdown of markdownChunks) {
+      const result = markdownToSlackMrkdwnWithTables(markdown, chunkLimit, { tableMode });
+      chunks.push(...result.chunks);
+      allTables.push(...result.tables);
+    }
+    if (allTables.length > 0) {
+      tableAttachments = markdownTablesToBlockKitAttachment(allTables);
+    }
+  } else {
+    chunks.push(
+      ...markdownChunks.flatMap((markdown) =>
+        markdownToSlackMrkdwnChunks(markdown, chunkLimit, { tableMode }),
+      ),
+    );
+  }
+
+  // Use upstream's fallback resolver for non-table chunks.
+  // For block-mode tables, handle fallback ourselves to avoid injecting
+  // raw pipe-delimited markdown when tables consumed all content.
+  const resolvedChunks =
+    tableMode === "block" && tableAttachments?.length
+      ? chunks.length ? chunks : [" "]
+      : resolveTextChunksWithFallback(trimmedMessage, chunks);
   const mediaMaxBytes =
     typeof account.config.mediaMaxMb === "number"
       ? account.config.mediaMaxMb * 1024 * 1024
@@ -378,24 +410,45 @@ export async function sendMessageSlack(
       threadTs: opts.threadTs,
       maxBytes: mediaMaxBytes,
     });
-    for (const chunk of rest) {
+    for (let i = 0; i < rest.length; i++) {
+      const isLastChunk = i === rest.length - 1;
       const response = await postSlackMessageBestEffort({
         client,
         channelId,
-        text: chunk,
+        text: rest[i] ?? "",
         threadTs: opts.threadTs,
         identity: opts.identity,
+        ...(isLastChunk && tableAttachments ? { attachments: tableAttachments } : {}),
+      });
+      lastMessageId = response.ts ?? lastMessageId;
+    }
+    // If there were no follow-up chunks but we have table attachments,
+    // send them as a separate message.
+    if (rest.length === 0 && tableAttachments) {
+      const response = await postSlackMessageBestEffort({
+        client,
+        channelId,
+        // Slack requires non-empty text; use a space as fallback for
+        // table-only messages where all content is in attachments.
+        text: " ",
+        threadTs: opts.threadTs,
+        identity: opts.identity,
+        attachments: tableAttachments,
       });
       lastMessageId = response.ts ?? lastMessageId;
     }
   } else {
-    for (const chunk of resolvedChunks.length ? resolvedChunks : [""]) {
+    // Send text chunks. Attach Block Kit tables to the last chunk
+    // so the table renders at the end of the message.
+    for (let i = 0; i < resolvedChunks.length; i++) {
+      const isLastChunk = i === resolvedChunks.length - 1;
       const response = await postSlackMessageBestEffort({
         client,
         channelId,
-        text: chunk,
+        text: resolvedChunks[i] ?? "",
         threadTs: opts.threadTs,
         identity: opts.identity,
+        ...(isLastChunk && tableAttachments ? { attachments: tableAttachments } : {}),
       });
       lastMessageId = response.ts ?? lastMessageId;
     }

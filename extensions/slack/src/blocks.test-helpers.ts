@@ -34,6 +34,12 @@ vi.mock("openclaw/plugin-sdk/config-runtime", async (importOriginal) => {
   };
 });
 
+// The channel plugin registry isn't initialized in unit tests, so
+// normalizeChannelId("slack") returns null and resolveMarkdownTableMode
+// falls back to "code" instead of Slack's default "block".
+// We mock the channels registry to recognise "slack" without full plugin init.
+
+
 vi.mock("./accounts.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./accounts.js")>();
   return {
@@ -45,6 +51,11 @@ vi.mock("./accounts.js", async (importOriginal) => {
 // Kept for compatibility with existing tests; mocks install at module evaluation.
 export function installSlackBlockTestMocks() {
   return;
+}
+
+/** Override the mock config for a test (e.g. to set tableMode). */
+export function setBlockTestConfig(config: Record<string, unknown>) {
+  slackBlockTestState.config = config as never;
 }
 
 export function createSlackEditTestClient(): SlackEditTestClient {
