@@ -1,9 +1,32 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { stripLeadingInboundMetadata } from "../../../../src/auto-reply/reply/strip-inbound-meta.js";
 import { resolveSessionTranscriptsDirForAgent } from "../../../../src/config/sessions/paths.js";
 import { redactSensitiveText } from "../../../../src/logging/redact.js";
 import { createSubsystemLogger } from "../../../../src/logging/subsystem.js";
 import { hashText } from "./internal.js";
+
+/**
+ * Matches one or more leading directive tags (audio/reply) at the very start of text,
+ * optionally preceded by whitespace.  Inline mentions pass through unchanged so they
+ * remain searchable in the memory index.
+ */
+const LEADING_DIRECTIVE_TAGS_RE =
+  /^(\s*\[\[\s*(?:audio_as_voice|reply_to_current|reply_to\s*:\s*[^\]\n]+)\s*\]\]\s*)+/i;
+
+/**
+ * Matches the leading timestamp envelope injected by `injectTimestamp`.
+ * Format: `[DOW YYYY-MM-DD HH:MM TZ] ` — e.g. `[Wed 2026-03-27 14:47 EDT] `.
+ *
+ * The DOW prefix means the year does NOT appear immediately after `[`, so a
+ * simple `includes("[20")` check misses this format entirely.  We anchor on
+ * the date component `\d{4}-\d{2}-\d{2}` to avoid matching arbitrary
+ * square-bracket constructs.
+ *
+ * Must stay in sync with `LEADING_TIMESTAMP_PREFIX_RE` in
+ * `src/auto-reply/reply/strip-inbound-meta.ts`.
+ */
+const LEADING_TIMESTAMP_ENVELOPE_RE = /^\[[A-Za-z]{3} \d{4}-\d{2}-\d{2} \d{2}:\d{2}[^\]]*\] */;
 
 const log = createSubsystemLogger("memory");
 
@@ -43,6 +66,105 @@ function normalizeSessionText(value: string): string {
     .trim();
 }
 
+/**
+ * Strips leading `System:` prefixed lines injected by `drainFormattedSystemEvents`
+ * (plus any trailing blank separator lines) before returning the remainder.
+ *
+ * In the auto-reply path, `prependEvents` prepends drained system events to the user
+ * body *before* the inbound metadata block:
+ *
+ *   System: <event>\n
+ *   System: <event>\n
+ *   \n
+ *   Conversation info (untrusted metadata):\n
+ *   …
+ *
+ * This means `stripLeadingInboundMetadata` — which only strips when the *first*
+ * non-empty line is a metadata sentinel — silently skips the metadata block because
+ * the `System:` lines come first.  Removing those lines before calling the strip
+ * function restores the expected layout.
+ *
+ * Returns the original string reference unchanged when no `System:` lines are present
+ * at the start (zero-allocation fast path).
+ */
+function stripLeadingSystemEventLines(text: string): string {
+  if (!text.startsWith("System: ")) {
+    return text;
+  }
+  const lines = text.split("\n");
+  let index = 0;
+  while (index < lines.length && lines[index].startsWith("System: ")) {
+    index++;
+  }
+  // Skip blank separator lines that follow the System: block
+  // (prependEvents joins with "\n\n" so there may be one or more blanks).
+  while (index < lines.length && lines[index].trim() === "") {
+    index++;
+  }
+  return index === 0 ? text : lines.slice(index).join("\n");
+}
+
+/**
+ * Strips OpenClaw-injected metadata from a raw content string before
+ * normalization. Must be called on the original multi-line text so that
+ * the line-based sentinel detection in `stripLeadingInboundMetadata` works correctly.
+ */
+function stripRawContentMeta(raw: string, role: "user" | "assistant"): string {
+  // Only strip inbound metadata for user messages — assistant responses may
+  // legitimately quote or discuss metadata headers (e.g. troubleshooting output).
+
+  // Strip leading `System:` lines that `drainFormattedSystemEvents` prepends in the
+  // auto-reply path.  They appear BEFORE the inbound metadata block when system events
+  // are drained, which causes `stripLeadingInboundMetadata` to miss the sentinel
+  // because it checks only the first non-empty line.  Stripping them here restores the
+  // expected layout so sentinel detection works correctly.
+  const withoutSysEvents = role === "user" ? stripLeadingSystemEventLines(raw) : raw;
+
+  // Fast-path: skip stripping entirely when the text clearly contains no injected
+  // metadata. We check several sentinel patterns to cover all formats:
+  //   '<'                        — XML-style fenced blocks
+  //   "untrusted metadata"       — "Conversation info (untrusted metadata):" etc.
+  //   "untrusted, for context"   — "Thread starter (untrusted, for context):" etc.
+  //   "Untrusted context"        — standalone UNTRUSTED_CONTEXT_HEADER prefix
+  //   LEADING_TIMESTAMP_ENVELOPE_RE — injected timestamp e.g. "[Wed 2026-03-27 …]"
+  //     NOTE: `includes("[20")` does NOT match "[Wed 2026-…]" because the DOW
+  //     abbreviation precedes the year, so we use the regex instead.
+  const mightHaveMeta =
+    role === "user" &&
+    (withoutSysEvents.includes("<") ||
+      withoutSysEvents.includes("untrusted metadata") ||
+      withoutSysEvents.includes("untrusted, for context") ||
+      withoutSysEvents.includes("Untrusted context") ||
+      LEADING_TIMESTAMP_ENVELOPE_RE.test(withoutSysEvents));
+  const afterMeta = mightHaveMeta
+    ? stripLeadingInboundMetadata(withoutSysEvents)
+    : withoutSysEvents;
+  // `stripLeadingInboundMetadata` strips inbound metadata sentinel blocks but does
+  // NOT remove the timestamp envelope — that is handled by `stripInboundMetadata`
+  // (the full-strip path used by UI surfaces).  Strip it here so that any
+  // directive tags that follow the timestamp are correctly detected as leading
+  // tags by `LEADING_DIRECTIVE_TAGS_RE`.
+  // Gate timestamp stripping to user messages only — assistant content may
+  // legitimately begin with timestamp-like text (e.g. quoting logs or schedules)
+  // and silently truncating it would be a regression.
+  const afterTs =
+    role === "user" ? afterMeta.replace(LEADING_TIMESTAMP_ENVELOPE_RE, "") : afterMeta;
+  if (!afterTs.includes("[[")) {
+    return afterTs;
+  }
+  // Only strip directive tags at leading control-tag positions (start of text),
+  // and only for user messages. Assistant responses may legitimately begin with
+  // [[reply_to_current]] or [[reply_to:...]] (e.g. structured reply formatting,
+  // tool output quoting, or discussion of the directive protocol) — silently
+  // rewriting them would corrupt the searchable transcript index.
+  if (role !== "user") {
+    return afterTs;
+  }
+  // Inline mid-text mentions (e.g. discussing [[reply_to_current]] in docs)
+  // are left intact so they remain searchable in the memory index.
+  return afterTs.replace(LEADING_DIRECTIVE_TAGS_RE, "");
+}
+
 export function extractSessionText(content: unknown): string | null {
   if (typeof content === "string") {
     const normalized = normalizeSessionText(content);
@@ -69,6 +191,54 @@ export function extractSessionText(content: unknown): string | null {
     return null;
   }
   return parts.join(" ");
+}
+
+/**
+ * Like `extractSessionText` but strips OpenClaw-injected inbound metadata
+ * blocks and inline directive tags from raw content *before* normalization.
+ * Stripping must happen pre-normalization so that line-based sentinel
+ * detection in `stripLeadingInboundMetadata` can identify the fenced JSON blocks.
+ *
+ * The `role` parameter controls whether `stripLeadingInboundMetadata` is applied:
+ * only `user` messages have their metadata blocks removed. Assistant messages
+ * may legitimately reference metadata headers, so they are kept intact.
+ *
+ * For multipart (array) content: raw parts are joined *before* stripping so
+ * that leading-tag detection sees the whole message rather than each fragment
+ * in isolation (a later fragment starting with `[[reply_to_*]]` is not a
+ * leading directive tag of the overall message).
+ */
+function extractAndStripSessionText(content: unknown, role: "user" | "assistant"): string | null {
+  if (typeof content === "string") {
+    const clean = stripRawContentMeta(content, role);
+    const normalized = normalizeSessionText(clean);
+    return normalized ? normalized : null;
+  }
+  if (!Array.isArray(content)) {
+    return null;
+  }
+  const rawParts: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") {
+      continue;
+    }
+    const record = block as { type?: unknown; text?: unknown };
+    if (record.type !== "text" || typeof record.text !== "string") {
+      continue;
+    }
+    if (record.text) {
+      rawParts.push(record.text);
+    }
+  }
+  if (rawParts.length === 0) {
+    return null;
+  }
+  // Join first so that leading-directive-tag detection operates on the
+  // full message rather than each fragment in isolation.
+  const joined = rawParts.join("\n");
+  const clean = stripRawContentMeta(joined, role);
+  const normalized = normalizeSessionText(clean);
+  return normalized ? normalized : null;
 }
 
 export async function buildSessionEntry(absPath: string): Promise<SessionFileEntry | null> {
@@ -105,7 +275,7 @@ export async function buildSessionEntry(absPath: string): Promise<SessionFileEnt
       if (message.role !== "user" && message.role !== "assistant") {
         continue;
       }
-      const text = extractSessionText(message.content);
+      const text = extractAndStripSessionText(message.content, message.role);
       if (!text) {
         continue;
       }
