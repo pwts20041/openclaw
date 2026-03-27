@@ -130,7 +130,9 @@ export async function retryAsync<T>(
         // Jitter is applied on top but must not reduce below the server-required floor.
         const serverFloor = Math.max(safeRetryAfterMs, minDelayMs);
         const jittered = applyJitter(serverFloor, jitter);
-        delay = Math.max(jittered, serverFloor);
+        // Re-clamp after jitter: applyJitter can push the value above TIMER_SAFE_MAX_MS
+        // (e.g. +10% on a value near the cap), which would still overflow Node.js setTimeout.
+        delay = Math.min(Math.max(jittered, serverFloor), TIMER_SAFE_MAX_MS);
       } else {
         const baseDelay = minDelayMs * 2 ** (attempt - 1);
         delay = Math.min(baseDelay, maxDelayMs);

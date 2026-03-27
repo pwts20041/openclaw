@@ -5,6 +5,7 @@ async function runRetryAfterCase(params: {
   minDelayMs: number;
   maxDelayMs: number;
   retryAfterMs: number;
+  jitter?: number;
 }): Promise<number[]> {
   vi.clearAllTimers();
   vi.useFakeTimers();
@@ -15,7 +16,7 @@ async function runRetryAfterCase(params: {
       attempts: 2,
       minDelayMs: params.minDelayMs,
       maxDelayMs: params.maxDelayMs,
-      jitter: 0,
+      jitter: params.jitter ?? 0,
       retryAfterMs: () => params.retryAfterMs,
       onRetry: (info) => delays.push(info.delayMs),
     });
@@ -172,6 +173,20 @@ describe("retryAsync", () => {
     });
     expect(delays[0]).toBe(TIMER_SAFE_MAX_MS);
     expect(delays[0]).toBeLessThan(3_000_000_000);
+  });
+
+  it("clamps final delay to TIMER_SAFE_MAX_MS even after jitter can push it above the cap", async () => {
+    // retry_after = 2_000_000_000 ms is below TIMER_SAFE_MAX_MS (~2.147B), so pre-jitter
+    // clamping does not fire. With jitter=0.1 (+10% worst case) the value becomes up to
+    // 2_200_000_000 ms which exceeds TIMER_SAFE_MAX_MS and would overflow Node.js setTimeout.
+    // The post-jitter re-clamp must catch this.
+    const delays = await runRetryAfterCase({
+      minDelayMs: 0,
+      maxDelayMs: Number.POSITIVE_INFINITY,
+      retryAfterMs: 2_000_000_000,
+      jitter: 0.1,
+    });
+    expect(delays[0]).toBeLessThanOrEqual(TIMER_SAFE_MAX_MS);
   });
 });
 
