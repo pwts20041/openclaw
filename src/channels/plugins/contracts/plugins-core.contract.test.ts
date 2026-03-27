@@ -29,7 +29,12 @@ import type { OpenClawConfig } from "../../../config/config.js";
 import type { LineProbeResult } from "../../../plugin-sdk/line.js";
 import { clearPluginDiscoveryCache } from "../../../plugins/discovery.js";
 import { clearPluginManifestRegistryCache } from "../../../plugins/manifest-registry.js";
-import { setActivePluginRegistry } from "../../../plugins/runtime.js";
+import {
+  releasePinnedPluginChannelRegistry,
+  pinActivePluginChannelRegistry,
+  resetPluginRuntimeStateForTest,
+  setActivePluginRegistry,
+} from "../../../plugins/runtime.js";
 import {
   createChannelTestPluginBase,
   createMSTeamsTestPluginBase,
@@ -73,10 +78,14 @@ describe("channel plugin registry", () => {
   });
 
   beforeEach(() => {
+    resetPluginRuntimeStateForTest();
+    releasePinnedPluginChannelRegistry();
     setActivePluginRegistry(emptyRegistry);
   });
 
   afterEach(() => {
+    releasePinnedPluginChannelRegistry();
+    resetPluginRuntimeStateForTest();
     setActivePluginRegistry(emptyRegistry);
     clearPluginDiscoveryCache();
     clearPluginManifestRegistryCache();
@@ -615,10 +624,14 @@ async function expectDirectoryIds(
 
 describe("channel plugin loader", () => {
   beforeEach(() => {
+    resetPluginRuntimeStateForTest();
+    releasePinnedPluginChannelRegistry();
     setActivePluginRegistry(emptyRegistry);
   });
 
   afterEach(() => {
+    releasePinnedPluginChannelRegistry();
+    resetPluginRuntimeStateForTest();
     setActivePluginRegistry(emptyRegistry);
     clearPluginDiscoveryCache();
     clearPluginManifestRegistryCache();
@@ -648,6 +661,17 @@ describe("channel plugin loader", () => {
     expect(await loadChannelOutboundAdapter("msteams")).toBe(msteamsOutbound);
     setActivePluginRegistry(registryWithMSTeamsV2);
     expect(await loadChannelOutboundAdapter("msteams")).toBe(msteamsOutboundV2);
+  });
+
+  it("keeps outbound adapters on the pinned channel registry across active registry swaps", async () => {
+    setActivePluginRegistry(registryWithMSTeams);
+    pinActivePluginChannelRegistry(registryWithMSTeams);
+
+    expect(await loadChannelOutboundAdapter("msteams")).toBe(msteamsOutbound);
+
+    setActivePluginRegistry(emptyRegistry);
+
+    expect(await loadChannelOutboundAdapter("msteams")).toBe(msteamsOutbound);
   });
 
   it("returns undefined when plugin has no outbound adapter", async () => {
