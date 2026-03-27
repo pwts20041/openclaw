@@ -116,6 +116,7 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "sessions.abort",
     "push.test",
     "node.pending.enqueue",
+    "sessions.send",
   ],
   [ADMIN_SCOPE]: [
     "channels.logout",
