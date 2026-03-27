@@ -426,6 +426,11 @@ export async function runCronIsolatedAgentTurn(params: {
   let runResult: Awaited<ReturnType<typeof runEmbeddedPiAgent>> | undefined;
   let fallbackProvider = provider;
   let fallbackModel = model;
+  // Capture original model/provider before runPrompt may reassign the outer
+  // `provider`/`model` variables via fallback. Needed for an accurate
+  // `isFromFallback` comparison after the run.
+  const originalProvider = provider;
+  const originalModel = model;
   const runStartedAt = Date.now();
   let runEndedAt = runStartedAt;
   try {
@@ -626,12 +631,40 @@ export async function runCronIsolatedAgentTurn(params: {
       lookupContextTokens(modelUsed, { allowAsyncLoad: false }) ??
       DEFAULT_CONTEXT_TOKENS;
 
-    setSessionRuntimeModel(cronSession.sessionEntry, {
-      provider: providerUsed,
-      model: modelUsed,
-    });
-    cronSession.sessionEntry.contextTokens = contextTokens;
-    if (isCliProvider(providerUsed, cfgWithAgentDefaults)) {
+    // Only persist the runtime model when the primary was used. A fallback model
+    // is a transient choice; writing it back would prevent the primary from being
+    // retried on future runs once it recovers.
+    // Compare against the *original* model/provider captured before `runPrompt`
+    // reassigned the outer variables via fallback result (#48417).
+    //
+    // Hook override exception: a `before_model_resolve` hook can legitimately
+    // rewrite the provider/model without being a fallback. When isHookOverride is
+    // set, the change is plugin-directed and must be persisted as the session
+    // runtime model even though it differs from the configured default.
+    const isHookOverride = finalRunResult.meta?.agentMeta?.isHookOverride === true;
+    const isFromFallback =
+      !isHookOverride && (modelUsed !== originalModel || providerUsed !== originalProvider);
+    if (!isFromFallback) {
+      setSessionRuntimeModel(cronSession.sessionEntry, {
+        provider: providerUsed,
+        model: modelUsed,
+      });
+      cronSession.sessionEntry.contextTokens = contextTokens;
+    } else {
+      // When a fallback was used, contextTokens was derived from the fallback model.
+      // Downstream readers like resolveGatewaySessionRow prefer stored entry.contextTokens,
+      // so storing a fallback model's window would cause token-window drift until the
+      // next non-fallback run. Instead, store the primary model's context window.
+      const primaryContextTokens =
+        agentCfg?.contextTokens ??
+        lookupContextTokens(originalModel, { allowAsyncLoad: false }) ??
+        DEFAULT_CONTEXT_TOKENS;
+      cronSession.sessionEntry.contextTokens = primaryContextTokens;
+    }
+    // CLI session IDs are resume handles — persisting one from a fallback run would
+    // cause the next run to resume from a fallback-provider session, preventing the
+    // primary from being retried once it recovers. Guard these writes the same way.
+    if (!isFromFallback && isCliProvider(providerUsed, cfgWithAgentDefaults)) {
       const cliSessionId = finalRunResult.meta?.agentMeta?.sessionId?.trim();
       if (cliSessionId) {
         setCliSessionId(cronSession.sessionEntry, providerUsed, cliSessionId);

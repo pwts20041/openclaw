@@ -8,6 +8,14 @@ export type EmbeddedPiAgentMeta = {
   cliSessionBinding?: CliSessionBinding;
   compactionCount?: number;
   promptTokens?: number;
+  /**
+   * True when a `before_model_resolve` (or legacy `before_agent_start`) hook
+   * changed the provider/model from what the caller requested. Callers can
+   * use this to distinguish a deliberate hook-directed model change from an
+   * automatic fallback, and persist the hook-selected model as the session
+   * runtime model even though it differs from the configured default.
+   */
+  isHookOverride?: boolean;
   usage?: {
     input?: number;
     output?: number;

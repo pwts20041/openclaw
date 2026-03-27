@@ -163,6 +163,11 @@ export async function runEmbeddedPiAgent(
         hookRunner,
         hookContext: hookCtx,
       });
+      // Track whether a hook actually changed the provider/model so downstream
+      // callers (session-store, cron) can distinguish a deliberate hook-directed
+      // rewrite from an automatic fallback and persist the model accordingly.
+      const isHookOverride =
+        hookSelection.provider !== provider || hookSelection.modelId !== modelId;
       provider = hookSelection.provider;
       modelId = hookSelection.modelId;
       const legacyBeforeAgentStartResult = hookSelection.legacyBeforeAgentStartResult;
@@ -443,6 +448,7 @@ export async function runEmbeddedPiAgent(
                   usageAccumulator,
                   lastRunPromptUsage,
                   lastTurnTotal,
+                  isHookOverride,
                 }),
                 error: { kind: "retry_limit", message },
               },
@@ -942,6 +948,7 @@ export async function runEmbeddedPiAgent(
                   lastRunPromptUsage,
                   lastAssistant,
                   lastTurnTotal,
+                  isHookOverride,
                 }),
                 systemPromptReport: attempt.systemPromptReport,
                 error: { kind, message: errorText },
@@ -986,6 +993,7 @@ export async function runEmbeddedPiAgent(
                     lastRunPromptUsage,
                     lastAssistant,
                     lastTurnTotal,
+                    isHookOverride,
                   }),
                   systemPromptReport: attempt.systemPromptReport,
                   error: { kind: "role_ordering", message: errorText },
@@ -1018,6 +1026,7 @@ export async function runEmbeddedPiAgent(
                     lastRunPromptUsage,
                     lastAssistant,
                     lastTurnTotal,
+                    isHookOverride,
                   }),
                   systemPromptReport: attempt.systemPromptReport,
                   error: { kind: "image_size", message: errorText },
@@ -1246,6 +1255,7 @@ export async function runEmbeddedPiAgent(
             lastCallUsage: usageMeta.lastCallUsage,
             promptTokens: usageMeta.promptTokens,
             compactionCount: autoCompactionCount > 0 ? autoCompactionCount : undefined,
+            ...(isHookOverride ? { isHookOverride: true } : {}),
           };
 
           const payloads = buildEmbeddedRunPayloads({

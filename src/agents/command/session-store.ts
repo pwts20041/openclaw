@@ -63,17 +63,52 @@ export async function updateSessionStoreAfterAgentRun(params: {
     sessionId,
     updatedAt: Date.now(),
   };
+  // Do not persist a fallback model as the session's runtime model. If we did,
+  // resolveSessionModelRef would return the fallback on every subsequent request
+  // and the configured primary model would never be retried after it recovers.
+  // The fallback is an in-flight transient choice, not a durable session setting.
+  //
+  // Compute fallback-ness from the model/provider actually used vs. the configured
+  // defaults — always derived internally so callers cannot accidentally skip the guard.
+  //
+  // Hook override exception: a `before_model_resolve` hook can legitimately rewrite
+  // the provider/model without triggering a fallback. When the run reports
+  // isHookOverride, the model change is a deliberate plugin-directed choice and must
+  // be persisted as the session runtime model even though it differs from the default.
+  const isHookOverride = result.meta.agentMeta?.isHookOverride === true;
+  const isFromFallback =
+    !isHookOverride && (modelUsed !== defaultModel || providerUsed !== defaultProvider);
+  // When a fallback was used, contextTokens was derived from the fallback model above.
+  // Downstream readers like resolveGatewaySessionRow prefer stored entry.contextTokens,
+  // so storing a fallback model's window would cause token-window drift until the next
+  // non-fallback run. Instead, recompute contextTokens from the primary model so the
+  // stored value always reflects the session's configured context window.
+  const persistedContextTokens = isFromFallback
+    ? (resolveContextTokensForModel({
+        cfg,
+        provider: defaultProvider,
+        model: defaultModel,
+        contextTokensOverride: params.contextTokensOverride,
+        fallbackContextTokens: DEFAULT_CONTEXT_TOKENS,
+        allowAsyncLoad: false,
+      }) ?? DEFAULT_CONTEXT_TOKENS)
+    : contextTokens;
   const next: SessionEntry = {
     ...entry,
     sessionId,
     updatedAt: Date.now(),
-    contextTokens,
+    contextTokens: persistedContextTokens,
   };
-  setSessionRuntimeModel(next, {
-    provider: providerUsed,
-    model: modelUsed,
-  });
-  if (isCliProvider(providerUsed, cfg)) {
+  if (!isFromFallback) {
+    setSessionRuntimeModel(next, {
+      provider: providerUsed,
+      model: modelUsed,
+    });
+  }
+  // CLI session IDs are resume handles — persisting one from a fallback run would
+  // cause the next turn to resume from a fallback-provider session, preventing the
+  // primary from being retried once it recovers. Guard these writes the same way.
+  if (!isFromFallback && isCliProvider(providerUsed, cfg)) {
     const cliSessionBinding = result.meta.agentMeta?.cliSessionBinding;
     if (cliSessionBinding?.sessionId?.trim()) {
       setCliSessionBinding(next, providerUsed, cliSessionBinding);
