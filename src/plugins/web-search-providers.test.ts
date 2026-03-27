@@ -11,6 +11,7 @@ describe("resolveBundledPluginWebSearchProviders", () => {
       const providers = resolveBundledPluginWebSearchProviders({});
 
       expect(providers.map((provider) => `${provider.pluginId}:${provider.id}`)).toEqual([
+        "baidu:baidu",
         "brave:brave",
         "duckduckgo:duckduckgo",
         "exa:exa",
@@ -22,6 +23,7 @@ describe("resolveBundledPluginWebSearchProviders", () => {
         "tavily:tavily",
       ]);
       expect(providers.map((provider) => provider.credentialPath)).toEqual([
+        "plugins.entries.baidu.config.webSearch.apiKey",
         "plugins.entries.brave.config.webSearch.apiKey",
         "",
         "plugins.entries.exa.config.webSearch.apiKey",
@@ -52,6 +54,7 @@ describe("resolveBundledPluginWebSearchProviders", () => {
     });
 
     expect(providers.map((provider) => provider.pluginId)).toEqual([
+      "baidu",
       "brave",
       "duckduckgo",
       "exa",
@@ -108,6 +111,7 @@ describe("resolveBundledPluginWebSearchProviders", () => {
     });
 
     expect(providers.map((provider) => `${provider.pluginId}:${provider.id}`)).toEqual([
+      "baidu:baidu",
       "brave:brave",
       "duckduckgo:duckduckgo",
       "exa:exa",

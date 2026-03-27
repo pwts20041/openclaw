@@ -218,6 +218,52 @@ export const GENERATED_BUNDLED_PLUGIN_METADATA = [
     },
   },
   {
+    dirName: "baidu",
+    idHint: "baidu",
+    source: {
+      source: "./index.ts",
+      built: "index.js",
+    },
+    packageName: "@openclaw/baidu-plugin",
+    packageVersion: "2026.3.14",
+    packageDescription: "OpenClaw Baidu plugin",
+    packageManifest: {
+      extensions: ["./index.ts"],
+    },
+    manifest: {
+      id: "baidu",
+      configSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          webSearch: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              apiKey: {
+                type: ["string", "object"],
+              },
+            },
+          },
+        },
+      },
+      providerAuthEnvVars: {
+        baidu: ["BAIDU_SEARCH_API_KEY"],
+      },
+      uiHints: {
+        "webSearch.apiKey": {
+          label: "Baidu Search API Key",
+          help: "Baidu Search API key (fallback: BAIDU_SEARCH_API_KEY env var).",
+          sensitive: true,
+          placeholder: "bce-...",
+        },
+      },
+      contracts: {
+        webSearchProviders: ["baidu"],
+      },
+    },
+  },
+  {
     dirName: "bluebubbles",
     idHint: "bluebubbles",
     source: {
