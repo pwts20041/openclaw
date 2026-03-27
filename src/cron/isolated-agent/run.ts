@@ -401,6 +401,7 @@ export async function runCronIsolatedAgentTurn(params: {
   // must not prevent the actual agent run from executing.
   cronSession.sessionEntry.modelProvider = provider;
   cronSession.sessionEntry.model = model;
+  cronSession.sessionEntry.modelIsFromFallback = false;
   cronSession.sessionEntry.systemSent = true;
   try {
     await persistSessionEntry();
