@@ -33,24 +33,21 @@ const DEFAULT_PROVIDER_CAPABILITIES: ProviderCapabilities = {
   transcriptToolCallIdMode: "default",
   transcriptToolCallIdModelHints: [],
   geminiThoughtSignatureModelHints: [],
-  dropThinkingBlockModelHints: [],
+  dropThinkingBlockModelHints: ["*"],
 };
 
 const CORE_PROVIDER_CAPABILITIES: Record<string, Partial<ProviderCapabilities>> = {
   "anthropic-vertex": {
     providerFamily: "anthropic",
-    dropThinkingBlockModelHints: ["claude"],
   },
   "amazon-bedrock": {
     providerFamily: "anthropic",
-    dropThinkingBlockModelHints: ["claude"],
   },
 };
 
 const PLUGIN_CAPABILITIES_FALLBACKS: Record<string, Partial<ProviderCapabilities>> = {
   anthropic: {
     providerFamily: "anthropic",
-    dropThinkingBlockModelHints: ["claude"],
   },
   mistral: {
     transcriptToolCallIdMode: "strict9",
@@ -184,6 +181,9 @@ export function sanitizesGeminiThoughtSignatures(
 }
 
 function modelIncludesAnyHint(modelId: string | null | undefined, hints: string[]): boolean {
+  if (hints.includes("*")) {
+    return true;
+  }
   const normalized = (modelId ?? "").toLowerCase();
   return Boolean(normalized) && hints.some((hint) => normalized.includes(hint));
 }
