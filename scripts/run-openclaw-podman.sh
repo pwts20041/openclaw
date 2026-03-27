@@ -104,7 +104,8 @@ fi
 # Keep Podman default local-only unless explicitly overridden.
 # Non-loopback binds require gateway.controlUi.allowedOrigins (security hardening).
 # NOTE: must be evaluated after sourcing ENV_FILE so OPENCLAW_GATEWAY_BIND set in .env takes effect.
-GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-loopback}"
+# If OPENCLAW_GATEWAY_BIND is not set, we rely on gateway's config (gateway.bind) or its default.
+GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-}"
 
 upsert_env_var() {
   local file="$1"
@@ -228,7 +229,7 @@ podman run --pull="$PODMAN_PULL" -d --replace \
   -p "${HOST_GATEWAY_PORT}:18789" \
   -p "${HOST_BRIDGE_PORT}:18790" \
   "$OPENCLAW_IMAGE" \
-  node dist/index.js gateway --bind "$GATEWAY_BIND" --port 18789
+   node dist/index.js gateway ${GATEWAY_BIND:+--bind "$GATEWAY_BIND"} --port 18789
 
 echo "Container $CONTAINER_NAME started. Dashboard: http://127.0.0.1:${HOST_GATEWAY_PORT}/"
 echo "Logs: podman logs -f $CONTAINER_NAME"
