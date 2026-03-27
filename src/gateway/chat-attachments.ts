@@ -5,14 +5,17 @@ import { MAX_PAYLOAD_BYTES } from "./server-constants.js";
 
 const DEFAULT_INBOUND_MEDIA_MAX_BYTES = 5_000_000;
 
-// Base64 expands raw bytes by ~4/3; clamp configured limit so the encoded
-// payload never exceeds the WS frame budget (MAX_PAYLOAD_BYTES).
-const WS_INBOUND_MAX_BYTES = Math.floor((MAX_PAYLOAD_BYTES * 3) / 4);
+// Reserve headroom for the JSON-RPC envelope (method, params, session id, etc.).
+const WS_JSON_OVERHEAD = 4 * 1024;
+// Base64 expands raw bytes by ~4/3; clamp so the encoded payload plus envelope
+// stays within the WS frame budget.
+const WS_INBOUND_MAX_BYTES = Math.floor(((MAX_PAYLOAD_BYTES - WS_JSON_OVERHEAD) * 3) / 4);
 
 /**
  * Resolve the inbound media size limit from config (`agents.defaults.mediaMaxMb`),
- * falling back to 5 000 000 bytes when unset. The resolved value is clamped to
- * the maximum that can be base64-encoded within the WS transport frame budget.
+ * falling back to 5 000 000 bytes when unset. The resolved value is clamped so
+ * that the base64-encoded payload plus JSON-RPC envelope fit within the WS frame
+ * budget (`MAX_PAYLOAD_BYTES`).
  */
 export function resolveInboundMediaMaxBytes(
   cfg: Pick<OpenClawConfig, "agents"> | undefined,

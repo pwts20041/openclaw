@@ -7,7 +7,8 @@ import {
 } from "./chat-attachments.js";
 import { MAX_PAYLOAD_BYTES } from "./server-constants.js";
 
-const WS_INBOUND_MAX_BYTES = Math.floor((MAX_PAYLOAD_BYTES * 3) / 4);
+const WS_JSON_OVERHEAD = 4 * 1024;
+const WS_INBOUND_MAX_BYTES = Math.floor(((MAX_PAYLOAD_BYTES - WS_JSON_OVERHEAD) * 3) / 4);
 
 const PNG_1x1 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/woAAn8B9FD5fHAAAAAASUVORK5CYII=";
@@ -195,7 +196,7 @@ describe("resolveInboundMediaMaxBytes", () => {
   });
 
   it("converts configured MB to bytes", () => {
-    // 20 MiB exceeds the WS transport cap (~18.75 MiB), so it is clamped
+    // 20 MiB exceeds the WS transport cap (envelope-adjusted ~18.74 MiB), so it is clamped
     expect(resolveInboundMediaMaxBytes({ agents: { defaults: { mediaMaxMb: 20 } } })).toBe(
       WS_INBOUND_MAX_BYTES,
     );
@@ -208,7 +209,7 @@ describe("resolveInboundMediaMaxBytes", () => {
   });
 
   it("clamps values that exceed the WS transport budget", () => {
-    // Any value above ~18.75 MiB should be clamped to WS_INBOUND_MAX_BYTES
+    // Any value above ~18.74 MiB should be clamped to WS_INBOUND_MAX_BYTES
     expect(resolveInboundMediaMaxBytes({ agents: { defaults: { mediaMaxMb: 100 } } })).toBe(
       WS_INBOUND_MAX_BYTES,
     );
