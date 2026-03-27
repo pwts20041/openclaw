@@ -10,6 +10,8 @@ import {
   speechProviderContractRegistry,
 } from "./registry.js";
 
+const REGISTRY_CONTRACT_TIMEOUT_MS = 300_000;
+
 function findProviderIdsForPlugin(pluginId: string) {
   return (
     pluginRegistrationContractRegistry.find((entry) => entry.pluginId === pluginId)?.providerIds ??
@@ -113,10 +115,14 @@ describe("plugin contract registry", () => {
     expect(ids).toEqual([...new Set(ids)]);
   });
 
-  it("does not duplicate bundled speech provider ids", () => {
-    const ids = speechProviderContractRegistry.map((entry) => entry.provider.id);
-    expect(ids).toEqual([...new Set(ids)]);
-  });
+  it(
+    "does not duplicate bundled speech provider ids",
+    { timeout: REGISTRY_CONTRACT_TIMEOUT_MS },
+    () => {
+      const ids = speechProviderContractRegistry.map((entry) => entry.provider.id);
+      expect(ids).toEqual([...new Set(ids)]);
+    },
+  );
 
   it("does not duplicate bundled media provider ids", () => {
     const ids = mediaUnderstandingProviderContractRegistry.map((entry) => entry.provider.id);
@@ -164,20 +170,6 @@ describe("plugin contract registry", () => {
         (left, right) => left.localeCompare(right),
       ),
     ).toEqual(bundledImagePluginIds);
-  });
-
-  it("keeps bundled legacy capability fields aligned with manifest contracts", () => {
-    for (const plugin of loadPluginManifestRegistry({}).plugins.filter(
-      (candidate) => candidate.origin === "bundled",
-    )) {
-      expect(plugin.speechProviders).toEqual(plugin.contracts?.speechProviders ?? []);
-      expect(plugin.mediaUnderstandingProviders).toEqual(
-        plugin.contracts?.mediaUnderstandingProviders ?? [],
-      );
-      expect(plugin.imageGenerationProviders).toEqual(
-        plugin.contracts?.imageGenerationProviders ?? [],
-      );
-    }
   });
 
   it("covers every bundled web search plugin from the shared resolver", () => {

@@ -2,11 +2,16 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   clearMemoryEmbeddingProviders,
   getMemoryEmbeddingProvider,
+  getRegisteredMemoryEmbeddingProvider,
   listMemoryEmbeddingProviders,
+  listRegisteredMemoryEmbeddingProviders,
   registerMemoryEmbeddingProvider,
+  restoreRegisteredMemoryEmbeddingProviders,
   restoreMemoryEmbeddingProviders,
   type MemoryEmbeddingProviderAdapter,
 } from "./memory-embedding-providers.js";
+
+const MEMORY_EMBEDDING_PROVIDERS_KEY = Symbol.for("openclaw.memoryEmbeddingProviders");
 
 function createAdapter(id: string): MemoryEmbeddingProviderAdapter {
   return {
@@ -39,11 +44,57 @@ describe("memory embedding provider registry", () => {
     expect(getMemoryEmbeddingProvider("beta")).toBe(beta);
   });
 
+  it("tracks owner plugin ids in registered snapshots", () => {
+    const alpha = createAdapter("alpha");
+    registerMemoryEmbeddingProvider(alpha, { ownerPluginId: "memory-core" });
+
+    expect(getRegisteredMemoryEmbeddingProvider("alpha")).toEqual({
+      adapter: alpha,
+      ownerPluginId: "memory-core",
+    });
+    expect(listRegisteredMemoryEmbeddingProviders()).toEqual([
+      {
+        adapter: alpha,
+        ownerPluginId: "memory-core",
+      },
+    ]);
+  });
+
+  it("restores registered snapshots with owner metadata", () => {
+    const beta = createAdapter("beta");
+
+    restoreRegisteredMemoryEmbeddingProviders([
+      {
+        adapter: beta,
+        ownerPluginId: "memory-core",
+      },
+    ]);
+
+    expect(getRegisteredMemoryEmbeddingProvider("beta")).toEqual({
+      adapter: beta,
+      ownerPluginId: "memory-core",
+    });
+  });
+
   it("clears the registry", () => {
     registerMemoryEmbeddingProvider(createAdapter("alpha"));
 
     clearMemoryEmbeddingProviders();
 
     expect(listMemoryEmbeddingProviders()).toEqual([]);
+  });
+
+  it("stores adapters in a process-global singleton map", () => {
+    const alpha = createAdapter("alpha");
+    registerMemoryEmbeddingProvider(alpha, { ownerPluginId: "memory-core" });
+
+    const globalRegistry = (globalThis as Record<PropertyKey, unknown>)[
+      MEMORY_EMBEDDING_PROVIDERS_KEY
+    ] as Map<string, { adapter: MemoryEmbeddingProviderAdapter; ownerPluginId?: string }>;
+
+    expect(globalRegistry.get("alpha")).toEqual({
+      adapter: alpha,
+      ownerPluginId: "memory-core",
+    });
   });
 });

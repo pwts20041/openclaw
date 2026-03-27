@@ -1,7 +1,7 @@
 {
   "id": "fal",
+  "enabledByDefault": true,
   "providers": ["fal"],
-  "imageGenerationProviders": ["fal"],
   "providerAuthEnvVars": {
     "fal": ["FAL_KEY"]
   },
