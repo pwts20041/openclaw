@@ -1,6 +1,6 @@
 import path from "node:path";
 import { resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
-import { resolveEffectiveToolFsWorkspaceOnly } from "../agents/tool-fs-policy.js";
+import { resolveToolFsConfig } from "../agents/tool-fs-policy.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveStateDir } from "../config/paths.js";
 import { safeFileURLToPath } from "../infra/local-file-access.js";
@@ -108,8 +108,17 @@ export function getAgentScopedMediaLocalRootsForSources(params: {
   agentId?: string;
   mediaSources?: readonly string[];
 }): readonly string[] {
+  const fsConfig = resolveToolFsConfig({ cfg: params.cfg, agentId: params.agentId });
+  if (fsConfig.roots) {
+    // Preserve fs-root metadata for outbound media checks even though the
+    // broader outbound plumbing still exposes this list as string[] today.
+    return fsConfig.roots.map((root) => ({
+      ...root,
+      path: path.resolve(root.path),
+    })) as unknown as string[];
+  }
   const roots = getAgentScopedMediaLocalRoots(params.cfg, params.agentId);
-  if (resolveEffectiveToolFsWorkspaceOnly({ cfg: params.cfg, agentId: params.agentId })) {
+  if (fsConfig.workspaceOnly) {
     return roots;
   }
   return appendLocalMediaParentRoots(roots, params.mediaSources);

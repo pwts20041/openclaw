@@ -471,6 +471,7 @@ export function createPdfTool(options?: {
           options?.workspaceDir,
           {
             workspaceOnly: options?.fsPolicy?.workspaceOnly === true,
+            roots: options?.fsPolicy?.roots,
           },
           [resolvedPathInfo.resolved],
         );

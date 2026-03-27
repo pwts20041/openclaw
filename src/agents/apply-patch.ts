@@ -74,6 +74,8 @@ type ApplyPatchOptions = {
   /** Restrict patch paths to the workspace root (cwd). Default: true. Set false to opt out. */
   workspaceOnly?: boolean;
   signal?: AbortSignal;
+  /** Optional validator for multi-root FS policy. Called with each resolved path. */
+  rootsValidator?: (resolvedPath: string, options?: { isUnlink?: boolean }) => Promise<void>;
 };
 
 const applyPatchSchema = Type.Object({
@@ -83,11 +85,17 @@ const applyPatchSchema = Type.Object({
 });
 
 export function createApplyPatchTool(
-  options: { cwd?: string; sandbox?: SandboxApplyPatchConfig; workspaceOnly?: boolean } = {},
+  options: {
+    cwd?: string;
+    sandbox?: SandboxApplyPatchConfig;
+    workspaceOnly?: boolean;
+    rootsValidator?: (resolvedPath: string, options?: { isUnlink?: boolean }) => Promise<void>;
+  } = {},
 ): AgentTool<typeof applyPatchSchema, ApplyPatchToolDetails> {
   const cwd = options.cwd ?? process.cwd();
   const sandbox = options.sandbox;
   const workspaceOnly = options.workspaceOnly !== false;
+  const rootsValidator = options.rootsValidator;
 
   return {
     name: "apply_patch",
@@ -112,6 +120,7 @@ export function createApplyPatchTool(
         sandbox,
         workspaceOnly,
         signal,
+        rootsValidator,
       });
 
       return {
@@ -340,6 +349,10 @@ async function resolvePatchPath(
         })
       ).resolved
     : resolvePathFromInput(filePath, options.cwd);
+  if (options.rootsValidator) {
+    const isUnlink = aliasPolicy.allowFinalSymlinkForUnlink === true;
+    await options.rootsValidator(resolved, { isUnlink });
+  }
   return {
     resolved,
     display: toDisplayPath(resolved, options.cwd),

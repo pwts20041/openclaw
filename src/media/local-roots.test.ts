@@ -1,6 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { LocalMediaRoot } from "./local-media-access.js";
 import {
   appendLocalMediaParentRoots,
   getAgentScopedMediaLocalRoots,
@@ -10,6 +11,14 @@ import {
 
 function normalizeHostPath(value: string): string {
   return path.normalize(path.resolve(value));
+}
+
+function normalizeMediaRootPath(root: LocalMediaRoot): string {
+  return normalizeHostPath(typeof root === "string" ? root : root.path);
+}
+
+function asMediaRoots(roots: readonly string[]): readonly LocalMediaRoot[] {
+  return roots as unknown as readonly LocalMediaRoot[];
 }
 
 describe("local media roots", () => {
@@ -90,5 +99,68 @@ describe("local media roots", () => {
     expect(strictRoots.map(normalizeHostPath)).not.toContain(
       normalizeHostPath("/Users/peter/Pictures"),
     );
+  });
+
+  it("keeps media roots strict when workspaceOnly and roots are both set", () => {
+    const stateDir = path.join("/tmp", "openclaw-mixed-media-roots-state");
+    vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
+
+    const strictRoots = getAgentScopedMediaLocalRootsForSources({
+      cfg: {
+        tools: {
+          fs: {
+            workspaceOnly: true,
+            roots: [{ path: "/packs/shared", kind: "dir", access: "ro" }],
+          },
+        },
+      },
+      agentId: "ops",
+      mediaSources: ["/Users/peter/Pictures/photo.png"],
+    });
+
+    expect(asMediaRoots(strictRoots).map(normalizeMediaRootPath)).not.toContain(
+      normalizeHostPath("/Users/peter/Pictures"),
+    );
+  });
+
+  it("uses configured fs roots for outbound media sources instead of widening by source parent", () => {
+    const roots = getAgentScopedMediaLocalRootsForSources({
+      cfg: {
+        tools: {
+          fs: {
+            roots: [{ path: "/packs/shared/file.txt", kind: "file", access: "ro" }],
+          },
+        },
+      },
+      agentId: "ops",
+      mediaSources: ["/Users/peter/Pictures/photo.png"],
+    });
+
+    expect(asMediaRoots(roots)).toEqual([
+      {
+        path: normalizeHostPath("/packs/shared/file.txt"),
+        kind: "file",
+        access: "ro",
+      },
+    ]);
+    expect(asMediaRoots(roots).map(normalizeMediaRootPath)).not.toContain(
+      normalizeHostPath("/Users/peter/Pictures"),
+    );
+  });
+
+  it("preserves empty fs roots as deny-all for outbound media sources", () => {
+    const roots = getAgentScopedMediaLocalRootsForSources({
+      cfg: {
+        tools: {
+          fs: {
+            roots: [],
+          },
+        },
+      },
+      agentId: "ops",
+      mediaSources: ["/Users/peter/Pictures/photo.png"],
+    });
+
+    expect(roots).toEqual([]);
   });
 });

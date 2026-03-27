@@ -13,7 +13,9 @@ export type OutboundMediaLoadOptions = {
 export function resolveOutboundMediaLocalRoots(
   mediaLocalRoots?: readonly string[],
 ): readonly string[] | undefined {
-  return mediaLocalRoots && mediaLocalRoots.length > 0 ? mediaLocalRoots : undefined;
+  // Preserve an explicit empty allowlist as deny-all instead of falling back
+  // to default local media roots.
+  return mediaLocalRoots === undefined ? undefined : mediaLocalRoots;
 }
 
 export function buildOutboundMediaLoadOptions(
@@ -22,7 +24,7 @@ export function buildOutboundMediaLoadOptions(
   const localRoots = resolveOutboundMediaLocalRoots(params.mediaLocalRoots);
   return {
     ...(params.maxBytes !== undefined ? { maxBytes: params.maxBytes } : {}),
-    ...(localRoots ? { localRoots } : {}),
+    ...(localRoots !== undefined ? { localRoots } : {}),
     ...(params.optimizeImages !== undefined ? { optimizeImages: params.optimizeImages } : {}),
   };
 }
