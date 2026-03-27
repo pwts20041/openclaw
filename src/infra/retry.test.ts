@@ -138,9 +138,11 @@ describe("retryAsync", () => {
     expect(delays[0]).toBe(500);
   });
 
-  it("clamps retryAfterMs to maxDelayMs", async () => {
+  it("does not cap retryAfterMs to maxDelayMs — server delay is honored in full", async () => {
+    // retry_after from the server (500ms) must not be capped by maxDelayMs (100ms).
+    // The server-dictated window must be fully honored to avoid hammering a rate-limited endpoint.
     const delays = await runRetryAfterCase({ minDelayMs: 0, maxDelayMs: 100, retryAfterMs: 500 });
-    expect(delays[0]).toBe(100);
+    expect(delays[0]).toBe(500);
   });
 
   it("clamps retryAfterMs to minDelayMs", async () => {

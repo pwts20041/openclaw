@@ -114,12 +114,19 @@ export async function retryAsync<T>(
 
       const retryAfterMs = options.retryAfterMs?.(err);
       const hasRetryAfter = typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs);
-      const baseDelay = hasRetryAfter
-        ? Math.max(retryAfterMs, minDelayMs)
-        : minDelayMs * 2 ** (attempt - 1);
-      let delay = Math.min(baseDelay, maxDelayMs);
-      delay = applyJitter(delay, jitter);
-      delay = Math.min(Math.max(delay, minDelayMs), maxDelayMs);
+      let delay: number;
+      if (hasRetryAfter) {
+        // Server-dictated retry_after: honor the full delay without applying maxDelayMs cap.
+        // Jitter is applied on top but must not reduce below the server-required floor.
+        const serverFloor = Math.max(retryAfterMs, minDelayMs);
+        const jittered = applyJitter(serverFloor, jitter);
+        delay = Math.max(jittered, serverFloor);
+      } else {
+        const baseDelay = minDelayMs * 2 ** (attempt - 1);
+        delay = Math.min(baseDelay, maxDelayMs);
+        delay = applyJitter(delay, jitter);
+        delay = Math.min(Math.max(delay, minDelayMs), maxDelayMs);
+      }
 
       options.onRetry?.({
         attempt,
