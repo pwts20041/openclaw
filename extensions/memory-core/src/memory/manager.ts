@@ -80,6 +80,7 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
   protected readonly agentId: string;
   protected readonly workspaceDir: string;
   protected readonly settings: ResolvedMemorySearchConfig;
+  protected readonly userId: string | undefined;
   protected provider: EmbeddingProvider | null;
   private readonly requestedProvider: EmbeddingProviderRequest;
   private providerInitPromise: Promise<void> | null = null;
@@ -159,6 +160,7 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
   static async get(params: {
     cfg: OpenClawConfig;
     agentId: string;
+    userId?: string;
     purpose?: "default" | "status";
   }): Promise<MemoryIndexManager | null> {
     const { cfg, agentId } = params;
@@ -168,13 +170,15 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
     }
     const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
     const purpose = params.purpose === "status" ? "status" : "default";
-    const key = `${agentId}:${workspaceDir}:${JSON.stringify(settings)}:${purpose}`;
+    const userIdKey = settings.isolation.enabled ? (params.userId ?? "") : "";
+    const key = `${agentId}:${workspaceDir}:${JSON.stringify(settings)}:${purpose}:${userIdKey}`;
     const statusOnly = params.purpose === "status";
     if (statusOnly) {
       return new MemoryIndexManager({
         cacheKey: key,
         cfg,
         agentId,
+        userId: settings.isolation.enabled ? params.userId : undefined,
         workspaceDir,
         settings,
         purpose: params.purpose,
@@ -197,6 +201,7 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
         cacheKey: key,
         cfg,
         agentId,
+        userId: settings.isolation.enabled ? params.userId : undefined,
         workspaceDir,
         settings,
         purpose: params.purpose,
@@ -218,6 +223,7 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
     cacheKey: string;
     cfg: OpenClawConfig;
     agentId: string;
+    userId?: string;
     workspaceDir: string;
     settings: ResolvedMemorySearchConfig;
     providerResult?: EmbeddingProviderResult;
@@ -227,6 +233,7 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
     this.cacheKey = params.cacheKey;
     this.cfg = params.cfg;
     this.agentId = params.agentId;
+    this.userId = params.userId;
     this.workspaceDir = params.workspaceDir;
     this.settings = params.settings;
     this.provider = null;
@@ -681,6 +688,7 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
       relPath: params.relPath,
       from: params.from,
       lines: params.lines,
+      userId: this.settings.isolation.enabled ? this.userId : undefined,
     });
   }
 

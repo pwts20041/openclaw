@@ -1,10 +1,65 @@
 import { Type } from "@sinclair/typebox";
 import {
+  extractUserIdFromSessionKey,
+  parseAgentSessionKey,
   resolveMemorySearchConfig,
   resolveSessionAgentId,
   type AnyAgentTool,
   type OpenClawConfig,
 } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
+
+const VALID_PLATFORMS = new Set([
+  "discord",
+  "telegram",
+  "whatsapp",
+  "signal",
+  "slack",
+  "msteams",
+  "webchat",
+  "line",
+  "kakaotalk",
+  "zalo",
+  "matrix",
+  "mattermost",
+  "irc",
+  "feishu",
+  "googlechat",
+  "nextcloud-talk",
+  "nostr",
+  "synology-chat",
+  "tlon",
+  "twitch",
+  "imessage",
+]);
+
+function extractPlatformFromSessionKey(sessionKey: string | undefined | null): string | null {
+  const parsed = parseAgentSessionKey(sessionKey);
+  if (!parsed?.rest) return null;
+  const tokens = parsed.rest.split(":").filter(Boolean);
+  const firstToken = tokens[0];
+  if (!firstToken) return null;
+  const baseName = firstToken.replace(/-dev$/, "");
+  if (VALID_PLATFORMS.has(baseName)) return firstToken;
+  return null;
+}
+
+function addPlatformPrefixToSenderId(params: {
+  senderId: string | undefined | null;
+  sessionKey: string | undefined | null;
+}): string | undefined {
+  const { senderId, sessionKey } = params;
+  if (!senderId) return undefined;
+  const prefixMatch = senderId.match(/^([a-z0-9-]+):(.+)$/i);
+  if (prefixMatch) {
+    const [, prefix, id] = prefixMatch;
+    const baseName = prefix.replace(/-dev$/, "");
+    if (VALID_PLATFORMS.has(baseName.toLowerCase())) return senderId;
+    return id ? `${prefix.toLowerCase()}:${id}` : senderId;
+  }
+  const platform = extractPlatformFromSessionKey(sessionKey);
+  if (platform) return `${platform}:${senderId}`;
+  return senderId;
+}
 
 type MemoryToolRuntime = typeof import("./tools.runtime.js");
 type MemorySearchManagerResult = Awaited<
@@ -33,6 +88,7 @@ export const MemoryGetSchema = Type.Object({
 export function resolveMemoryToolContext(options: {
   config?: OpenClawConfig;
   agentSessionKey?: string;
+  senderId?: string;
 }) {
   const cfg = options.config;
   if (!cfg) {
@@ -45,12 +101,25 @@ export function resolveMemoryToolContext(options: {
   if (!resolveMemorySearchConfig(cfg, agentId)) {
     return null;
   }
-  return { cfg, agentId };
+  const rawUserId = extractUserIdFromSessionKey(options.agentSessionKey);
+  const userId = rawUserId
+    ? addPlatformPrefixToSenderId({
+        senderId: rawUserId,
+        sessionKey: options.agentSessionKey,
+      })
+    : options.senderId
+      ? addPlatformPrefixToSenderId({
+          senderId: options.senderId,
+          sessionKey: options.agentSessionKey,
+        })
+      : undefined;
+  return { cfg, agentId, userId };
 }
 
 export async function getMemoryManagerContext(params: {
   cfg: OpenClawConfig;
   agentId: string;
+  userId?: string;
 }): Promise<
   | {
       manager: NonNullable<MemorySearchManagerResult["manager"]>;
@@ -65,6 +134,7 @@ export async function getMemoryManagerContext(params: {
 export async function getMemoryManagerContextWithPurpose(params: {
   cfg: OpenClawConfig;
   agentId: string;
+  userId?: string;
   purpose?: "default" | "status";
 }): Promise<
   | {
@@ -78,6 +148,7 @@ export async function getMemoryManagerContextWithPurpose(params: {
   const { manager, error } = await getMemorySearchManager({
     cfg: params.cfg,
     agentId: params.agentId,
+    userId: params.userId,
     purpose: params.purpose,
   });
   return manager ? { manager } : { error };
@@ -87,12 +158,17 @@ export function createMemoryTool(params: {
   options: {
     config?: OpenClawConfig;
     agentSessionKey?: string;
+    senderId?: string;
   };
   label: string;
   name: string;
   description: string;
   parameters: typeof MemorySearchSchema | typeof MemoryGetSchema;
-  execute: (ctx: { cfg: OpenClawConfig; agentId: string }) => AnyAgentTool["execute"];
+  execute: (ctx: {
+    cfg: OpenClawConfig;
+    agentId: string;
+    userId?: string;
+  }) => AnyAgentTool["execute"];
 }): AnyAgentTool | null {
   const ctx = resolveMemoryToolContext(params.options);
   if (!ctx) {

@@ -12,6 +12,7 @@ export async function readMemoryFile(params: {
   relPath: string;
   from?: number;
   lines?: number;
+  userId?: string;
 }): Promise<{ text: string; path: string }> {
   const rawPath = params.relPath.trim();
   if (!rawPath) {
@@ -22,7 +23,7 @@ export async function readMemoryFile(params: {
     : path.resolve(params.workspaceDir, rawPath);
   const relPath = path.relative(params.workspaceDir, absPath).replace(/\\/g, "/");
   const inWorkspace = relPath.length > 0 && !relPath.startsWith("..") && !path.isAbsolute(relPath);
-  const allowedWorkspace = inWorkspace && isMemoryPath(relPath);
+  const allowedWorkspace = inWorkspace && isMemoryPath(relPath, params.userId);
   let allowedAdditional = false;
   if (!allowedWorkspace && (params.extraPaths?.length ?? 0) > 0) {
     const additionalPaths = normalizeExtraMemoryPaths(params.workspaceDir, params.extraPaths);
@@ -81,6 +82,7 @@ export async function readAgentMemoryFile(params: {
   relPath: string;
   from?: number;
   lines?: number;
+  userId?: string;
 }): Promise<{ text: string; path: string }> {
   const settings = resolveMemorySearchConfig(params.cfg, params.agentId);
   if (!settings) {
@@ -92,5 +94,6 @@ export async function readAgentMemoryFile(params: {
     relPath: params.relPath,
     from: params.from,
     lines: params.lines,
+    userId: settings.isolation.enabled ? params.userId : undefined,
   });
 }

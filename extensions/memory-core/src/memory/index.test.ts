@@ -396,7 +396,10 @@ describe("memory index", () => {
     let imageReads = 0;
     const readSpy = vi.spyOn(fs, "readFile").mockImplementation(async (...args) => {
       const [targetPath] = args;
-      if (typeof targetPath === "string" && targetPath === imagePath) {
+      if (
+        typeof targetPath === "string" &&
+        targetPath.replace(/\\/g, "/") === imagePath.replace(/\\/g, "/")
+      ) {
         imageReads += 1;
         if (imageReads === 2) {
           const err = Object.assign(

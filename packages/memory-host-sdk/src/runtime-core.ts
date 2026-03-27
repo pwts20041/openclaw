@@ -13,6 +13,7 @@ export { resolveStateDir } from "../../../src/config/paths.js";
 export { resolveSessionTranscriptsDirForAgent } from "../../../src/config/sessions/paths.js";
 export { emptyPluginConfigSchema } from "../../../src/plugins/config-schema.js";
 export { parseAgentSessionKey } from "../../../src/routing/session-key.js";
+export { extractUserIdFromSessionKey } from "../../../src/sessions/session-key-utils.js";
 export type { OpenClawConfig } from "../../../src/config/config.js";
 export type { MemoryCitationsMode } from "../../../src/config/types.memory.js";
 export type {

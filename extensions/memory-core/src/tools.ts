@@ -24,6 +24,7 @@ import {
 export function createMemorySearchTool(options: {
   config?: OpenClawConfig;
   agentSessionKey?: string;
+  senderId?: string;
 }): AnyAgentTool | null {
   return createMemoryTool({
     options,
@@ -33,13 +34,13 @@ export function createMemorySearchTool(options: {
       "Mandatory recall step: semantically search MEMORY.md + memory/*.md (and optional session transcripts) before answering questions about prior work, decisions, dates, people, preferences, or todos; returns top snippets with path + lines. If response has disabled=true, memory retrieval is unavailable and should be surfaced to the user.",
     parameters: MemorySearchSchema,
     execute:
-      ({ cfg, agentId }) =>
+      ({ cfg, agentId, userId }) =>
       async (_toolCallId, params) => {
         const query = readStringParam(params, "query", { required: true });
         const maxResults = readNumberParam(params, "maxResults");
         const minScore = readNumberParam(params, "minScore");
         const { resolveMemoryBackendConfig } = await loadMemoryToolRuntime();
-        const memory = await getMemoryManagerContext({ cfg, agentId });
+        const memory = await getMemoryManagerContext({ cfg, agentId, userId });
         if ("error" in memory) {
           return jsonResult(buildMemorySearchUnavailableResult(memory.error));
         }
@@ -81,6 +82,7 @@ export function createMemorySearchTool(options: {
 export function createMemoryGetTool(options: {
   config?: OpenClawConfig;
   agentSessionKey?: string;
+  senderId?: string;
 }): AnyAgentTool | null {
   return createMemoryTool({
     options,
