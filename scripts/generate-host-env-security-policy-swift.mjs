@@ -27,7 +27,8 @@ const outputPath = path.join(
 /** @type {{blockedKeys: string[]; blockedOverrideKeys?: string[]; blockedOverridePrefixes?: string[]; blockedPrefixes: string[]}} */
 const policy = JSON.parse(fs.readFileSync(policyPath, "utf8"));
 
-const renderSwiftStringArray = (items) => items.map((item) => `        "${item}"`).join(",\n");
+const renderSwiftStringArray = (items) =>
+  items.map((item) => `        "${item}"`).join(",\n") + (items.length ? "," : "");
 
 const generated = `// Generated file. Do not edit directly.
 // Source: src/infra/host-env-security-policy.json
