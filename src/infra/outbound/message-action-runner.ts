@@ -19,7 +19,8 @@ import {
   getAgentScopedMediaLocalRoots,
   getAgentScopedMediaLocalRootsForSources,
 } from "../../media/local-roots.js";
-import { hasPollCreationParams } from "../../poll-params.js";
+import { hasPollCreationParams, POLL_CREATION_PARAM_NAMES } from "../../poll-params.js";
+import { toSnakeCaseKey } from "../../param-key.js";
 import { resolvePollMaxSelections } from "../../polls.js";
 import { buildChannelAccountBindings } from "../../routing/bindings.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
@@ -720,6 +721,21 @@ export async function runMessageAction(
     args: params,
     toolContext: input.toolContext,
   });
+
+  // Clean up poll creation params if action is not poll to avoid false positives
+  if (action !== "poll") {
+    const removeSet = new Set<string>();
+    for (const name of POLL_CREATION_PARAM_NAMES) {
+      removeSet.add(name);
+      const snakeName = toSnakeCaseKey(name);
+      if (snakeName !== name) {
+        removeSet.add(snakeName);
+      }
+    }
+    params = Object.fromEntries(
+      Object.entries(params).filter(([key]) => !removeSet.has(key))
+    );
+  }
 
   const channel = await resolveChannel(cfg, params, input.toolContext);
   let accountId = readStringParam(params, "accountId") ?? input.defaultAccountId;
