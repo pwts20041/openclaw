@@ -26,6 +26,7 @@ import { parseDurationMs } from "../cli/parse-duration.js";
 import { loadConfig } from "../config/config.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { loadSessionStore, resolveStorePath, type SessionEntry } from "../config/sessions.js";
+import { resolveSessionThreadIdForRouting } from "../config/sessions/delivery-info.js";
 import { resolveSessionTranscriptFile } from "../config/sessions/transcript.js";
 import { callGateway } from "../gateway/call.js";
 import { areHeartbeatsEnabled } from "../infra/heartbeat-wake.js";
@@ -100,6 +101,18 @@ export const ACP_SPAWN_ACCEPTED_NOTE =
   "initial ACP task queued in isolated session; follow-ups continue in the bound thread.";
 export const ACP_SPAWN_SESSION_ACCEPTED_NOTE =
   "thread-bound ACP session stays active after this task; continue in-thread for follow-ups.";
+
+function resolveRequesterSessionThreadId(
+  sessionKey: string | undefined,
+  explicitThreadId: string | number | undefined,
+): string | number | undefined {
+  // Unlike subagent spawns, ACP thread bindings intentionally preserve
+  // sender-scoped Feishu topic roots recovered from the requester session key.
+  // ACP delivery is mediated by conversation bindings, so retaining the topic
+  // thread id keeps the binding attached to the current Feishu topic instead of
+  // degrading to the parent group conversation.
+  return explicitThreadId ?? resolveSessionThreadIdForRouting(sessionKey);
+}
 
 export function resolveAcpSpawnRuntimePolicyError(params: {
   cfg: OpenClawConfig;
@@ -448,6 +461,10 @@ function resolveAcpSpawnRequesterState(params: {
 }): AcpSpawnRequesterState {
   const bindingService = getSessionBindingService();
   const requesterParsedSession = parseAgentSessionKey(params.parentSessionKey);
+  const requesterThreadId = resolveRequesterSessionThreadId(
+    params.ctx.agentSessionKey,
+    params.ctx.agentThreadId,
+  );
   const isSubagentSession =
     Boolean(requesterParsedSession) && isSubagentSessionKey(params.parentSessionKey);
   const hasActiveSubagentBinding =
@@ -457,9 +474,9 @@ function resolveAcpSpawnRequesterState(params: {
           .some((record) => record.targetKind === "subagent" && record.status !== "ended")
       : false;
   const hasThreadContext =
-    typeof params.ctx.agentThreadId === "string"
-      ? params.ctx.agentThreadId.trim().length > 0
-      : params.ctx.agentThreadId != null;
+    typeof requesterThreadId === "string"
+      ? requesterThreadId.trim().length > 0
+      : requesterThreadId != null;
   const requesterAgentId = requesterParsedSession?.agentId;
 
   return {
@@ -483,7 +500,7 @@ function resolveAcpSpawnRequesterState(params: {
       channel: params.ctx.agentChannel,
       accountId: params.ctx.agentAccountId,
       to: params.ctx.agentTo,
-      threadId: params.ctx.agentThreadId,
+      threadId: requesterThreadId,
     }),
   };
 }
@@ -778,7 +795,7 @@ export async function spawnAcpDirect(
       channel: ctx.agentChannel,
       accountId: ctx.agentAccountId,
       to: ctx.agentTo,
-      threadId: ctx.agentThreadId,
+      threadId: requesterState.origin?.threadId,
     });
     if (!prepared.ok) {
       return {
