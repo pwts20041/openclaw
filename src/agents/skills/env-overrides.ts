@@ -77,14 +77,22 @@ type SanitizedSkillEnvOverrides = {
   warnings: string[];
 };
 
+export type AppliedSkillEnvOverrides = {
+  restore: () => void;
+  injectedKeys: ReadonlySet<string>;
+};
+
 // Always block skill env overrides that can alter runtime loading or host execution behavior.
-const SKILL_ALWAYS_BLOCKED_ENV_PATTERNS: ReadonlyArray<RegExp> = [/^OPENSSL_CONF$/i];
+const SKILL_ALWAYS_BLOCKED_ENV_PATTERNS: ReadonlyArray<RegExp> = [
+  /^OPENSSL_CONF$/i,
+  /^OPENCLAW_GATEWAY_(TOKEN|PASSWORD)$/i,
+];
 
 function matchesAnyPattern(value: string, patterns: readonly RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(value));
 }
 
-function isAlwaysBlockedSkillEnvKey(key: string): boolean {
+export function isAlwaysBlockedSkillEnvKey(key: string): boolean {
   return (
     isDangerousHostEnvVarName(key) || matchesAnyPattern(key, SKILL_ALWAYS_BLOCKED_ENV_PATTERNS)
   );
@@ -211,7 +219,17 @@ function createEnvReverter(updates: EnvUpdate[]) {
   };
 }
 
-export function applySkillEnvOverrides(params: { skills: SkillEntry[]; config?: OpenClawConfig }) {
+function buildAppliedSkillEnvOverridesResult(updates: EnvUpdate[]): AppliedSkillEnvOverrides {
+  return {
+    restore: createEnvReverter(updates),
+    injectedKeys: new Set(updates.map((update) => update.key)),
+  };
+}
+
+export function applySkillEnvOverridesWithResult(params: {
+  skills: SkillEntry[];
+  config?: OpenClawConfig;
+}): AppliedSkillEnvOverrides {
   const { skills } = params;
   const config = resolveSkillRuntimeConfig(params.config);
   const updates: EnvUpdate[] = [];
@@ -232,17 +250,21 @@ export function applySkillEnvOverrides(params: { skills: SkillEntry[]; config?: 
     });
   }
 
-  return createEnvReverter(updates);
+  return buildAppliedSkillEnvOverridesResult(updates);
 }
 
-export function applySkillEnvOverridesFromSnapshot(params: {
+export function applySkillEnvOverrides(params: { skills: SkillEntry[]; config?: OpenClawConfig }) {
+  return applySkillEnvOverridesWithResult(params).restore;
+}
+
+export function applySkillEnvOverridesFromSnapshotWithResult(params: {
   snapshot?: SkillSnapshot;
   config?: OpenClawConfig;
-}) {
+}): AppliedSkillEnvOverrides {
   const { snapshot } = params;
   const config = resolveSkillRuntimeConfig(params.config);
   if (!snapshot) {
-    return () => {};
+    return { restore: () => {}, injectedKeys: new Set() };
   }
   const updates: EnvUpdate[] = [];
 
@@ -261,5 +283,65 @@ export function applySkillEnvOverridesFromSnapshot(params: {
     });
   }
 
-  return createEnvReverter(updates);
+  return buildAppliedSkillEnvOverridesResult(updates);
+}
+
+export function applySkillEnvOverridesFromSnapshot(params: {
+  snapshot?: SkillSnapshot;
+  config?: OpenClawConfig;
+}) {
+  return applySkillEnvOverridesFromSnapshotWithResult(params).restore;
+}
+
+/**
+ * Collect the set of env var names that skills declare as required (via primaryEnv
+ * and requires.env metadata).  Used by the sandbox creation path to rescue these
+ * keys from the default env-var block list so that skill API keys reach the container.
+ */
+export function collectAllowedSensitiveKeysFromSkillSnapshot(
+  snapshot?: SkillSnapshot,
+): ReadonlySet<string> | undefined {
+  if (!snapshot?.skills?.length) {
+    return undefined;
+  }
+  const keys = new Set<string>();
+  for (const skill of snapshot.skills) {
+    const primary = skill.primaryEnv?.trim();
+    if (primary) {
+      keys.add(primary);
+    }
+    for (const env of skill.requiredEnv ?? []) {
+      const trimmed = env.trim();
+      if (trimmed) {
+        keys.add(trimmed);
+      }
+    }
+  }
+  return keys.size > 0 ? keys : undefined;
+}
+
+/**
+ * Same as collectAllowedSensitiveKeysFromSkillSnapshot but works with
+ * workspace-loaded SkillEntry[] (the non-snapshot fallback path).
+ */
+export function collectAllowedSensitiveKeysFromSkillEntries(
+  entries?: SkillEntry[],
+): ReadonlySet<string> | undefined {
+  if (!entries?.length) {
+    return undefined;
+  }
+  const keys = new Set<string>();
+  for (const entry of entries) {
+    const primary = entry.metadata?.primaryEnv?.trim();
+    if (primary) {
+      keys.add(primary);
+    }
+    for (const env of entry.metadata?.requires?.env ?? []) {
+      const trimmed = env.trim();
+      if (trimmed) {
+        keys.add(trimmed);
+      }
+    }
+  }
+  return keys.size > 0 ? keys : undefined;
 }
