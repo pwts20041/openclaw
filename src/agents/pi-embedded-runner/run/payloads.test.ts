@@ -91,3 +91,56 @@ describe("buildEmbeddedRunPayloads tool-error warnings", () => {
     });
   });
 });
+
+describe("buildEmbeddedRunPayloads ANNOUNCE_SKIP / REPLY_SKIP suppression (#45084)", () => {
+  it("drops payloads whose text is exactly ANNOUNCE_SKIP", () => {
+    const payloads = buildPayloads({ assistantTexts: ["ANNOUNCE_SKIP"] });
+    expect(payloads).toHaveLength(0);
+  });
+
+  it("drops payloads whose text is exactly REPLY_SKIP", () => {
+    const payloads = buildPayloads({ assistantTexts: ["REPLY_SKIP"] });
+    expect(payloads).toHaveLength(0);
+  });
+
+  it("drops ANNOUNCE_SKIP even with surrounding whitespace", () => {
+    const payloads = buildPayloads({ assistantTexts: ["  ANNOUNCE_SKIP  "] });
+    expect(payloads).toHaveLength(0);
+  });
+
+  it("does not suppress substantive text that happens to contain ANNOUNCE_SKIP", () => {
+    const payloads = buildPayloads({
+      assistantTexts: ["Task done. ANNOUNCE_SKIP"],
+    });
+    // The text is not an exact-match token, so the payload should pass through
+    expect(payloads).not.toHaveLength(0);
+  });
+
+  it("does not count ANNOUNCE_SKIP as a user-facing reply when deciding to show tool-error warnings", () => {
+    // An ANNOUNCE_SKIP-only reply must NOT suppress mutating-tool failure warnings.
+    // Previously the token was only filtered at the end of the pipeline, after
+    // hasUserFacingAssistantReply was already set to true, which caused the
+    // tool-error warning to be hidden (CWE-841 / aisle-research-bot finding).
+    const payloads = buildPayloads({
+      assistantTexts: ["ANNOUNCE_SKIP"],
+      lastToolError: { toolName: "write", error: "permission denied" },
+      verboseLevel: "on",
+    });
+    expectSingleToolErrorPayload(payloads, {
+      title: "Write",
+      detail: "permission denied",
+    });
+  });
+
+  it("does not count REPLY_SKIP as a user-facing reply when deciding to show tool-error warnings", () => {
+    const payloads = buildPayloads({
+      assistantTexts: ["REPLY_SKIP"],
+      lastToolError: { toolName: "write", error: "permission denied" },
+      verboseLevel: "on",
+    });
+    expectSingleToolErrorPayload(payloads, {
+      title: "Write",
+      detail: "permission denied",
+    });
+  });
+});
