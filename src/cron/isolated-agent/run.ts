@@ -401,6 +401,7 @@ export async function runCronIsolatedAgentTurn(params: {
   // must not prevent the actual agent run from executing.
   cronSession.sessionEntry.modelProvider = provider;
   cronSession.sessionEntry.model = model;
+  cronSession.sessionEntry.modelIsFromFallback = false;
   cronSession.sessionEntry.systemSent = true;
   try {
     await persistSessionEntry();
@@ -426,6 +427,11 @@ export async function runCronIsolatedAgentTurn(params: {
   let runResult: Awaited<ReturnType<typeof runEmbeddedPiAgent>> | undefined;
   let fallbackProvider = provider;
   let fallbackModel = model;
+  // Snapshot the originally configured provider/model before the retry loop
+  // so isFromFallback compares against the true primary, not a value already
+  // rewritten to the fallback by a prior runPrompt() call.
+  const configuredProvider = provider;
+  const configuredModel = model;
   const runStartedAt = Date.now();
   let runEndedAt = runStartedAt;
   try {
@@ -626,9 +632,14 @@ export async function runCronIsolatedAgentTurn(params: {
       lookupContextTokens(modelUsed, { allowAsyncLoad: false }) ??
       DEFAULT_CONTEXT_TOKENS;
 
+    // Model is from fallback if the successfully-used provider/model differs
+    // from the originally configured primary (not the mutable `provider`/`model`
+    // which runPrompt() may have already rewritten to the fallback).
+    const isFromFallback = providerUsed !== configuredProvider || modelUsed !== configuredModel;
     setSessionRuntimeModel(cronSession.sessionEntry, {
       provider: providerUsed,
       model: modelUsed,
+      isFromFallback,
     });
     cronSession.sessionEntry.contextTokens = contextTokens;
     if (isCliProvider(providerUsed, cfgWithAgentDefaults)) {
