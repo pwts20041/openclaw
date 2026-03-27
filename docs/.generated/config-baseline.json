@@ -63771,6 +63771,26 @@
       "hasChildren": false
     },
     {
+      "path": "tools.web.fetch.ssrfPolicy",
+      "kind": "core",
+      "type": "object",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": true
+    },
+    {
+      "path": "tools.web.fetch.ssrfPolicy.allowRfc2544BenchmarkRange",
+      "kind": "core",
+      "type": "boolean",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [],
+      "hasChildren": false
+    },
+    {
       "path": "tools.web.fetch.timeoutSeconds",
       "kind": "core",
       "type": "integer",
