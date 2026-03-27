@@ -263,7 +263,9 @@ describe("buildStatusMessage", () => {
     });
 
     const normalized = normalizeTestText(text);
-    expect(normalized).toContain("Fallback: minimax-portal/MiniMax-M2.7");
+    expect(normalized).toContain("Model: xiaomi/mimo-v2-flash · 🔑 api-key (configured)");
+    expect(normalized).toContain("Active via fallback: minimax-portal/MiniMax-M2.7");
+    expect(normalized).not.toContain("↪️ Fallback: minimax-portal/MiniMax-M2.7");
     expect(normalized).toContain("Context: 49k/200k");
     expect(normalized).not.toContain("Context: 49k/1.0m");
   });
