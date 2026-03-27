@@ -14,6 +14,14 @@ const SILENT_REPLY_PATTERN = /^\s*NO_REPLY\s*$/;
 function isSilentReplyStream(text: string): boolean {
   return SILENT_REPLY_PATTERN.test(text);
 }
+function formatChatErrorMessage(errorMessage: string | undefined): string {
+  const trimmed = errorMessage?.trim() ?? "";
+  if (!trimmed) {
+    return "⚠️ chat error";
+  }
+  return /^⚠️\s*/.test(trimmed) ? trimmed : `⚠️ ${trimmed}`;
+}
+
 /** Client-side defense-in-depth: detect assistant messages whose text is purely NO_REPLY. */
 function isAssistantSilentReply(message: unknown): boolean {
   if (!message || typeof message !== "object") {
@@ -338,6 +346,29 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
     state.chatRunId = null;
     state.chatStreamStartedAt = null;
   } else if (payload.state === "error") {
+    const formattedError = formatChatErrorMessage(payload.errorMessage);
+    // Preserve any partial streamed content before appending the error,
+    // consistent with the done/aborted paths that commit chatStream as a
+    // fallback. Without this, mid-stream errors silently discard content.
+    const streamedText = state.chatStream ?? "";
+    if (streamedText.trim() && !isSilentReplyStream(streamedText)) {
+      state.chatMessages = [
+        ...state.chatMessages,
+        {
+          role: "assistant",
+          content: [{ type: "text", text: streamedText }],
+          timestamp: Date.now(),
+        },
+      ];
+    }
+    state.chatMessages = [
+      ...state.chatMessages,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: formattedError }],
+        timestamp: Date.now(),
+      },
+    ];
     state.chatStream = null;
     state.chatRunId = null;
     state.chatStreamStartedAt = null;

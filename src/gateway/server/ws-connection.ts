@@ -59,6 +59,40 @@ const sanitizeLogValue = (value: string | undefined): string | undefined => {
   return truncateUtf16Safe(cleaned, LOG_HEADER_MAX_LEN);
 };
 
+type LegacyGatewayQueryAuthAttempt = {
+  pathname: string;
+  agent?: string;
+  authMethod: "token" | "password" | "agent-only";
+};
+
+/**
+ * Detect legacy websocket clients that pass auth via query parameters
+ * (`/ws?agent=...&token=...`) instead of the current connect-challenge
+ * handshake. These clients cause repeated handshake-timeout noise and
+ * should be rejected immediately with a clear error.
+ */
+function detectLegacyGatewayQueryAuth(
+  urlValue: string | undefined,
+): LegacyGatewayQueryAuthAttempt | null {
+  if (!urlValue || !urlValue.includes("?")) {
+    return null;
+  }
+  const questionMark = urlValue.indexOf("?");
+  const pathname = sanitizeLogValue(urlValue.slice(0, questionMark)) ?? "/";
+  const params = new URLSearchParams(urlValue.slice(questionMark + 1));
+  const agent = params.get("agent")?.trim();
+  const token = params.get("token")?.trim();
+  const password = params.get("password")?.trim();
+  if (!agent && !token && !password) {
+    return null;
+  }
+  return {
+    pathname,
+    agent: sanitizeLogValue(agent || undefined),
+    authMethod: token ? "token" : password ? "password" : "agent-only",
+  };
+}
+
 export type GatewayWsSharedHandlerParams = {
   wss: WebSocketServer;
   clients: Set<GatewayWsClient>;
@@ -160,6 +194,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     let lastFrameType: string | undefined;
     let lastFrameMethod: string | undefined;
     let lastFrameId: string | undefined;
+    let handshakeTimer: ReturnType<typeof setTimeout> | null = null;
 
     const setCloseCause = (cause: string, meta?: Record<string, unknown>) => {
       if (!closeCause) {
@@ -194,19 +229,15 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       }
     };
 
-    const connectNonce = randomUUID();
-    send({
-      type: "event",
-      event: "connect.challenge",
-      payload: { nonce: connectNonce, ts: Date.now() },
-    });
-
     const close = (code = 1000, reason?: string) => {
       if (closed) {
         return;
       }
       closed = true;
-      clearTimeout(handshakeTimer);
+      if (handshakeTimer) {
+        clearTimeout(handshakeTimer);
+        handshakeTimer = null;
+      }
       releasePreauthBudget();
       if (client) {
         clients.delete(client);
@@ -218,9 +249,36 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       }
     };
 
+    // Absorb socket errors that fire before or after close() so Node does not
+    // treat them as unhandled emitter errors and crash the process.
     socket.once("error", (err) => {
       logWsControl.warn(`error conn=${connId} remote=${remoteAddr ?? "?"}: ${formatError(err)}`);
       close();
+    });
+
+    // Reject legacy websocket clients using query-auth immediately instead of
+    // waiting for the handshake timeout. This eliminates the repeated timeout
+    // noise reported in #40082.
+    const legacyQueryAuth = detectLegacyGatewayQueryAuth(upgradeReq.url);
+    if (legacyQueryAuth) {
+      handshakeState = "failed";
+      setCloseCause("legacy-query-auth", {
+        legacyAgent: legacyQueryAuth.agent,
+        legacyAuthMethod: legacyQueryAuth.authMethod,
+        requestPath: legacyQueryAuth.pathname,
+      });
+      logWsControl.warn(
+        `legacy websocket query-auth rejected conn=${connId} remote=${remoteAddr ?? "?"} path=${legacyQueryAuth.pathname} agent=${legacyQueryAuth.agent || "n/a"} auth=${legacyQueryAuth.authMethod}`,
+      );
+      close(1008, "legacy websocket query auth is unsupported; use connect handshake");
+      return;
+    }
+
+    const connectNonce = randomUUID();
+    send({
+      type: "event",
+      event: "connect.challenge",
+      payload: { nonce: connectNonce, ts: Date.now() },
     });
 
     const isNoisySwiftPmHelperClose = (userAgent: string | undefined, remote: string | undefined) =>
@@ -290,7 +348,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     });
 
     const handshakeTimeoutMs = getPreauthHandshakeTimeoutMsFromEnv();
-    const handshakeTimer = setTimeout(() => {
+    handshakeTimer = setTimeout(() => {
       if (!client) {
         handshakeState = "failed";
         setCloseCause("handshake-timeout", {
@@ -323,7 +381,12 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       send,
       close,
       isClosed: () => closed,
-      clearHandshakeTimer: () => clearTimeout(handshakeTimer),
+      clearHandshakeTimer: () => {
+        if (handshakeTimer) {
+          clearTimeout(handshakeTimer);
+          handshakeTimer = null;
+        }
+      },
       getClient: () => client,
       setClient: (next) => {
         releasePreauthBudget();
