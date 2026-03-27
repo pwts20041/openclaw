@@ -72,13 +72,73 @@ is detected but not yet wired.
 
 ### Supported now
 
-| Feature       | How it maps                                                                                          | Applies to     |
-| ------------- | ---------------------------------------------------------------------------------------------------- | -------------- |
-| Skill content | Bundle skill roots load as normal OpenClaw skills                                                    | All formats    |
-| Commands      | `commands/` and `.cursor/commands/` treated as skill roots                                           | Claude, Cursor |
-| Hook packs    | OpenClaw-style `HOOK.md` + `handler.ts` layouts                                                      | Codex          |
-| MCP tools     | Bundle MCP config merged into embedded Pi settings; supported stdio servers launched as subprocesses | All formats    |
-| Settings      | Claude `settings.json` imported as embedded Pi defaults                                              | Claude         |
+| Feature       | How it maps                                                                                    | Applies to     |
+| ------------- | ---------------------------------------------------------------------------------------------- | -------------- |
+| Skill content | Bundle skill roots load as normal OpenClaw skills                                              | All formats    |
+| Commands      | `commands/` and `.cursor/commands/` treated as skill roots                                     | Claude, Cursor |
+| Hook packs    | OpenClaw-style `HOOK.md` + `handler.ts` layouts                                                | Codex          |
+| MCP tools     | Bundle MCP config merged into embedded Pi settings; stdio and HTTP servers launched at startup | All formats    |
+| Settings      | Claude `settings.json` imported as embedded Pi defaults                                        | Claude         |
+
+#### MCP transports
+
+MCP servers can use stdio or HTTP transport:
+
+**Stdio** — launches a child process:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "my-server": {
+        "command": "node",
+        "args": ["server.js"],
+        "env": { "PORT": "3000" }
+      }
+    }
+  }
+}
+```
+
+**StreamableHTTP** or **SSE** — connects to a running HTTP server:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "my-server": {
+        "url": "http://localhost:3100/mcp",
+        "transport": "streamable-http",
+        "headers": {
+          "Authorization": "Bearer ${MY_SECRET_TOKEN}"
+        },
+        "connectionTimeoutMs": 30000
+      }
+    }
+  }
+}
+```
+
+- `transport` must be `"streamable-http"` or `"sse"` — there is no auto-detection
+- only `http:` and `https:` URL schemes are allowed
+- `headers` values support `${ENV_VAR}` interpolation
+- a server entry with both `command` and `url` is rejected
+- URL credentials (userinfo, query params) are redacted from tool descriptions
+  and log output
+- `connectionTimeoutMs` overrides the default 30-second connection timeout for
+  both stdio and HTTP transports
+
+#### Tool namespacing
+
+All MCP tools are prefixed with the server name: `serverName:toolName`. For
+example, a server keyed `"vigil-harbor"` exposing a `memory_search` tool
+registers as `vigil-harbor:memory_search`.
+
+Server name sanitization:
+
+- characters outside `A-Za-z0-9_.-` are replaced with `-`
+- names are capped at 30 characters
+- empty names fall back to `mcp`
 
 ### Detected but not executed
 
