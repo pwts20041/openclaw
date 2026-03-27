@@ -21,6 +21,10 @@ function isWindowsBatchCommand(resolvedCommand: string): boolean {
   return ext === ".cmd" || ext === ".bat";
 }
 
+function isUtf8Encoding(encoding: BufferEncoding): boolean {
+  return encoding.toLowerCase().replaceAll("-", "") === "utf8";
+}
+
 function escapeForCmdExe(arg: string): string {
   // Reject cmd metacharacters to avoid injection when we must pass a single command line.
   if (WINDOWS_UNSAFE_CMD_CHARS_RE.test(arg)) {
@@ -100,16 +104,19 @@ export function shouldSpawnWithShell(params: {
 export async function runExec(
   command: string,
   args: string[],
-  opts: number | { timeoutMs?: number; maxBuffer?: number; cwd?: string } = 10_000,
+  opts:
+    | number
+    | { timeoutMs?: number; maxBuffer?: number; cwd?: string; encoding?: BufferEncoding } = 10_000,
 ): Promise<{ stdout: string; stderr: string }> {
+  const encoding = typeof opts === "number" ? "utf8" : (opts.encoding ?? "utf8");
   const options =
     typeof opts === "number"
-      ? { timeout: opts, encoding: "utf8" as const }
+      ? { timeout: opts, encoding }
       : {
           timeout: opts.timeoutMs,
           maxBuffer: opts.maxBuffer,
           cwd: opts.cwd,
-          encoding: "utf8" as const,
+          encoding,
         };
   try {
     const argv = [command, ...args];
@@ -129,10 +136,19 @@ export async function runExec(
       execArgs = args;
     }
     const useCmdWrapper = isWindowsBatchCommand(execCommand);
+    const wrappedCommandLine = (() => {
+      if (!useCmdWrapper) {
+        return null;
+      }
+      const cmdCommandLine = buildCmdExeCommandLine(execCommand, execArgs);
+      return process.platform === "win32" && isUtf8Encoding(encoding)
+        ? `chcp 65001>nul && ${cmdCommandLine}`
+        : cmdCommandLine;
+    })();
     const { stdout, stderr } = useCmdWrapper
       ? await execFileAsync(
           process.env.ComSpec ?? "cmd.exe",
-          ["/d", "/s", "/c", buildCmdExeCommandLine(execCommand, execArgs)],
+          ["/d", "/s", "/c", wrappedCommandLine ?? ""],
           { ...options, windowsVerbatimArguments: true },
         )
       : await execFileAsync(execCommand, execArgs, options);
@@ -224,11 +240,15 @@ export async function runCommandWithTimeout(
   const finalArgv = process.platform === "win32" ? (resolveNpmArgvForWindows(argv) ?? argv) : argv;
   const resolvedCommand = finalArgv !== argv ? (finalArgv[0] ?? "") : resolveCommand(argv[0] ?? "");
   const useCmdWrapper = isWindowsBatchCommand(resolvedCommand);
+  const wrappedCommandLine =
+    useCmdWrapper && process.platform === "win32"
+      ? `chcp 65001>nul && ${buildCmdExeCommandLine(resolvedCommand, finalArgv.slice(1))}`
+      : useCmdWrapper
+        ? buildCmdExeCommandLine(resolvedCommand, finalArgv.slice(1))
+        : null;
   const child = spawn(
     useCmdWrapper ? (process.env.ComSpec ?? "cmd.exe") : resolvedCommand,
-    useCmdWrapper
-      ? ["/d", "/s", "/c", buildCmdExeCommandLine(resolvedCommand, finalArgv.slice(1))]
-      : finalArgv.slice(1),
+    useCmdWrapper ? ["/d", "/s", "/c", wrappedCommandLine ?? ""] : finalArgv.slice(1),
     {
       stdio,
       cwd,
