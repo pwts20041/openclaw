@@ -17,7 +17,12 @@ describe("buildWorkspaceSkillStatus", () => {
         description: "test",
         filePath: "/tmp/os-scoped",
         baseDir: "/tmp",
-        source: "test",
+        sourceInfo: {
+          source: "test",
+          path: "",
+          scope: "user" as const,
+          origin: "top-level" as const,
+        },
         disableModelInvocation: false,
       },
       frontmatter: {},

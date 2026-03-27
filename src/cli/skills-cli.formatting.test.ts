@@ -38,7 +38,12 @@ describe("skills-cli (e2e)", () => {
           description: "Capture UI screenshots",
           filePath: path.join(baseDir, "SKILL.md"),
           baseDir,
-          source: "openclaw-bundled",
+          sourceInfo: {
+            source: "openclaw-bundled",
+            path: "",
+            scope: "user" as const,
+            origin: "top-level" as const,
+          },
           disableModelInvocation: false,
         },
         frontmatter: {},
