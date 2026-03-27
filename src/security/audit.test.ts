@@ -3713,6 +3713,43 @@ description: test skill
         },
       },
       {
+        name: "includes flagged agent ids instead of an invalid [] path",
+        cfg: {
+          channels: { whatsapp: { groupPolicy: "open" } },
+          tools: {
+            elevated: { enabled: false },
+            profile: "messaging",
+            fs: { workspaceOnly: true },
+          },
+          agents: {
+            defaults: {
+              sandbox: { mode: "all" },
+            },
+            list: [
+              {
+                id: "unsafe-agent",
+                sandbox: {
+                  mode: "off",
+                },
+                tools: {
+                  profile: "coding",
+                  fs: { workspaceOnly: false },
+                },
+              },
+            ],
+          },
+        } satisfies OpenClawConfig,
+        assert: (res: SecurityAuditReport) => {
+          const finding = res.findings.find(
+            (f) => f.checkId === "security.exposure.open_groups_with_runtime_or_fs",
+          );
+          expect(finding, "expected open_groups_with_runtime_or_fs finding to exist").toBeDefined();
+          expect(finding?.remediation).toContain("tools.fs.workspaceOnly=true");
+          expect(finding?.remediation).toContain('id "unsafe-agent"');
+          expect(finding?.remediation).not.toContain("agents.list[].tools.fs.workspaceOnly");
+        },
+      },
+      {
         name: "warns when config heuristics suggest a likely multi-user setup",
         cfg: {
           channels: {
@@ -3763,6 +3800,32 @@ description: test skill
         testCase.assert(res);
       }),
     );
+  });
+
+  it("does not imply the global workspaceOnly setting alone fixes agent overrides", async () => {
+    const res = await audit({
+      channels: { whatsapp: { groupPolicy: "open" } },
+      tools: {
+        elevated: { enabled: false },
+        profile: "coding",
+      },
+      agents: {
+        list: [
+          {
+            id: "worker",
+            tools: {
+              fs: { workspaceOnly: false },
+            },
+          },
+        ],
+      },
+    });
+    const finding = res.findings.find(
+      (f) => f.checkId === "security.exposure.open_groups_with_runtime_or_fs",
+    );
+    expect(finding, "expected open_groups_with_runtime_or_fs finding to exist").toBeDefined();
+    expect(finding?.remediation).toContain('id "worker"');
+    expect(finding?.remediation).not.toContain("agents.list[].tools.fs.workspaceOnly");
   });
 
   describe("maybeProbeGateway auth selection", () => {
