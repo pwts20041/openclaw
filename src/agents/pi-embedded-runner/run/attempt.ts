@@ -8,6 +8,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
+import { resolveStateDir } from "../../../config/paths.js";
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import {
   ensureGlobalUndiciEnvProxyDispatcher,
@@ -52,6 +53,7 @@ import { DEFAULT_CONTEXT_TOKENS } from "../../defaults.js";
 import { resolveOpenClawDocsPath } from "../../docs-path.js";
 import { isTimeoutError } from "../../failover-error.js";
 import { resolveImageSanitizationLimits } from "../../image-sanitization.js";
+import { wrapStreamFnWithReActFallback } from "../../local/react-fallback-stream.js";
 import { buildModelAliasLines } from "../../model-alias-lines.js";
 import { resolveModelAuthMode } from "../../model-auth.js";
 import { resolveToolCallArgumentsEncoding } from "../../model-compat.js";
@@ -875,6 +877,27 @@ export async function runEmbeddedAttempt(
         activeSession.agent.streamFn = defaultSessionStreamFn;
       }
 
+      // Ollama with OpenAI-compatible API needs num_ctx in payload.options.
+      // Otherwise Ollama defaults to a 4096 context window.
+      const providerIdForNumCtx =
+        typeof params.model.provider === "string" && params.model.provider.trim().length > 0
+          ? params.model.provider
+          : params.provider;
+      const shouldInjectNumCtx = shouldInjectOllamaCompatNumCtx({
+        model: params.model,
+        config: params.config,
+        providerId: providerIdForNumCtx,
+      });
+      if (shouldInjectNumCtx) {
+        const numCtx = Math.max(
+          1,
+          Math.floor(
+            params.model.contextWindow ?? params.model.maxTokens ?? DEFAULT_CONTEXT_TOKENS,
+          ),
+        );
+        activeSession.agent.streamFn = wrapOllamaCompatNumCtx(activeSession.agent.streamFn, numCtx);
+      }
+
       const { effectiveExtraParams } = applyExtraParamsToAgent(
         activeSession.agent,
         params.config,
@@ -993,6 +1016,16 @@ export async function runEmbeddedAttempt(
         }
         return innerStreamFn(model, context, options);
       };
+
+      const fallbackProviderConfig = params.config?.models?.providers?.[providerIdForNumCtx];
+      activeSession.agent.streamFn = wrapStreamFnWithReActFallback(activeSession.agent.streamFn, {
+        modelId: params.modelId,
+        providerId: providerIdForNumCtx,
+        providerType: fallbackProviderConfig?.api ?? providerIdForNumCtx,
+        toolFallback: fallbackProviderConfig?.toolFallback,
+        reactProfile: fallbackProviderConfig?.reactProfile,
+        configDir: resolveStateDir(),
+      });
 
       // Some models emit tool names with surrounding whitespace (e.g. " read ").
       // pi-agent-core dispatches tool calls with exact string matching, so normalize
