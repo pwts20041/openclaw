@@ -3,6 +3,7 @@ import { formatErrorMessage } from "../infra/errors.js";
 import type { SystemPresence } from "../infra/system-presence.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import { GatewayClient } from "./client.js";
+import { waitForEventLoopReady } from "./event-loop-ready.js";
 import { READ_SCOPE } from "./method-scopes.js";
 import { isLoopbackHost } from "./net.js";
 
@@ -44,6 +45,10 @@ export async function probeGateway(opts: {
   detailLevel?: "none" | "presence" | "full";
   tlsFingerprint?: string;
 }): Promise<GatewayProbeResult> {
+  // Ensure the event loop is not starved by deferred module evaluation before
+  // opening any network connections (see waitForEventLoopReady jsdoc).
+  await waitForEventLoopReady(opts.timeoutMs);
+
   const startedAt = Date.now();
   const instanceId = randomUUID();
   let connectLatencyMs: number | null = null;
