@@ -402,6 +402,10 @@ export async function monitorWebInbox(options: {
         mediaType: enriched.mediaType,
         mediaFileName: enriched.mediaFileName,
         timestamp,
+        senderName,
+        senderE164: inbound.senderE164,
+        participantJid: inbound.participantJid,
+        groupSubject: inbound.groupSubject,
       },
       "inbound message",
     );
@@ -474,9 +478,13 @@ export async function monitorWebInbox(options: {
         continue;
       }
 
-      await maybeMarkInboundAsRead(inbound);
+      // For append (history sync) messages, skip marking as read to avoid clearing
+      // unread state for backlog that the bot never actually processes.
+      if (upsert.type !== "append") {
+        await maybeMarkInboundAsRead(inbound);
+      }
 
-      // If this is history/offline catch-up, mark read above but skip auto-reply.
+      // If this is history/offline catch-up, skip auto-reply for old messages.
       if (upsert.type === "append") {
         const APPEND_RECENT_GRACE_MS = 60_000;
         const msgTsRaw = msg.messageTimestamp;

@@ -9,6 +9,7 @@ import {
 } from "@whiskeysockets/baileys";
 import { formatCliCommand } from "openclaw/plugin-sdk/cli-runtime";
 import { VERSION } from "openclaw/plugin-sdk/cli-runtime";
+import { loadConfig } from "openclaw/plugin-sdk/config-runtime";
 import { danger, success } from "openclaw/plugin-sdk/runtime-env";
 import { getChildLogger, toPinoLikeLogger } from "openclaw/plugin-sdk/runtime-env";
 import { ensureDir, resolveUserPath } from "openclaw/plugin-sdk/text-runtime";
@@ -94,6 +95,37 @@ async function safeSaveCreds(
   }
 }
 
+/** Check if any WhatsApp group is configured with requireMention: "monitor".
+ *  Checks both top-level groups and per-account groups. */
+function hasMonitorGroups(): boolean {
+  try {
+    const cfg = loadConfig();
+    const wa = (cfg.channels as Record<string, any>)?.whatsapp;
+    if (!wa) return false;
+    // Check top-level groups
+    const topGroups = wa.groups;
+    if (topGroups && Object.values(topGroups).some((g: any) => g?.requireMention === "monitor")) {
+      return true;
+    }
+    // Check per-account groups
+    const accounts = wa.accounts;
+    if (accounts) {
+      for (const acct of Object.values(accounts) as any[]) {
+        const acctGroups = acct?.groups;
+        if (
+          acctGroups &&
+          Object.values(acctGroups).some((g: any) => g?.requireMention === "monitor")
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Create a Baileys socket backed by the multi-file auth store we keep on disk.
  * Consumers can opt into QR printing for interactive login flows.
@@ -126,6 +158,7 @@ export async function createWaSocket(
     printQRInTerminal: false,
     browser: ["openclaw", "cli", VERSION],
     syncFullHistory: false,
+    shouldSyncHistoryMessage: hasMonitorGroups() ? () => true : undefined,
     markOnlineOnConnect: false,
   });
 
@@ -154,6 +187,23 @@ export async function createWaSocket(
         }
         if (connection === "open" && verbose) {
           console.log(success("WhatsApp Web connected."));
+        }
+        if (connection === "open" && hasMonitorGroups()) {
+          try {
+            if (typeof (sock as any).communityFetchAllParticipating === "function") {
+              (sock as any)
+                .communityFetchAllParticipating()
+                .then(() => {
+                  sessionLogger.info("Community participation synced");
+                })
+                .catch((err: unknown) => {
+                  sessionLogger.warn(
+                    { error: String(err) },
+                    "Failed to sync community participation",
+                  );
+                });
+            }
+          } catch {}
         }
       } catch (err) {
         sessionLogger.error({ error: String(err) }, "connection.update handler error");
