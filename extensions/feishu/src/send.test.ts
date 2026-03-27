@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClawdbotConfig } from "../runtime-api.js";
 import {
+  buildMarkdownCard,
   buildStructuredCard,
   editMessageFeishu,
   getMessageFeishu,
@@ -333,6 +334,18 @@ describe("resolveFeishuCardTemplate", () => {
 });
 
 describe("buildStructuredCard", () => {
+  it("uses schema-2.0 forwarding config instead of legacy wide screen mode", () => {
+    const card = buildStructuredCard("hello") as {
+      config: {
+        enable_forward?: boolean;
+        wide_screen_mode?: boolean;
+      };
+    };
+
+    expect(card.config.enable_forward).toBe(true);
+    expect(card.config.wide_screen_mode).toBeUndefined();
+  });
+
   it("falls back to blue when the header template is unsupported", () => {
     const card = buildStructuredCard("hello", {
       header: {
@@ -349,5 +362,19 @@ describe("buildStructuredCard", () => {
         },
       }),
     );
+  });
+});
+
+describe("buildMarkdownCard", () => {
+  it("uses schema-2.0 forwarding config instead of legacy wide screen mode", () => {
+    const card = buildMarkdownCard("hello") as {
+      config: {
+        enable_forward?: boolean;
+        wide_screen_mode?: boolean;
+      };
+    };
+
+    expect(card.config.enable_forward).toBe(true);
+    expect(card.config.wide_screen_mode).toBeUndefined();
   });
 });
