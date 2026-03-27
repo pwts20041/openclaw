@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { resolveAgentModelPrimaryValue } from "../../src/config/model-input.js";
 import {
   ZAI_CODING_CN_BASE_URL,
+  ZAI_CODING_GLOBAL_BASE_URL,
   ZAI_GLOBAL_BASE_URL,
-} from "../../src/plugins/provider-model-definitions.js";
+} from "./model-definitions.js";
 import { applyZaiConfig, applyZaiProviderConfig } from "./onboard.js";
 
 describe("zai onboard", () => {
@@ -42,7 +43,7 @@ describe("zai onboard", () => {
   it("supports GLM-5.1 as an onboarding-selected model", () => {
     const cfg = applyZaiConfig({}, { endpoint: "coding-global", modelId: "glm-5.1" });
     expect(resolveAgentModelPrimaryValue(cfg.agents?.defaults?.model)).toBe("zai/glm-5.1");
-    expect(cfg.models?.providers?.zai?.baseUrl).toBe("https://api.z.ai/api/coding/paas/v4");
+    expect(cfg.models?.providers?.zai?.baseUrl).toBe(ZAI_CODING_GLOBAL_BASE_URL);
     expect(cfg.models?.providers?.zai?.models?.map((m) => m.id)).toContain("glm-5.1");
   });
 });
