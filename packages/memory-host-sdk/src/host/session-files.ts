@@ -96,7 +96,11 @@ function stripRawContentMeta(raw: string, role: "user" | "assistant"): string {
   // (the full-strip path used by UI surfaces).  Strip it here so that any
   // directive tags that follow the timestamp are correctly detected as leading
   // tags by `LEADING_DIRECTIVE_TAGS_RE`.
-  const afterTs = afterMeta.replace(LEADING_TIMESTAMP_ENVELOPE_RE, "");
+  // Gate timestamp stripping to user messages only — assistant content may
+  // legitimately begin with timestamp-like text (e.g. quoting logs or schedules)
+  // and silently truncating it would be a regression.
+  const afterTs =
+    role === "user" ? afterMeta.replace(LEADING_TIMESTAMP_ENVELOPE_RE, "") : afterMeta;
   if (!afterTs.includes("[[")) {
     return afterTs;
   }
