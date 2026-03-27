@@ -38416,6 +38416,20 @@
       "hasChildren": false
     },
     {
+      "path": "commands.shellProfile",
+      "kind": "core",
+      "type": "string",
+      "required": false,
+      "deprecated": false,
+      "sensitive": false,
+      "tags": [
+        "storage"
+      ],
+      "label": "Shell Profile Path",
+      "help": "Path to a shell profile file to source before executing commands on the gateway host. When set and non-empty, PowerShell, bash, and other shells will load this profile (e.g., for custom environment variables, aliases, functions). This setting does NOT apply to sandbox execution (host=sandbox, container has isolated filesystem) or node execution (host=node, commands run directly without shell). Leave unset for default behavior without profile loading.",
+      "hasChildren": false
+    },
+    {
       "path": "commands.text",
       "kind": "core",
       "type": "boolean",
