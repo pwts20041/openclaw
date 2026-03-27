@@ -13,7 +13,7 @@ import { registerApnsRegistration } from "../infra/push-apns.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import { normalizeMainKey, scopedHeartbeatWakeOptions } from "../routing/session-key.js";
 import { defaultRuntime } from "../runtime.js";
-import { parseMessageWithAttachments } from "./chat-attachments.js";
+import { parseMessageWithAttachments, resolveInboundMediaMaxBytes } from "./chat-attachments.js";
 import { normalizeRpcAttachmentsToChatAttachments } from "./server-methods/attachment-normalize.js";
 import type { NodeEvent, NodeEventContext } from "./server-node-events-types.js";
 import { loadSessionEntry, migrateAndPruneGatewaySessionStoreKey } from "./session-utils.js";
@@ -358,7 +358,7 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
       if (normalizedAttachments.length > 0) {
         try {
           const parsed = await parseMessageWithAttachments(message, normalizedAttachments, {
-            maxBytes: 5_000_000,
+            maxBytes: resolveInboundMediaMaxBytes(loadConfig()),
             log: ctx.logGateway,
           });
           message = parsed.message.trim();

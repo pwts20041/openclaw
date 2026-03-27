@@ -3,7 +3,12 @@ import {
   buildMessageWithAttachments,
   type ChatAttachment,
   parseMessageWithAttachments,
+  resolveInboundMediaMaxBytes,
 } from "./chat-attachments.js";
+import { MAX_PAYLOAD_BYTES } from "./server-constants.js";
+
+const WS_JSON_OVERHEAD = 4 * 1024;
+const WS_INBOUND_MAX_BYTES = Math.floor(((MAX_PAYLOAD_BYTES - WS_JSON_OVERHEAD) * 3) / 4);
 
 const PNG_1x1 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/woAAn8B9FD5fHAAAAAASUVORK5CYII=";
@@ -176,5 +181,69 @@ describe("shared attachment validation", () => {
     } finally {
       fromSpy.mockRestore();
     }
+  });
+});
+
+describe("resolveInboundMediaMaxBytes", () => {
+  it("returns 5_000_000 when config is undefined", () => {
+    expect(resolveInboundMediaMaxBytes(undefined)).toBe(5_000_000);
+  });
+
+  it("returns 5_000_000 when agents.defaults.mediaMaxMb is not set", () => {
+    expect(resolveInboundMediaMaxBytes({})).toBe(5_000_000);
+    expect(resolveInboundMediaMaxBytes({ agents: {} })).toBe(5_000_000);
+    expect(resolveInboundMediaMaxBytes({ agents: { defaults: {} } })).toBe(5_000_000);
+  });
+
+  it("converts configured MB to bytes", () => {
+    // 20 MiB exceeds the WS transport cap (envelope-adjusted ~18.74 MiB), so it is clamped
+    expect(resolveInboundMediaMaxBytes({ agents: { defaults: { mediaMaxMb: 20 } } })).toBe(
+      WS_INBOUND_MAX_BYTES,
+    );
+  });
+
+  it("respects small values", () => {
+    expect(resolveInboundMediaMaxBytes({ agents: { defaults: { mediaMaxMb: 1 } } })).toBe(
+      1 * 1024 * 1024,
+    );
+  });
+
+  it("clamps values that exceed the WS transport budget", () => {
+    // Any value above ~18.74 MiB should be clamped to WS_INBOUND_MAX_BYTES
+    expect(resolveInboundMediaMaxBytes({ agents: { defaults: { mediaMaxMb: 100 } } })).toBe(
+      WS_INBOUND_MAX_BYTES,
+    );
+  });
+});
+
+describe("parseMessageWithAttachments respects configured maxBytes", () => {
+  it("accepts attachment within configured limit", async () => {
+    const small = Buffer.alloc(8).toString("base64");
+    const att: ChatAttachment = {
+      type: "image",
+      mimeType: "image/png",
+      fileName: "small.png",
+      content: small,
+    };
+    // 1 MB limit: the 8-byte payload fits easily
+    const result = await parseMessageWithAttachments("hi", [att], {
+      maxBytes: resolveInboundMediaMaxBytes({ agents: { defaults: { mediaMaxMb: 1 } } }),
+    });
+    expect(result.images).toHaveLength(1);
+  });
+
+  it("rejects attachment exceeding configured limit", async () => {
+    const big = Buffer.alloc(200).toString("base64");
+    const att: ChatAttachment = {
+      type: "image",
+      mimeType: "image/png",
+      fileName: "big.png",
+      content: big,
+    };
+    // Tiny limit (1 byte) should reject the 200-byte payload
+    const limit = resolveInboundMediaMaxBytes({ agents: { defaults: { mediaMaxMb: 0.0000001 } } });
+    await expect(parseMessageWithAttachments("hi", [att], { maxBytes: limit })).rejects.toThrow(
+      /exceeds size limit/i,
+    );
   });
 });
