@@ -33,6 +33,7 @@ const EMPTY_PLUGIN_MANIFEST_REGISTRY: PluginManifestRegistry = {
 const PROVIDER_PLUGIN_IDS: Array<{ pluginId: string; providerId: string }> = [
   { pluginId: "google", providerId: "google-gemini-cli" },
   { pluginId: "copilot-proxy", providerId: "copilot-proxy" },
+  { pluginId: "minimax", providerId: "minimax" },
   { pluginId: "minimax", providerId: "minimax-portal" },
 ];
 const ENV_CATALOG_PATHS = ["OPENCLAW_PLUGIN_CATALOG_PATHS", "OPENCLAW_MPM_CATALOG_PATHS"];
