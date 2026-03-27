@@ -232,6 +232,12 @@ function collectConfiguredActivationIds(config: OpenClawConfig): Set<string> {
     });
   }
 
+  // Collect TTS provider
+  const ttsProvider = config.messages?.tts?.provider?.trim();
+  if (ttsProvider) {
+    activationIds.add(ttsProvider.toLowerCase());
+  }
+
   return activationIds;
 }
 
@@ -302,7 +308,8 @@ export function resolveGatewayStartupPluginIds(params: {
     env: params.env,
   });
   const configuredActivationIds = collectConfiguredActivationIds(params.config);
-  return manifestRegistry.plugins
+
+  const result = manifestRegistry.plugins
     .filter((plugin) => {
       if (plugin.channels.some((channelId) => configuredChannelIds.has(channelId))) {
         return true;
@@ -329,15 +336,20 @@ export function resolveGatewayStartupPluginIds(params: {
         ) ||
         plugin.cliBackends.some((backendId) =>
           configuredActivationIds.has(normalizeProviderId(backendId)),
+        ) ||
+        (plugin.speechProviders ?? []).some((speechProviderId) =>
+          configuredActivationIds.has(speechProviderId.toLowerCase()),
         )
       ) {
         return true;
       }
-      return (
+      const allowed =
         pluginsConfig.allow.includes(plugin.id) ||
         pluginsConfig.entries[plugin.id]?.enabled === true ||
-        pluginsConfig.slots.memory === plugin.id
-      );
+        pluginsConfig.slots.memory === plugin.id;
+      return allowed;
     })
     .map((plugin) => plugin.id);
+
+  return result;
 }

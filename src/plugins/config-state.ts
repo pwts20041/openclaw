@@ -56,6 +56,7 @@ export const BUNDLED_ENABLED_BY_DEFAULT = new Set<string>([
   "synthetic",
   "talk-voice",
   "together",
+  "tts-local-cli",
   "venice",
   "vercel-ai-gateway",
   "vllm",
