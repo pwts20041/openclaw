@@ -1412,6 +1412,13 @@
   }
 }
 
+/* Context notice icon - fix for SVG overflow issue */
+.context-notice__icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
 /* ===========================================
    Code Blocks
    =========================================== */
