@@ -60,6 +60,7 @@ export type EmbeddedPiSubscribeState = {
   lastAssistantTextTrimmed?: string;
   assistantTextBaseline: number;
   suppressBlockChunks: boolean;
+  suppressCommentaryPhase: boolean; // Skip block replies for commentary-phase messages
   lastReasoningSent?: string;
 
   compactionInFlight: boolean;
