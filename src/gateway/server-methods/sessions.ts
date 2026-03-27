@@ -8,6 +8,7 @@ import {
   isEmbeddedPiRunActive,
   waitForEmbeddedPiRunEnd,
 } from "../../agents/pi-embedded-runner/runs.js";
+import { acquireSessionWriteLock } from "../../agents/session-write-lock.js";
 import { clearSessionQueues } from "../../auto-reply/reply/queue/cleanup.js";
 import { loadConfig } from "../../config/config.js";
 import {
@@ -1265,25 +1266,50 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
 
-    const raw = fs.readFileSync(filePath, "utf-8");
-    const allLines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
-
-    // Walk lines to find the JSONL line that corresponds to the requested seq (p.seq).
-    let seq = 0;
+    // Serialize the read-modify-write under the write lock so concurrent transcript
+    // appends between readFileSync and the final rename are not silently dropped.
     let cutLineIndex = -1;
-    for (let i = 0; i < allLines.length; i++) {
-      try {
-        const parsed = JSON.parse(allLines[i]) as Record<string, unknown>;
-        if (parsed?.message || parsed?.type === "compaction") {
-          seq += 1;
-          if (seq === p.seq) {
-            cutLineIndex = i;
-            break;
+    let keptLines: string[] = [];
+    let archived = "";
+    const lock = await acquireSessionWriteLock({ sessionFile: filePath });
+    try {
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const allLines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+
+      // Walk lines to find the JSONL line that corresponds to the requested seq (p.seq).
+      let seq = 0;
+      for (let i = 0; i < allLines.length; i++) {
+        try {
+          const parsed = JSON.parse(allLines[i]) as Record<string, unknown>;
+          if (parsed?.message || parsed?.type === "compaction") {
+            seq += 1;
+            if (seq === p.seq) {
+              cutLineIndex = i;
+              break;
+            }
           }
+        } catch {
+          // skip malformed lines
         }
-      } catch {
-        // skip malformed lines
       }
+
+      if (cutLineIndex >= 0) {
+        keptLines = allLines.slice(0, cutLineIndex);
+        const newContent = keptLines.length > 0 ? `${keptLines.join("\n")}\n` : "";
+        // Write-then-rename: write to a temp file first so the original is untouched if writeFileSync throws.
+        const ts = new Date().toISOString().replaceAll(":", "-");
+        const tmpPath = `${filePath}.tmp.${ts}`;
+        const bakPath = `${filePath}.bak.${ts}`;
+        // Preserve original file permissions (typically 0o600) so the replacement does not
+        // weaken transcript privacy on shared hosts.
+        const originalMode = fs.statSync(filePath).mode & 0o777;
+        fs.writeFileSync(tmpPath, newContent, { encoding: "utf-8", mode: originalMode });
+        fs.renameSync(filePath, bakPath);
+        fs.renameSync(tmpPath, filePath);
+        archived = bakPath;
+      }
+    } finally {
+      await lock.release();
     }
 
     if (cutLineIndex < 0) {
@@ -1294,20 +1320,6 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-
-    const keptLines = allLines.slice(0, cutLineIndex);
-    const newContent = keptLines.length > 0 ? `${keptLines.join("\n")}\n` : "";
-    // Write-then-rename: write to a temp file first so the original is untouched if writeFileSync throws.
-    const ts = new Date().toISOString().replaceAll(":", "-");
-    const tmpPath = `${filePath}.tmp.${ts}`;
-    const bakPath = `${filePath}.bak.${ts}`;
-    // Preserve original file permissions (typically 0o600) so the replacement does not
-    // weaken transcript privacy on shared hosts.
-    const originalMode = fs.statSync(filePath).mode & 0o777;
-    fs.writeFileSync(tmpPath, newContent, { encoding: "utf-8", mode: originalMode });
-    fs.renameSync(filePath, bakPath);
-    fs.renameSync(tmpPath, filePath);
-    const archived = bakPath;
 
     await updateSessionStore(storePath, (store) => {
       const entryKey = truncateTarget.primaryKey;
