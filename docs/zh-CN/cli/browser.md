@@ -21,7 +21,7 @@ x-i18n:
 相关：
 
 - 浏览器工具 + API：[浏览器工具](/tools/browser)
-- Chrome 扩展中继：[Chrome 扩展](/tools/chrome-extension)
+- Chrome 扩展中继：[Chrome 扩展](/zh-CN/tools/chrome-extension)
 
 ## 通用标志
 
@@ -103,7 +103,7 @@ openclaw browser extension path
 
 然后 Chrome → `chrome://extensions` → 启用"开发者模式" → "加载已解压的扩展程序" → 选择打印的文件夹。
 
-完整指南：[Chrome 扩展](/tools/chrome-extension)
+完整指南：[Chrome 扩展](/zh-CN/tools/chrome-extension)
 
 ## 远程浏览器控制（node host 代理）
 

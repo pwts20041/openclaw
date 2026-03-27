@@ -1076,7 +1076,7 @@ openclaw browser extension path
 
 然后 Chrome → `chrome://extensions` → 启用“开发者模式” → “加载已解压的扩展程序” → 选择该文件夹。
 
-完整指南（包括远程 Gateway 网关 + 安全注意事项）：[Chrome 扩展](/tools/chrome-extension)
+完整指南（包括远程 Gateway 网关 + 安全注意事项）：[Chrome 扩展](/zh-CN/tools/chrome-extension)
 
 如果 Gateway 网关运行在与 Chrome 同一台机器上（默认设置），你通常**不需要**额外配置。
 如果 Gateway 网关运行在其他地方，在运行浏览器的机器上运行一个节点主机，以便 Gateway 网关可以代理浏览器操作。
@@ -1445,7 +1445,7 @@ openclaw agent --message "Hello from local bot" --deliver --channel telegram --r
 
 SSH 对临时 shell 访问很好，但节点对于持续的智能体工作流和设备自动化更简单。
 
-文档：[节点](/nodes)、[节点 CLI](/cli/nodes)、[Chrome 扩展](/tools/chrome-extension)。
+文档：[节点](/nodes)、[节点 CLI](/cli/nodes)、[Chrome 扩展](/zh-CN/tools/chrome-extension)。
 
 ### 应该在第二台笔记本上安装还是只添加一个节点
 
@@ -1777,7 +1777,7 @@ openclaw directory groups list --channel whatsapp
 - 需要时通过扩展中继（或节点）使用本地浏览器。
 
 文档：[多智能体路由](/concepts/multi-agent)、[Slack](/channels/slack)、
-[浏览器](/tools/browser)、[Chrome 扩展](/tools/chrome-extension)、[节点](/nodes)。
+[浏览器](/tools/browser)、[Chrome 扩展](/zh-CN/tools/chrome-extension)、[节点](/nodes)。
 
 ## 模型：默认值、选择、别名、切换
 
