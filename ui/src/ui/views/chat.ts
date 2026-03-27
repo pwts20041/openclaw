@@ -1027,22 +1027,30 @@ export function renderChat(props: ChatProps) {
                 basePath: props.basePath,
                 contextWindow:
                   activeSession?.contextTokens ?? props.sessions?.defaults?.contextTokens ?? null,
-                onDelete: () => {
-                  const firstMsg = item.messages[0]?.message as Record<string, unknown> | undefined;
-                  const meta = firstMsg?.__openclaw as Record<string, unknown> | undefined;
-                  const seq = typeof meta?.seq === "number" ? meta.seq : null;
-                  if (seq !== null && props.onTruncateHistory) {
-                    // Only apply optimistic UI update if the RPC was actually initiated;
-                    // if disconnected, onTruncateHistory returns false and we leave state unchanged.
-                    if (props.onTruncateHistory(seq)) {
-                      deleted.delete(item.key);
-                      requestUpdate();
-                    }
-                  } else {
-                    deleted.delete(item.key);
-                    requestUpdate();
-                  }
-                },
+                // Disable deletion while search is active: in search mode groups can merge
+                // non-adjacent transcript messages, so the group's head seq would silently
+                // drop hidden intermediate history the user never intended to remove.
+                onDelete:
+                  vs.searchOpen && vs.searchQuery.trim()
+                    ? undefined
+                    : () => {
+                        const firstMsg = item.messages[0]?.message as
+                          | Record<string, unknown>
+                          | undefined;
+                        const meta = firstMsg?.__openclaw as Record<string, unknown> | undefined;
+                        const seq = typeof meta?.seq === "number" ? meta.seq : null;
+                        if (seq !== null && props.onTruncateHistory) {
+                          // Only apply optimistic UI update if the RPC was actually initiated;
+                          // if disconnected, onTruncateHistory returns false and we leave state unchanged.
+                          if (props.onTruncateHistory(seq)) {
+                            deleted.delete(item.key);
+                            requestUpdate();
+                          }
+                        } else {
+                          deleted.delete(item.key);
+                          requestUpdate();
+                        }
+                      },
               });
             }
             return nothing;
