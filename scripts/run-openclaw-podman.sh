@@ -101,11 +101,6 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
-# Keep Podman default local-only unless explicitly overridden.
-# Non-loopback binds require gateway.controlUi.allowedOrigins (security hardening).
-# NOTE: must be evaluated after sourcing ENV_FILE so OPENCLAW_GATEWAY_BIND set in .env takes effect.
-GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-loopback}"
-
 upsert_env_var() {
   local file="$1"
   local key="$2"
@@ -161,6 +156,121 @@ if [[ ! -f "$CONFIG_JSON" ]]; then
   chmod 600 "$CONFIG_JSON" 2>/dev/null || true
   echo "Created $CONFIG_JSON (minimal gateway.mode=local)." >&2
 fi
+
+resolve_config_gateway_bind() {
+  local config_json="$1"
+  if [[ ! -f "$config_json" ]]; then
+    return 0
+  fi
+  python3 - "$config_json" <<'PY' 2>/dev/null || true
+import pathlib
+import re
+import sys
+
+VALID = {"loopback", "lan", "auto", "custom", "tailnet"}
+raw = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8", errors="ignore")
+
+
+def strip_comments(text: str) -> str:
+    out = []
+    i = 0
+    in_string = False
+    quote = ""
+    escaped = False
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+        if in_string:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                in_string = False
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            in_string = True
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and nxt == "/":
+            out.extend("  ")
+            i += 2
+            while i < len(text) and text[i] not in "\r\n":
+                out.append(" ")
+                i += 1
+            continue
+        if ch == "/" and nxt == "*":
+            out.extend("  ")
+            i += 2
+            while i < len(text):
+                ch = text[i]
+                nxt = text[i + 1] if i + 1 < len(text) else ""
+                if ch == "*" and nxt == "/":
+                    out.extend("  ")
+                    i += 2
+                    break
+                out.append("\n" if ch == "\n" else ("\r" if ch == "\r" else " "))
+                i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+sanitized = strip_comments(raw)
+key_match = re.search(r'["\']?gateway["\']?\s*:\s*\{', sanitized)
+if not key_match:
+    raise SystemExit(0)
+
+start = sanitized.find("{", key_match.start())
+if start < 0:
+    raise SystemExit(0)
+
+depth = 0
+in_string = False
+quote = ""
+escaped = False
+end = -1
+for idx in range(start, len(sanitized)):
+    ch = sanitized[idx]
+    if in_string:
+        if escaped:
+            escaped = False
+        elif ch == "\\":
+            escaped = True
+        elif ch == quote:
+            in_string = False
+    else:
+        if ch in ('"', "'"):
+            in_string = True
+            quote = ch
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = idx
+                break
+
+if end < 0:
+    raise SystemExit(0)
+
+gateway_block = sanitized[start + 1:end]
+match = re.search(r'["\']?bind["\']?\s*:\s*["\'](loopback|lan|auto|custom|tailnet)["\']', gateway_block)
+if match and match.group(1) in VALID:
+    print(match.group(1))
+PY
+}
+
+# Keep Podman default local-only unless explicitly overridden.
+# Non-loopback binds require gateway.controlUi.allowedOrigins (security hardening).
+# Precedence: explicit env > openclaw.json gateway.bind > loopback default.
+CONFIG_GATEWAY_BIND="$(resolve_config_gateway_bind "$CONFIG_JSON")"
+GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-${CONFIG_GATEWAY_BIND:-loopback}}"
 
 PODMAN_USERNS="${OPENCLAW_PODMAN_USERNS:-keep-id}"
 USERNS_ARGS=()
