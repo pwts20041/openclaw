@@ -523,6 +523,30 @@ describe("applyPluginAutoEnable", () => {
       expect(result.changes.join("\n")).toContain("iMessage configured, enabled automatically.");
     });
 
+    it("treats channels.bluebubbles.enabled=false as an explicit disable even when config keys remain", () => {
+      const result = applyPluginAutoEnable({
+        config: {
+          channels: {
+            bluebubbles: {
+              enabled: false,
+              serverUrl: "http://localhost:1234",
+              password: "x",
+            },
+            imessage: { cliPath: "/usr/local/bin/imsg" },
+          },
+        },
+        env: {},
+      });
+
+      expect(result.config.channels?.bluebubbles?.enabled).toBe(false);
+      expect(result.config.plugins?.entries?.bluebubbles).toBeUndefined();
+      expect(result.config.channels?.imessage?.enabled).toBe(true);
+      expect(result.changes.join("\n")).toContain("iMessage configured, enabled automatically.");
+      expect(result.changes.join("\n")).not.toContain(
+        "bluebubbles configured, enabled automatically.",
+      );
+    });
+
     it("allows imessage auto-configure when bluebubbles is in deny list", () => {
       const result = applyWithBluebubblesImessageConfig({
         plugins: { deny: ["bluebubbles"] },

@@ -17,6 +17,7 @@ import { ensurePluginAllowlisted } from "./plugins-allowlist.js";
 
 type PluginEnableChange = {
   pluginId: string;
+  channelId?: string;
   reason: string;
 };
 
@@ -282,7 +283,7 @@ function resolveConfiguredPlugins(
   for (const channelId of collectCandidateChannelIds(cfg)) {
     const pluginId = resolvePluginIdForChannel(channelId, channelToPluginId);
     if (isChannelConfigured(cfg, channelId, env)) {
-      changes.push({ pluginId, reason: `${channelId} configured` });
+      changes.push({ pluginId, channelId, reason: `${channelId} configured` });
     }
   }
 
@@ -307,22 +308,33 @@ function resolveConfiguredPlugins(
   return changes;
 }
 
-function isPluginExplicitlyDisabled(cfg: OpenClawConfig, pluginId: string): boolean {
-  const builtInChannelId = normalizeChatChannelId(pluginId);
-  if (builtInChannelId) {
-    const channels = cfg.channels as Record<string, unknown> | undefined;
-    const channelConfig = channels?.[builtInChannelId];
-    if (
-      channelConfig &&
-      typeof channelConfig === "object" &&
-      !Array.isArray(channelConfig) &&
-      (channelConfig as { enabled?: unknown }).enabled === false
-    ) {
+function isChannelExplicitlyDisabled(cfg: OpenClawConfig, channelId?: string): boolean {
+  if (!channelId) {
+    return false;
+  }
+  const channels = cfg.channels as Record<string, unknown> | undefined;
+  const channelConfig = channels?.[channelId];
+  return isRecord(channelConfig) && channelConfig.enabled === false;
+}
+
+function isPluginExplicitlyDisabled(
+  cfg: OpenClawConfig,
+  entry: Pick<PluginEnableChange, "pluginId" | "channelId">,
+): boolean {
+  if (isChannelExplicitlyDisabled(cfg, entry.channelId)) {
+    return true;
+  }
+  const builtInChannelId = normalizeChatChannelId(entry.pluginId);
+  if (builtInChannelId && builtInChannelId !== entry.channelId) {
+    if (isChannelExplicitlyDisabled(cfg, builtInChannelId)) {
       return true;
     }
   }
-  const entry = cfg.plugins?.entries?.[pluginId];
-  return entry?.enabled === false;
+  const pluginEntry = cfg.plugins?.entries?.[entry.pluginId];
+  if (pluginEntry?.enabled === false) {
+    return true;
+  }
+  return false;
 }
 
 function isPluginDenied(cfg: OpenClawConfig, pluginId: string): boolean {
@@ -365,7 +377,7 @@ function shouldSkipPreferredPluginAutoEnable(
     if (isPluginDenied(cfg, other.pluginId)) {
       continue;
     }
-    if (isPluginExplicitlyDisabled(cfg, other.pluginId)) {
+    if (isPluginExplicitlyDisabled(cfg, other)) {
       continue;
     }
     const preferOver = resolvePreferredOverIds(other.pluginId, env, registry);
@@ -453,7 +465,7 @@ export function applyPluginAutoEnable(params: {
     if (isPluginDenied(next, entry.pluginId)) {
       continue;
     }
-    if (isPluginExplicitlyDisabled(next, entry.pluginId)) {
+    if (isPluginExplicitlyDisabled(next, entry)) {
       continue;
     }
     if (shouldSkipPreferredPluginAutoEnable(next, entry, configured, env, registry)) {

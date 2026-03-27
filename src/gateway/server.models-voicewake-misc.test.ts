@@ -458,6 +458,54 @@ describe("gateway server misc", () => {
     });
   });
 
+  test("startup does not re-enable bluebubbles when the channel config is explicitly disabled", async () => {
+    const configPath = process.env.OPENCLAW_CONFIG_PATH;
+    if (!configPath) {
+      throw new Error("Missing OPENCLAW_CONFIG_PATH");
+    }
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          channels: {
+            bluebubbles: {
+              enabled: false,
+              serverUrl: "http://localhost:1234",
+              password: "x",
+            },
+            imessage: {
+              cliPath: "/usr/local/bin/imsg",
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const autoPort = await getFreePort();
+    const autoServer = await startGatewayServer(autoPort);
+    await autoServer.close();
+
+    const updated = JSON.parse(await fs.readFile(configPath, "utf-8")) as {
+      channels?: Record<string, Record<string, unknown>>;
+      plugins?: { entries?: Record<string, Record<string, unknown>> };
+    };
+
+    expect(updated.channels?.bluebubbles).toMatchObject({
+      enabled: false,
+      serverUrl: "http://localhost:1234",
+      password: "x",
+    });
+    expect(updated.plugins?.entries?.bluebubbles).toBeUndefined();
+    expect(updated.channels?.imessage).toMatchObject({
+      cliPath: "/usr/local/bin/imsg",
+      enabled: true,
+    });
+  });
+
   test("refuses to start when port already bound", async () => {
     const { server: blocker, port: blockedPort } = await occupyPort();
     const startup = startGatewayServer(blockedPort);
