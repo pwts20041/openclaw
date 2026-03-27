@@ -21,6 +21,7 @@ import type { ChannelKind } from "./config-reload-plan.js";
 import type { GatewayReloadPlan } from "./config-reload.js";
 import { resolveHooksConfig } from "./hooks.js";
 import { buildGatewayCronService, type GatewayCronState } from "./server-cron.js";
+import { refreshGatewayModelCatalog } from "./server-model-catalog.js";
 import type { HookClientIpConfig } from "./server-http.js";
 import { resolveHookClientIpConfig } from "./server/hooks.js";
 
@@ -53,6 +54,9 @@ export function createGatewayReloadHandlers(params: {
     maxRestartsPerHour?: number;
   }) => ChannelHealthMonitor;
 }) {
+  const shouldRefreshGatewayModelCatalog = (plan: GatewayReloadPlan) =>
+    plan.changedPaths.some((path) => path === "models" || path.startsWith("models."));
+
   const applyHotReload = async (
     plan: GatewayReloadPlan,
     nextConfig: ReturnType<typeof loadConfig>,
@@ -75,6 +79,14 @@ export function createGatewayReloadHandlers(params: {
     }
 
     resetDirectoryCache();
+
+    if (shouldRefreshGatewayModelCatalog(plan)) {
+      try {
+        await refreshGatewayModelCatalog(nextConfig);
+      } catch (err) {
+        params.logReload.warn(`model catalog refresh failed during hot reload: ${String(err)}`);
+      }
+    }
 
     if (plan.restartCron) {
       state.cronState.cron.stop();

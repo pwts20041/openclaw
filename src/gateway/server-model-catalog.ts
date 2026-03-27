@@ -3,7 +3,7 @@ import {
   type ModelCatalogEntry,
   resetModelCatalogCacheForTest,
 } from "../agents/model-catalog.js";
-import { loadConfig } from "../config/config.js";
+import { loadConfig, type OpenClawConfig } from "../config/config.js";
 
 export type GatewayModelChoice = ModelCatalogEntry;
 
@@ -16,4 +16,12 @@ export function __resetModelCatalogCacheForTest() {
 
 export async function loadGatewayModelCatalog(): Promise<GatewayModelChoice[]> {
   return await loadModelCatalog({ config: loadConfig() });
+}
+
+export async function refreshGatewayModelCatalog(
+  config: OpenClawConfig,
+): Promise<GatewayModelChoice[]> {
+  // `useCache: false` clears the previous module-scoped promise before rebuilding it,
+  // so the refreshed result becomes the new warm cache for subsequent gateway reads.
+  return await loadModelCatalog({ config, useCache: false });
 }
