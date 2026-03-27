@@ -59,6 +59,7 @@ import type { PluginServicesHandle } from "../plugins/services.js";
 import { getTotalQueueSize } from "../process/command-queue.js";
 import type { RuntimeEnv } from "../runtime.js";
 import type { CommandSecretAssignment } from "../secrets/command-config.js";
+import { SecretProviderResolutionError, SecretRefResolutionError } from "../secrets/resolve.js";
 import {
   GATEWAY_AUTH_SURFACE_PATHS,
   evaluateGatewayAuthSurfaceStates,
@@ -237,6 +238,92 @@ function applyGatewayAuthOverridesForStartupPreflight(
       auth: mergeGatewayAuthConfig(config.gateway?.auth, overrides.auth),
       tailscale: mergeGatewayTailscaleConfig(config.gateway?.tailscale, overrides.tailscale),
     },
+  };
+}
+
+function disableChannelsForStartupDegrade(
+  config: OpenClawConfig,
+  channelIds: readonly string[],
+): OpenClawConfig {
+  if (channelIds.length === 0 || !config.channels) {
+    return config;
+  }
+  const next = structuredClone(config);
+  const nextChannels = next.channels!;
+  for (const channelId of channelIds) {
+    const channel = nextChannels[channelId];
+    if (!channel || typeof channel !== "object") {
+      continue;
+    }
+    nextChannels[channelId] = {
+      ...(channel as Record<string, unknown>),
+      enabled: false,
+    };
+  }
+  return next;
+}
+
+function isSecretResolutionAvailabilityError(error: unknown): boolean {
+  if (error instanceof SecretRefResolutionError) {
+    return error.source === "env";
+  }
+  if (error instanceof SecretProviderResolutionError) {
+    return /timed out after|produced no output|exited with code/i.test(error.message);
+  }
+  return false;
+}
+
+async function prepareStartupChannelDegradedSnapshot(params: { config: OpenClawConfig }): Promise<{
+  prepared: Awaited<ReturnType<typeof prepareSecretsRuntimeSnapshot>>;
+  disabledChannelIds: string[];
+} | null> {
+  const channelEntries = Object.entries(params.config.channels ?? {}).filter(
+    ([, value]) =>
+      value && typeof value === "object" && (value as { enabled?: boolean }).enabled !== false,
+  );
+  if (channelEntries.length === 0) {
+    return null;
+  }
+
+  const allChannelIds = channelEntries.map(([channelId]) => channelId);
+  try {
+    await prepareSecretsRuntimeSnapshot({
+      config: disableChannelsForStartupDegrade(params.config, allChannelIds),
+    });
+  } catch {
+    // Non-channel surfaces are still unresolved, so startup must keep failing.
+    return null;
+  }
+
+  const disabledChannelIds: string[] = [];
+  for (const [channelId] of channelEntries) {
+    const isolatedConfig = disableChannelsForStartupDegrade(
+      params.config,
+      allChannelIds.filter((candidateId) => candidateId !== channelId),
+    );
+    try {
+      await prepareSecretsRuntimeSnapshot({ config: isolatedConfig });
+    } catch (err) {
+      if (!isSecretResolutionAvailabilityError(err)) {
+        throw err;
+      }
+      disabledChannelIds.push(channelId);
+    }
+  }
+  if (disabledChannelIds.length === 0) {
+    return null;
+  }
+
+  const degradedConfig = disableChannelsForStartupDegrade(params.config, disabledChannelIds);
+  const prepared = await prepareSecretsRuntimeSnapshot({ config: degradedConfig });
+  return {
+    prepared: {
+      ...prepared,
+      // Preserve the original source config so a later `secrets.reload` can
+      // recover disabled channels once their env-backed refs become available.
+      sourceConfig: structuredClone(params.config),
+    },
+    disabledChannelIds,
   };
 }
 
@@ -483,6 +570,21 @@ export async function startGatewayServer(
         }
         secretsDegraded = true;
         if (params.reason === "startup") {
+          const degraded = await prepareStartupChannelDegradedSnapshot({ config });
+          if (degraded) {
+            const disabledSummary = degraded.disabledChannelIds.join(", ");
+            logSecrets.warn(
+              `[SECRETS_STARTUP_CHANNELS_DISABLED] Disabled channels with unresolved startup secrets: ${disabledSummary}`,
+            );
+            if (params.activate) {
+              activateSecretsRuntimeSnapshot(degraded.prepared);
+              logGatewayAuthSurfaceDiagnostics(degraded.prepared);
+            }
+            for (const warning of degraded.prepared.warnings) {
+              logSecrets.warn(`[${warning.code}] ${warning.message}`);
+            }
+            return degraded.prepared;
+          }
           throw new Error(`Startup failed: required secrets are unavailable. ${details}`, {
             cause: err,
           });
