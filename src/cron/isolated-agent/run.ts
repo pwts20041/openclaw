@@ -37,7 +37,6 @@ import {
   setSessionRuntimeModel,
   updateSessionStore,
 } from "../../config/sessions.js";
-import type { AgentDefaultsConfig } from "../../config/types.js";
 import { emitAgentEvent, registerAgentRunContext } from "../../infra/agent-events.js";
 import { logWarn } from "../../logger.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
@@ -566,7 +565,18 @@ export async function runCronIsolatedAgentTurn(params: {
       // Accumulate token usage across turns (interim-ack + final).
       const turnUsage = fallbackResult.result?.meta?.agentMeta?.usage;
       if (turnUsage) {
-        if (accumulatedUsage) {
+        // CLI providers report a context snapshot (cumulative totals) rather
+        // than per-turn deltas.  Summing snapshots would double-count earlier
+        // tokens, so we take the latest snapshot directly.
+        if (isCliProvider(provider, cfgWithAgentDefaults)) {
+          accumulatedUsage = {
+            input: turnUsage.input ?? 0,
+            output: turnUsage.output ?? 0,
+            cacheRead: turnUsage.cacheRead ?? 0,
+            cacheWrite: turnUsage.cacheWrite ?? 0,
+            total: turnUsage.total,
+          };
+        } else if (accumulatedUsage) {
           accumulatedUsage.input += turnUsage.input ?? 0;
           accumulatedUsage.output += turnUsage.output ?? 0;
           accumulatedUsage.cacheRead += turnUsage.cacheRead ?? 0;
