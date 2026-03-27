@@ -2221,6 +2221,45 @@ refresh_gateway_service_if_loaded() {
     run_quiet_step "Probing gateway service" "$claw" gateway status --deep || true
 }
 
+install_gateway_daemon_if_needed() {
+    if [[ "${SKIP_GATEWAY_DAEMON:-0}" == "1" ]]; then
+        ui_info "Skipping gateway daemon installation (SKIP_GATEWAY_DAEMON=1)"
+        return 0
+    fi
+
+    local claw="${OPENCLAW_BIN:-}"
+    if [[ -z "$claw" ]]; then
+        claw="$(resolve_openclaw_bin || true)"
+    fi
+    if [[ -z "$claw" ]]; then
+        ui_info "Skipping gateway daemon install (openclaw not on PATH yet)"
+        return 0
+    fi
+
+    if is_gateway_daemon_loaded "$claw"; then
+        ui_info "Gateway daemon already installed; skipping install"
+        return 0
+    fi
+
+    ui_info "Installing gateway daemon service"
+    if run_quiet_step "Installing gateway daemon" "$claw" daemon install; then
+        ui_success "Gateway daemon service installed"
+    else
+        ui_warn "Gateway daemon install failed; user can run 'openclaw daemon install' manually"
+        return 0
+    fi
+
+    if run_quiet_step "Starting gateway daemon" "$claw" daemon start; then
+        ui_success "Gateway daemon service started"
+    else
+        ui_warn "Gateway daemon start failed; user can run 'openclaw daemon start' manually"
+        return 0
+    fi
+
+    sleep 2
+    run_quiet_step "Probing gateway daemon" "$claw" daemon status --deep || true
+}
+
 verify_installation() {
     if [[ "${VERIFY_INSTALL}" != "1" ]]; then
         return 0
@@ -2378,7 +2417,13 @@ main() {
         fi
     fi
 
-    refresh_gateway_service_if_loaded
+    # Install gateway daemon for fresh installs (not upgrades)
+    if [[ "$is_upgrade" != "true" ]]; then
+        install_gateway_daemon_if_needed
+    else
+        # Only refresh gateway service on upgrades (not fresh installs)
+        refresh_gateway_service_if_loaded
+    fi
 
     # Step 6: Run doctor for migrations on upgrades and git installs
     local run_doctor_after=false
