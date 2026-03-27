@@ -29,6 +29,12 @@ const loadedAuthStoreCache = new Map<
   { mtimeMs: number | null; syncedAtMs: number; store: AuthProfileStore }
 >();
 
+// Map of auth store path -> mtime when the runtime snapshot was loaded.
+// Used to detect if a specific on-disk auth-profiles.json was modified externally
+// (e.g. by `openclaw models auth login` while gateway was stopped) and invalidate
+// stale runtime snapshots on startup.
+const runtimeSnapshotMtimes = new Map<string, number>();
+
 function resolveRuntimeStoreKey(agentDir?: string): string {
   return resolveAuthStorePath(agentDir);
 }
@@ -44,6 +50,37 @@ function resolveRuntimeAuthProfileStore(agentDir?: string): AuthProfileStore | n
 
   const mainKey = resolveRuntimeStoreKey(undefined);
   const requestedKey = resolveRuntimeStoreKey(agentDir);
+  const mainAuthPath = resolveAuthStorePath();
+  const requestedAuthPath = resolveAuthStorePath(agentDir);
+
+  // Staleness detection: if the on-disk auth-profiles.json was modified after
+  // the runtime snapshot was loaded (e.g. by `openclaw models auth login` while
+  // gateway was stopped), invalidate the snapshot so callers fall through to a
+  // fresh disk read. This prevents overwriting fresh tokens with stale cached state.
+  // Check main store staleness (always checked).
+  const mainLoadedMtime = runtimeSnapshotMtimes.get(mainKey);
+  if (mainLoadedMtime !== undefined) {
+    const mainMtime = readAuthStoreMtimeMs(mainAuthPath);
+    if (mainMtime !== null && mainMtime > mainLoadedMtime) {
+      runtimeAuthStoreSnapshots.clear();
+      runtimeSnapshotMtimes.clear();
+      return null;
+    }
+  }
+
+  // Check agent-specific store staleness only when it differs from main.
+  if (requestedKey !== mainKey) {
+    const requestedLoadedMtime = runtimeSnapshotMtimes.get(requestedKey);
+    if (requestedLoadedMtime !== undefined) {
+      const requestedMtime = readAuthStoreMtimeMs(requestedAuthPath);
+      if (requestedMtime !== null && requestedMtime > requestedLoadedMtime) {
+        runtimeAuthStoreSnapshots.clear();
+        runtimeSnapshotMtimes.clear();
+        return null;
+      }
+    }
+  }
+
   const mainStore = runtimeAuthStoreSnapshots.get(mainKey);
   const requestedStore = runtimeAuthStoreSnapshots.get(requestedKey);
 
@@ -72,7 +109,24 @@ function resolveRuntimeAuthProfileStore(agentDir?: string): AuthProfileStore | n
 
 export function replaceRuntimeAuthProfileStoreSnapshots(
   entries: Array<{ agentDir?: string; store: AuthProfileStore }>,
+  snapshotMtimes?: Record<string, number>,
 ): void {
+  // Clear stale mtime keys from prior activations before populating fresh ones.
+  // This prevents removed agent paths from causing false-positive staleness detection.
+  runtimeSnapshotMtimes.clear();
+
+  // Capture mtime for each auth store file represented by entries.
+  // Use snapshotMtimes from prepare time if available, otherwise stat at activation time.
+  // Recording mtime at prepare time (not activation) closes the race window between
+  // prepareSecretsRuntimeSnapshot reading the store and this function capturing mtime.
+  for (const entry of entries) {
+    const authPath = resolveAuthStorePath(entry.agentDir);
+    const key = resolveRuntimeStoreKey(entry.agentDir);
+    const agentDirKey = entry.agentDir ?? "";
+    const mtime = snapshotMtimes?.[agentDirKey] ?? readAuthStoreMtimeMs(authPath) ?? Date.now();
+    runtimeSnapshotMtimes.set(key, mtime);
+  }
+
   runtimeAuthStoreSnapshots.clear();
   for (const entry of entries) {
     runtimeAuthStoreSnapshots.set(
@@ -85,6 +139,7 @@ export function replaceRuntimeAuthProfileStoreSnapshots(
 export function clearRuntimeAuthProfileStoreSnapshots(): void {
   runtimeAuthStoreSnapshots.clear();
   loadedAuthStoreCache.clear();
+  runtimeSnapshotMtimes.clear();
 }
 
 function readAuthStoreMtimeMs(authPath: string): number | null {
@@ -562,6 +617,7 @@ export function ensureAuthProfileStore(
 
 export function saveAuthProfileStore(store: AuthProfileStore, agentDir?: string): void {
   const authPath = resolveAuthStorePath(agentDir);
+  const key = resolveRuntimeStoreKey(agentDir);
   const profiles = Object.fromEntries(
     Object.entries(store.profiles).map(([profileId, credential]) => {
       if (credential.type === "api_key" && credential.keyRef && credential.key !== undefined) {
@@ -585,5 +641,10 @@ export function saveAuthProfileStore(store: AuthProfileStore, agentDir?: string)
     usageStats: store.usageStats ?? undefined,
   } satisfies AuthProfileStore;
   saveJsonFile(authPath, payload);
-  writeCachedAuthProfileStore(authPath, readAuthStoreMtimeMs(authPath), payload);
+  const newMtime = readAuthStoreMtimeMs(authPath);
+  if (newMtime !== null) {
+    runtimeSnapshotMtimes.set(key, newMtime);
+  }
+  runtimeAuthStoreSnapshots.set(key, cloneAuthProfileStore(store));
+  writeCachedAuthProfileStore(authPath, newMtime, payload);
 }
