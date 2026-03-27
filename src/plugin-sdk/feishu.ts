@@ -1,5 +1,5 @@
-// Private helper surface for the bundled feishu plugin.
-// Keep this list additive and scoped to symbols used under extensions/feishu.
+// Private helper surface for feishu channel consumers (bundled and standalone).
+// Keep this list additive and scoped to symbols used by feishu channel plugins.
 
 export type { HistoryEntry } from "../auto-reply/reply/history.js";
 export {
@@ -21,6 +21,7 @@ export {
   setTopLevelChannelAllowFrom,
   setTopLevelChannelDmPolicyWithAllowFrom,
   setTopLevelChannelGroupPolicy,
+  promptAccountId,
   splitSetupEntries,
 } from "../channels/plugins/setup-wizard-helpers.js";
 export { PAIRING_APPROVED_MESSAGE } from "../channels/plugins/pairing-message.js";
@@ -37,6 +38,7 @@ export type {
   ChannelConfiguredBindingMatch,
 } from "../channels/plugins/types.adapters.js";
 export type { ChannelPlugin } from "../channels/plugins/types.plugin.js";
+export { resolveMentionGatingWithBypass } from "../channels/mention-gating.js";
 export { createReplyPrefixContext } from "../channels/reply-prefix.js";
 export { createChannelReplyPipeline } from "./channel-reply-pipeline.js";
 export type { OpenClawConfig as ClawdbotConfig, OpenClawConfig } from "../config/config.js";
