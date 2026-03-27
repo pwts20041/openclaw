@@ -193,3 +193,35 @@ describe("sendMessageSlack blocks", () => {
     expect(client.chat.postMessage).not.toHaveBeenCalled();
   });
 });
+
+describe("sendMessageSlack plain text", () => {
+  it("preserves ampersands in plain outbound text", async () => {
+    const client = createSlackSendTestClient();
+    await sendMessageSlack("channel:C123", "R&D <plan>", {
+      token: "xoxb-test",
+      client,
+    });
+
+    expect(client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "C123",
+        text: "R&D &lt;plan&gt;",
+      }),
+    );
+  });
+
+  it("keeps escaped Slack entities literal in plain outbound text", async () => {
+    const client = createSlackSendTestClient();
+    await sendMessageSlack("channel:C123", "&lt;!here&gt; &amp; status", {
+      token: "xoxb-test",
+      client,
+    });
+
+    expect(client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "C123",
+        text: "&amp;lt;!here&amp;gt; &amp;amp; status",
+      }),
+    );
+  });
+});
