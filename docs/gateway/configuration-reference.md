@@ -374,7 +374,12 @@ WhatsApp runs through the gateway's web channel (Baileys Web). It starts automat
       allowFrom: ["U123", "U456", "*"],
       dm: { enabled: true, groupEnabled: false, groupChannels: ["G123"] },
       channels: {
-        C123: { allow: true, requireMention: true, allowBots: false },
+        C123: {
+          allow: true,
+          requireMention: true,
+          requireMentionInThreads: false,
+          allowBots: false,
+        },
         "#general": {
           allow: true,
           requireMention: true,
@@ -427,6 +432,8 @@ WhatsApp runs through the gateway's web channel (Baileys Web). It starts automat
 **Reaction notification modes:** `off`, `own` (default), `all`, `allowlist` (from `reactionAllowlist`).
 
 **Thread session isolation:** `thread.historyScope` is per-thread (default) or shared across channel. `thread.inheritParent` copies parent channel transcript to new threads.
+
+**Thread mention gating:** `requireMentionInThreads` can be set per-channel or at the account level. When `true`, requires an explicit @mention in threads even if the bot has participated. When `false`, all thread replies are processed without requiring a mention. Unset inherits from `requireMention`.
 
 - `typingReaction` adds a temporary reaction to the inbound Slack message while a reply is running, then removes it on completion. Use a Slack emoji shortcode such as `"hourglass_flowing_sand"`.
 
