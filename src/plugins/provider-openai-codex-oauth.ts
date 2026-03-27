@@ -16,6 +16,7 @@ export async function loginOpenAICodexOAuth(params: {
   isRemote: boolean;
   openUrl: (url: string) => Promise<void>;
   localBrowserMessage?: string;
+  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
 }): Promise<OAuthCredentials | null> {
   const { prompter, runtime, isRemote, openUrl, localBrowserMessage } = params;
 
