@@ -163,6 +163,26 @@ describe("failover-error", () => {
     ).toBe("billing");
   });
 
+  it("treats invalid-model HTTP 400 payloads as model_not_found instead of format", () => {
+    expect(
+      resolveFailoverReasonFromError({
+        message: "openrouter/__invalid_test_model__ is not a valid model ID",
+      }),
+    ).toBe("model_not_found");
+    expect(
+      resolveFailoverReasonFromError({
+        status: 400,
+        message: "HTTP 400: openrouter/__invalid_test_model__ is not a valid model ID",
+      }),
+    ).toBe("model_not_found");
+    expect(
+      resolveFailoverReasonFromError({
+        status: 422,
+        message: "invalid model: openrouter/__invalid_test_model__",
+      }),
+    ).toBe("model_not_found");
+  });
+
   it("treats HTTP 422 as format error", () => {
     expect(
       resolveFailoverReasonFromError({

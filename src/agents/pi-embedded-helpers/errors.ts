@@ -503,6 +503,9 @@ export function classifyFailoverReasonFromHttpStatus(
     return "overloaded";
   }
   if (status === 400 || status === 422) {
+    if (message && isModelNotFoundErrorMessage(message)) {
+      return "model_not_found";
+    }
     // Some providers return quota/balance errors under HTTP 400, so do not
     // let the generic format fallback mask an explicit billing signal.
     if (message && isBillingErrorMessage(message)) {
@@ -920,6 +923,7 @@ export function isModelNotFoundErrorMessage(raw: string): boolean {
     lower.includes("model not found") ||
     lower.includes("model_not_found") ||
     lower.includes("not_found_error") ||
+    lower.includes("not a valid model id") ||
     (lower.includes("does not exist") && lower.includes("model")) ||
     (lower.includes("invalid model") && !lower.includes("invalid model reference"))
   ) {
