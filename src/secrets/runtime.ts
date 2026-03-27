@@ -34,6 +34,8 @@ export type PreparedSecretsRuntimeSnapshot = {
   sourceConfig: OpenClawConfig;
   config: OpenClawConfig;
   authStores: Array<{ agentDir: string; store: AuthProfileStore }>;
+  /** Timestamp when authStores were read from disk (for stale-cache detection). */
+  authStoresReadAtMs?: number;
   warnings: SecretResolverWarning[];
   webTools: RuntimeWebToolsMetadata;
 };
@@ -72,6 +74,7 @@ function cloneSnapshot(snapshot: PreparedSecretsRuntimeSnapshot): PreparedSecret
       agentDir: entry.agentDir,
       store: structuredClone(entry.store),
     })),
+    authStoresReadAtMs: snapshot.authStoresReadAtMs,
     warnings: snapshot.warnings.map((warning) => ({ ...warning })),
     webTools: structuredClone(snapshot.webTools),
   };
@@ -158,6 +161,7 @@ export async function prepareSecretsRuntimeSnapshot(params: {
     ? [...new Set(params.agentDirs.map((entry) => resolveUserPath(entry, runtimeEnv)))]
     : collectCandidateAgentDirs(resolvedConfig, runtimeEnv);
 
+  const authStoresReadAtMs = Date.now();
   const authStores: Array<{ agentDir: string; store: AuthProfileStore }> = [];
   for (const agentDir of candidateDirs) {
     const store = structuredClone(loadAuthStore(agentDir));
@@ -186,6 +190,7 @@ export async function prepareSecretsRuntimeSnapshot(params: {
     sourceConfig,
     config: resolvedConfig,
     authStores,
+    authStoresReadAtMs,
     warnings: context.warnings,
     webTools: await resolveRuntimeWebTools({
       sourceConfig,
@@ -212,7 +217,7 @@ export function activateSecretsRuntimeSnapshot(snapshot: PreparedSecretsRuntimeS
       loadAuthStore: loadAuthProfileStoreForSecretsRuntime,
     } satisfies SecretsRuntimeRefreshContext);
   setRuntimeConfigSnapshot(next.config, next.sourceConfig);
-  replaceRuntimeAuthProfileStoreSnapshots(next.authStores);
+  replaceRuntimeAuthProfileStoreSnapshots(next.authStores, next.authStoresReadAtMs);
   activeSnapshot = next;
   activeRefreshContext = cloneRefreshContext(refreshContext);
   setRuntimeConfigSnapshotRefreshHandler({
