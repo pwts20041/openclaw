@@ -406,6 +406,20 @@ export function resolveSubagentSpawnModelSelection(params: {
   );
 }
 
+/** Deduplicate catalog entries by model key, keeping the first occurrence. */
+function deduplicateCatalog(catalog: ModelCatalogEntry[]): ModelCatalogEntry[] {
+  const seen = new Set<string>();
+  const result: ModelCatalogEntry[] = [];
+  for (const entry of catalog) {
+    const key = modelKey(entry.provider, entry.id);
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(entry);
+    }
+  }
+  return result;
+}
+
 export function buildAllowedModelSet(params: {
   cfg: OpenClawConfig;
   catalog: ModelCatalogEntry[];
@@ -436,7 +450,7 @@ export function buildAllowedModelSet(params: {
     }
     return {
       allowAny: true,
-      allowedCatalog: params.catalog,
+      allowedCatalog: deduplicateCatalog(params.catalog),
       allowedKeys: catalogKeys,
     };
   }
@@ -485,10 +499,23 @@ export function buildAllowedModelSet(params: {
     allowedKeys.add(defaultKey);
   }
 
-  const allowedCatalog = [
-    ...params.catalog.filter((entry) => allowedKeys.has(modelKey(entry.provider, entry.id))),
-    ...syntheticCatalogEntries.values(),
-  ];
+  const deduped: ModelCatalogEntry[] = [];
+  const dedupSeen = new Set<string>();
+  for (const entry of params.catalog) {
+    const key = modelKey(entry.provider, entry.id);
+    if (allowedKeys.has(key) && !dedupSeen.has(key)) {
+      deduped.push(entry);
+      dedupSeen.add(key);
+    }
+  }
+  for (const entry of syntheticCatalogEntries.values()) {
+    const key = modelKey(entry.provider, entry.id);
+    if (!dedupSeen.has(key)) {
+      deduped.push(entry);
+      dedupSeen.add(key);
+    }
+  }
+  const allowedCatalog = deduped;
 
   if (allowedCatalog.length === 0 && allowedKeys.size === 0) {
     if (defaultKey) {
@@ -496,7 +523,7 @@ export function buildAllowedModelSet(params: {
     }
     return {
       allowAny: true,
-      allowedCatalog: params.catalog,
+      allowedCatalog: deduplicateCatalog(params.catalog),
       allowedKeys: catalogKeys,
     };
   }
