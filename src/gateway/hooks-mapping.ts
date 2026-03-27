@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { CONFIG_PATH, type HookMappingConfig, type HooksConfig } from "../config/config.js";
 import { importFileModule, resolveFunctionModuleExport } from "../hooks/module-loader.js";
+import { resolveReservedHookSessionKeyPrefix } from "./hook-session-key.js";
 import type { HookMessageChannel } from "./hooks.js";
 
 export type HookMappingResolved = {
@@ -192,6 +193,15 @@ function normalizeHookMapping(
   const matchSource = mapping.match?.source?.trim();
   const action = mapping.action ?? "agent";
   const wakeMode = mapping.wakeMode ?? "now";
+  const sessionKey = mapping.sessionKey?.trim() || undefined;
+  if (sessionKey && !sessionKey.includes("{{")) {
+    const reservedSessionPrefix = resolveReservedHookSessionKeyPrefix(sessionKey);
+    if (reservedSessionPrefix) {
+      throw new Error(
+        `hook mapping '${id}' sessionKey may not target internal session namespace ${reservedSessionPrefix}`,
+      );
+    }
+  }
   const transform = mapping.transform
     ? {
         modulePath: resolveContainedPath(transformsDir, mapping.transform.module, "Hook transform"),
@@ -207,7 +217,7 @@ function normalizeHookMapping(
     wakeMode,
     name: mapping.name,
     agentId: mapping.agentId?.trim() || undefined,
-    sessionKey: mapping.sessionKey,
+    sessionKey,
     messageTemplate: mapping.messageTemplate,
     textTemplate: mapping.textTemplate,
     deliver: mapping.deliver,

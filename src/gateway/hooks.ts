@@ -8,6 +8,7 @@ import { readJsonBodyWithLimit, requestBodyErrorToText } from "../infra/http-bod
 import { normalizeAgentId, parseAgentSessionKey } from "../routing/session-key.js";
 import type { HookExternalContentSource } from "../security/external-content.js";
 import { normalizeMessageChannel } from "../utils/message-channel.js";
+import { resolveReservedHookSessionKeyPrefix } from "./hook-session-key.js";
 import { type HookMappingResolved, resolveHookMappings } from "./hooks-mapping.js";
 import { resolveAllowedAgentIds } from "./hooks-policy.js";
 
@@ -68,6 +69,12 @@ export function resolveHooksConfig(cfg: OpenClawConfig): HooksConfigResolved | n
     !isSessionKeyAllowedByPrefix(defaultSessionKey, allowedSessionKeyPrefixes)
   ) {
     throw new Error("hooks.defaultSessionKey must match hooks.allowedSessionKeyPrefixes");
+  }
+  const reservedDefaultSessionPrefix = resolveReservedHookSessionKeyPrefix(defaultSessionKey);
+  if (reservedDefaultSessionPrefix) {
+    throw new Error(
+      `hooks.defaultSessionKey may not target internal session namespace ${reservedDefaultSessionPrefix}`,
+    );
   }
   if (
     !defaultSessionKey &&
@@ -304,6 +311,8 @@ export const getHookSessionKeyRequestPolicyError = () =>
   "sessionKey is disabled for external /hooks/agent payloads; set hooks.allowRequestSessionKey=true to enable";
 export const getHookSessionKeyPrefixError = (prefixes: string[]) =>
   `sessionKey must start with one of: ${prefixes.join(", ")}`;
+export const getHookSessionKeyReservedPrefixError = (prefix: string) =>
+  `sessionKey may not target internal session namespace ${prefix}`;
 
 export function resolveHookSessionKey(params: {
   hooksConfig: HooksConfigResolved;
@@ -319,6 +328,10 @@ export function resolveHookSessionKey(params: {
     const allowedPrefixes = params.hooksConfig.sessionPolicy.allowedSessionKeyPrefixes;
     if (allowedPrefixes && !isSessionKeyAllowedByPrefix(requested, allowedPrefixes)) {
       return { ok: false, error: getHookSessionKeyPrefixError(allowedPrefixes) };
+    }
+    const reservedPrefix = resolveReservedHookSessionKeyPrefix(requested);
+    if (reservedPrefix) {
+      return { ok: false, error: getHookSessionKeyReservedPrefixError(reservedPrefix) };
     }
     return { ok: true, value: requested };
   }
