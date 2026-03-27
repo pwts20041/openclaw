@@ -11,7 +11,7 @@ import {
   DEFAULT_TYPECAST_EMOTION_PRESET,
   DEFAULT_TYPECAST_MODEL,
   typecastTTS,
-} from "../../src/tts/typecast.js";
+} from "./tts.js";
 
 const TYPECAST_TTS_MODELS = ["ssfm-v21", "ssfm-v30"] as const;
 
@@ -91,8 +91,7 @@ function normalizeTypecastProviderConfig(
       volume: asNumber(rawOutput?.volume) ?? 100,
       audioPitch: asNumber(rawOutput?.audioPitch) ?? 0,
       audioTempo: asNumber(rawOutput?.audioTempo) ?? 1.0,
-      audioFormat:
-        trimToUndefined(rawOutput?.audioFormat) === "wav" ? "wav" : "mp3",
+      audioFormat: trimToUndefined(rawOutput?.audioFormat) === "wav" ? "wav" : "mp3",
     },
   };
 }
@@ -114,9 +113,7 @@ function readTypecastProviderConfig(config: SpeechProviderConfig): TypecastProvi
       audioPitch: asNumber(rawOutput?.audioPitch) ?? defaults.output.audioPitch,
       audioTempo: asNumber(rawOutput?.audioTempo) ?? defaults.output.audioTempo,
       audioFormat:
-        trimToUndefined(rawOutput?.audioFormat) === "wav"
-          ? "wav"
-          : defaults.output.audioFormat,
+        trimToUndefined(rawOutput?.audioFormat) === "wav" ? "wav" : defaults.output.audioFormat,
     },
   };
 }
@@ -276,9 +273,7 @@ export function buildTypecastSpeechProvider(): SpeechProviderPlugin {
           : { seed: asNumber(talkProviderConfig.seed) }),
         output: {
           ...base.output,
-          ...(asNumber(rawOutput?.volume) == null
-            ? {}
-            : { volume: asNumber(rawOutput?.volume) }),
+          ...(asNumber(rawOutput?.volume) == null ? {} : { volume: asNumber(rawOutput?.volume) }),
           ...(asNumber(rawOutput?.audioPitch) == null
             ? {}
             : { audioPitch: asNumber(rawOutput?.audioPitch) }),
@@ -287,7 +282,12 @@ export function buildTypecastSpeechProvider(): SpeechProviderPlugin {
             : { audioTempo: asNumber(rawOutput?.audioTempo) }),
           ...(trimToUndefined(rawOutput?.audioFormat) == null
             ? {}
-            : { audioFormat: trimToUndefined(rawOutput?.audioFormat) === "wav" ? "wav" as const : "mp3" as const }),
+            : {
+                audioFormat:
+                  trimToUndefined(rawOutput?.audioFormat) === "wav"
+                    ? ("wav" as const)
+                    : ("mp3" as const),
+              }),
         },
       };
     },
@@ -301,9 +301,7 @@ export function buildTypecastSpeechProvider(): SpeechProviderPlugin {
         ...(trimToUndefined(params.voiceId) == null
           ? {}
           : { voiceId: trimToUndefined(params.voiceId) }),
-        ...(trimToUndefined(params.model) == null
-          ? {}
-          : { model: trimToUndefined(params.model) }),
+        ...(trimToUndefined(params.model) == null ? {} : { model: trimToUndefined(params.model) }),
         ...(trimToUndefined(params.emotionPreset) == null
           ? {}
           : { emotionPreset: trimToUndefined(params.emotionPreset) }),
@@ -318,10 +316,7 @@ export function buildTypecastSpeechProvider(): SpeechProviderPlugin {
       };
     },
     isConfigured: ({ providerConfig }) =>
-      Boolean(
-        readTypecastProviderConfig(providerConfig).apiKey ||
-        process.env.TYPECAST_API_KEY,
-      ),
+      Boolean(readTypecastProviderConfig(providerConfig).apiKey || process.env.TYPECAST_API_KEY),
     synthesize: async (req) => {
       const config = readTypecastProviderConfig(req.providerConfig);
       const overrides = req.providerOverrides ?? {};
@@ -330,7 +325,9 @@ export function buildTypecastSpeechProvider(): SpeechProviderPlugin {
         throw new Error("Typecast API key missing");
       }
       const audioFormat =
-        trimToUndefined(overrides.audioFormat) === "wav" ? "wav" as const : config.output.audioFormat;
+        trimToUndefined(overrides.audioFormat) === "wav"
+          ? ("wav" as const)
+          : config.output.audioFormat;
       const rawOverrideOutput = asObject(overrides.output);
       const audioBuffer = await typecastTTS({
         text: req.text,
