@@ -19,7 +19,7 @@ import { hasControlCommand } from "openclaw/plugin-sdk/command-auth";
 import { resolveChannelGroupRequireMention } from "openclaw/plugin-sdk/config-runtime";
 import { readSessionUpdatedAt, resolveStorePath } from "openclaw/plugin-sdk/config-runtime";
 import { recordInboundSession } from "openclaw/plugin-sdk/conversation-runtime";
-import { enqueueSystemEvent } from "openclaw/plugin-sdk/infra-runtime";
+import { enqueueSystemEvent, requestHeartbeatNow } from "openclaw/plugin-sdk/infra-runtime";
 import { kindFromMime } from "openclaw/plugin-sdk/media-runtime";
 import {
   buildPendingHistoryContextFromMap,
@@ -114,6 +114,9 @@ export function createSignalEventHandler(deps: SignalEventHandlerDeps) {
     mediaTypes?: string[];
     commandAuthorized: boolean;
     wasMentioned?: boolean;
+    replyToId?: string;
+    replyToBody?: string;
+    replyToSender?: string;
   };
 
   async function handleSignalInboundMessage(entry: SignalInboundEntry) {
@@ -214,6 +217,9 @@ export function createSignalEventHandler(deps: SignalEventHandlerDeps) {
       MediaTypes: entry.mediaTypes,
       WasMentioned: entry.isGroup ? entry.wasMentioned === true : undefined,
       CommandAuthorized: entry.commandAuthorized,
+      ReplyToId: entry.replyToId,
+      ReplyToBody: entry.replyToBody,
+      ReplyToSender: entry.replyToSender,
       OriginatingChannel: "signal" as const,
       OriginatingTo: signalTo,
     });
@@ -459,6 +465,7 @@ export function createSignalEventHandler(deps: SignalEventHandlerDeps) {
       .filter(Boolean)
       .join(":");
     enqueueSystemEvent(text, { sessionKey: route.sessionKey, contextKey });
+    requestHeartbeatNow({ coalesceMs: 500, sessionKey: route.sessionKey });
     return true;
   }
 
@@ -521,6 +528,12 @@ export function createSignalEventHandler(deps: SignalEventHandlerDeps) {
     const messageText = normalizedMessage.trim();
 
     const quoteText = dataMessage?.quote?.text?.trim() ?? "";
+    const quoteId = dataMessage?.quote?.id;
+    const quoteAuthor =
+      dataMessage?.quote?.author?.trim() ||
+      dataMessage?.quote?.authorUuid?.trim() ||
+      dataMessage?.quote?.authorNumber?.trim() ||
+      undefined;
     const hasBodyContent =
       Boolean(messageText || quoteText) || Boolean(!reaction && dataMessage?.attachments?.length);
     const senderDisplay = formatSignalSenderDisplay(sender);
@@ -796,6 +809,9 @@ export function createSignalEventHandler(deps: SignalEventHandlerDeps) {
       mediaTypes: mediaTypes.length > 0 ? mediaTypes : undefined,
       commandAuthorized,
       wasMentioned: effectiveWasMentioned,
+      replyToId: typeof quoteId === "number" ? String(quoteId) : undefined,
+      replyToBody: quoteText || undefined,
+      replyToSender: quoteAuthor,
     });
   };
 }

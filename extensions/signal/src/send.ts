@@ -18,6 +18,16 @@ export type SignalSendOpts = {
   timeoutMs?: number;
   textMode?: "markdown" | "plain";
   textStyles?: SignalTextStyleRange[];
+  /**
+   * Message ID (timestamp string) to quote/reply-to. When provided and quoteTimestamp
+   * is not set, this is parsed as the quote timestamp and `to` is used as quote-author
+   * (best-effort; works for DM inbound replies, skipped for groups).
+   */
+  replyToId?: string;
+  /** Timestamp of the message being quoted (from replyToId). Takes precedence over replyToId. */
+  quoteTimestamp?: number;
+  /** Author of the quoted message (UUID for inbound, phone number for outbound). */
+  quoteAuthor?: string;
 };
 
 export type SignalSendResult = {
@@ -33,6 +43,57 @@ type SignalTarget =
   | { type: "recipient"; recipient: string }
   | { type: "group"; groupId: string }
   | { type: "username"; username: string };
+
+function normalizeSignalQuoteAuthorFromTarget(rawTo: string): string | undefined {
+  let value = rawTo.trim();
+  if (!value) {
+    return undefined;
+  }
+  if (/^signal:/i.test(value)) {
+    value = value.replace(/^signal:/i, "").trim();
+  }
+  if (!value) {
+    return undefined;
+  }
+  const lower = value.toLowerCase();
+  if (lower.startsWith("group:")) {
+    return undefined;
+  }
+  if (lower.startsWith("username:")) {
+    value = value.slice("username:".length).trim();
+  }
+  return value || undefined;
+}
+
+export function resolveSignalQuoteParams(input: {
+  to: string;
+  replyToId?: string;
+  quoteTimestamp?: number;
+  quoteAuthor?: string;
+}): { quoteTimestamp?: number; quoteAuthor?: string } {
+  let quoteTimestamp = input.quoteTimestamp;
+  let quoteAuthor = input.quoteAuthor?.trim();
+
+  if ((typeof quoteTimestamp !== "number" || !quoteAuthor) && input.replyToId?.trim()) {
+    const parsedTs = Number(input.replyToId.trim());
+    if (Number.isFinite(parsedTs) && parsedTs > 0) {
+      if (typeof quoteTimestamp !== "number") {
+        quoteTimestamp = parsedTs;
+      }
+      quoteAuthor = quoteAuthor || normalizeSignalQuoteAuthorFromTarget(input.to);
+    }
+  }
+
+  if (
+    typeof quoteTimestamp === "number" &&
+    Number.isFinite(quoteTimestamp) &&
+    quoteTimestamp > 0 &&
+    quoteAuthor
+  ) {
+    return { quoteTimestamp, quoteAuthor };
+  }
+  return {};
+}
 
 function parseTarget(raw: string): SignalTarget {
   let value = raw.trim();
@@ -180,6 +241,17 @@ export async function sendMessageSignal(
     throw new Error("Signal recipient is required");
   }
   Object.assign(params, targetParams);
+
+  const resolvedQuote = resolveSignalQuoteParams({
+    to,
+    replyToId: opts.replyToId,
+    quoteTimestamp: opts.quoteTimestamp,
+    quoteAuthor: opts.quoteAuthor,
+  });
+  if (typeof resolvedQuote.quoteTimestamp === "number" && resolvedQuote.quoteAuthor) {
+    params["quote-timestamp"] = resolvedQuote.quoteTimestamp;
+    params["quote-author"] = resolvedQuote.quoteAuthor;
+  }
 
   const result = await signalRpcRequest<{ timestamp?: number }>("send", params, {
     baseUrl,
