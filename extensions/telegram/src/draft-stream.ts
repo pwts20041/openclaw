@@ -359,7 +359,7 @@ export function createTelegramDraftStream(params: {
     }
   };
 
-  const { loop, update, stop, clear } = createFinalizableDraftLifecycle({
+  const { loop, update, stop, clear: baseClear } = createFinalizableDraftLifecycle({
     throttleMs,
     state: streamState,
     sendOrEditStreamMessage,
@@ -378,6 +378,20 @@ export function createTelegramDraftStream(params: {
     warn: params.warn,
     warnPrefix: "telegram stream preview cleanup failed",
   });
+
+  // Wrap clear to also remove draft text from Telegram's composer when using
+  // draft transport. This prevents stale draft text lingering after fallback
+  // finalization paths that skip materialize().
+  const clear = async () => {
+    await baseClear();
+    if (previewTransport === "draft" && resolvedDraftApi != null && streamDraftId != null) {
+      try {
+        await resolvedDraftApi(chatId, streamDraftId, "", threadParams ?? undefined);
+      } catch {
+        // Best-effort cleanup; draft clear failure is cosmetic.
+      }
+    }
+  };
 
   const forceNewMessage = () => {
     // Boundary rotation may call stop() to finalize the previous draft.
