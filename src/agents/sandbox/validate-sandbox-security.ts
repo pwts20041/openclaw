@@ -5,6 +5,9 @@
  * Enforced at runtime when creating sandbox containers.
  */
 
+import os from "node:os";
+import path from "node:path";
+import { resolveStateDir } from "../../config/paths.js";
 import { splitSandboxBindSpec } from "./bind-spec.js";
 import { SANDBOX_AGENT_WORKSPACE_MOUNT } from "./constants.js";
 import {
@@ -13,8 +16,9 @@ import {
 } from "./host-paths.js";
 import { getBlockedNetworkModeReason } from "./network-mode.js";
 
-// Targeted denylist: host paths that should never be exposed inside sandbox containers.
-// Exported for reuse in security audit collectors.
+// Static portion of the targeted denylist: host paths that should never be exposed
+// inside sandbox containers. The full runtime set also includes sensitive home
+// subdirectories and the resolved OpenClaw state directory.
 export const BLOCKED_HOST_PATHS = [
   "/etc",
   "/private/etc",
@@ -30,7 +34,19 @@ export const BLOCKED_HOST_PATHS = [
   "/var/run/docker.sock",
   "/private/var/run/docker.sock",
   "/run/docker.sock",
+  "/var/lib/docker",
+  "/private/var/lib/docker",
+  "/var/log",
+  "/private/var/log",
 ];
+
+const BLOCKED_HOME_SUBPATHS = [".aws", ".config", ".kube", ".openclaw", ".ssh"] as const;
+let cachedBlockedHostPaths:
+  | {
+      key: string;
+      paths: string[];
+    }
+  | undefined;
 
 const BLOCKED_SECCOMP_PROFILES = new Set(["unconfined"]);
 const BLOCKED_APPARMOR_PROFILES = new Set(["unconfined"]);
@@ -107,13 +123,34 @@ export function getBlockedReasonForSourcePath(sourceNormalized: string): Blocked
   if (sourceNormalized === "/") {
     return { kind: "covers", blockedPath: "/" };
   }
-  for (const blocked of BLOCKED_HOST_PATHS) {
+  for (const blocked of getBlockedHostPaths()) {
     if (sourceNormalized === blocked || sourceNormalized.startsWith(blocked + "/")) {
       return { kind: "targets", blockedPath: blocked };
     }
   }
 
   return null;
+}
+
+export function getBlockedHostPaths(): string[] {
+  const homedir = normalizeHostPath(os.homedir());
+  const stateDir = normalizeHostPath(resolveStateDir());
+  const cacheKey = `${homedir}\u0000${stateDir}`;
+  if (cachedBlockedHostPaths?.key === cacheKey) {
+    return cachedBlockedHostPaths.paths;
+  }
+
+  const blocked = new Set(BLOCKED_HOST_PATHS.map(normalizeHostPath));
+  if (homedir !== "/") {
+    for (const suffix of BLOCKED_HOME_SUBPATHS) {
+      blocked.add(normalizeHostPath(path.posix.join(homedir, suffix)));
+    }
+  }
+  blocked.add(stateDir);
+
+  const paths = [...blocked];
+  cachedBlockedHostPaths = { key: cacheKey, paths };
+  return paths;
 }
 
 function normalizeAllowedRoots(roots: string[] | undefined): string[] {
