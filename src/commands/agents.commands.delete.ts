@@ -1,10 +1,15 @@
-import { resolveAgentDir, resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
+import {
+  resolveAgentDir,
+  resolveAgentIdsByExactWorkspacePath,
+  resolveAgentWorkspaceDir,
+} from "../agents/agent-scope.js";
 import { writeConfigFile } from "../config/config.js";
 import { logConfigUpdated } from "../config/logging.js";
 import { resolveSessionTranscriptsDirForAgent } from "../config/sessions.js";
 import { DEFAULT_AGENT_ID, normalizeAgentId } from "../routing/session-key.js";
 import { type RuntimeEnv, writeRuntimeJson } from "../runtime.js";
 import { defaultRuntime } from "../runtime.js";
+import { shortenHomePath } from "../utils.js";
 import { createClackPrompter } from "../wizard/clack-prompter.js";
 import { createQuietRuntime, requireValidConfig } from "./agents.command-shared.js";
 import { findAgentEntryIndex, listAgentEntries, pruneAgentConfig } from "./agents.config.js";
@@ -70,13 +75,24 @@ export async function agentsDeleteCommand(
   const sessionsDir = resolveSessionTranscriptsDirForAgent(agentId);
 
   const result = pruneAgentConfig(cfg, agentId);
+  const sharedWorkspaceAgents = resolveAgentIdsByExactWorkspacePath(
+    result.config,
+    workspaceDir,
+  ).filter((id) => id !== agentId);
+  const deleteWorkspace = sharedWorkspaceAgents.length === 0;
   await writeConfigFile(result.config);
   if (!opts.json) {
     logConfigUpdated(runtime);
   }
 
   const quietRuntime = opts.json ? createQuietRuntime(runtime) : runtime;
-  await moveToTrash(workspaceDir, quietRuntime);
+  if (deleteWorkspace) {
+    await moveToTrash(workspaceDir, quietRuntime);
+  } else if (!opts.json) {
+    runtime.log(
+      `Preserved shared workspace: ${shortenHomePath(workspaceDir)} (also used by: ${sharedWorkspaceAgents.join(", ")})`,
+    );
+  }
   await moveToTrash(agentDir, quietRuntime);
   await moveToTrash(sessionsDir, quietRuntime);
 

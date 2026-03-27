@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   ensureAgentWorkspace: vi.fn(async () => {}),
   isWorkspaceSetupCompleted: vi.fn(async () => false),
   resolveAgentDir: vi.fn(() => "/agents/test-agent"),
+  resolveAgentIdsByExactWorkspacePath: vi.fn(() => ["test-agent"]),
   resolveAgentWorkspaceDir: vi.fn(() => "/workspace/test-agent"),
   resolveSessionTranscriptsDirForAgent: vi.fn(() => "/transcripts/test-agent"),
   listAgentsForGateway: vi.fn(() => ({
@@ -53,6 +54,7 @@ vi.mock("../../commands/agents.config.js", () => ({
 vi.mock("../../agents/agent-scope.js", () => ({
   listAgentIds: () => ["main"],
   resolveAgentDir: mocks.resolveAgentDir,
+  resolveAgentIdsByExactWorkspacePath: mocks.resolveAgentIdsByExactWorkspacePath,
   resolveAgentWorkspaceDir: mocks.resolveAgentWorkspaceDir,
 }));
 
@@ -551,9 +553,10 @@ describe("agents.update", () => {
 describe("agents.delete", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.loadConfigReturn = {};
+    mocks.resolveAgentIdsByExactWorkspacePath.mockReturnValue([]);
     mocks.findAgentEntryIndex.mockReturnValue(0);
     mocks.pruneAgentConfig.mockReturnValue({ config: {}, removedBindings: 2 });
+    mocks.resolveAgentIdsByExactWorkspacePath.mockReturnValue(["test-agent"]);
   });
 
   it("deletes an existing agent and trashes files by default", async () => {
@@ -584,6 +587,24 @@ describe("agents.delete", () => {
     expect(respond).toHaveBeenCalledWith(true, expect.objectContaining({ ok: true }), undefined);
     // moveToTrashBestEffort should not be called at all
     expect(mocks.fsAccess).not.toHaveBeenCalled();
+  });
+
+  it("preserves shared workspaces while deleting agent-specific state", async () => {
+    mocks.resolveAgentIdsByExactWorkspacePath.mockReturnValue(["test-agent", "other-agent"]);
+
+    const { respond, promise } = makeCall("agents.delete", {
+      agentId: "test-agent",
+    });
+    await promise;
+
+    expect(respond).toHaveBeenCalledWith(
+      true,
+      { ok: true, agentId: "test-agent", removedBindings: 2 },
+      undefined,
+    );
+    expect(mocks.movePathToTrash).not.toHaveBeenCalledWith("/workspace/test-agent");
+    expect(mocks.movePathToTrash).toHaveBeenCalledWith("/agents/test-agent");
+    expect(mocks.movePathToTrash).toHaveBeenCalledWith("/transcripts/test-agent");
   });
 
   it("rejects deleting the main agent", async () => {

@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   listAgentIds,
   resolveAgentDir,
+  resolveAgentIdsByExactWorkspacePath,
   resolveAgentWorkspaceDir,
 } from "../../agents/agent-scope.js";
 import {
@@ -723,16 +724,19 @@ export const agentsHandlers: GatewayRequestHandlers = {
     const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
     const agentDir = resolveAgentDir(cfg, agentId);
     const sessionsDir = resolveSessionTranscriptsDirForAgent(agentId);
-
     const result = pruneAgentConfig(cfg, agentId);
+    const deleteWorkspace =
+      resolveAgentIdsByExactWorkspacePath(result.config, workspaceDir).filter(
+        (id) => id !== agentId,
+      ).length === 0;
     await writeConfigFile(result.config);
 
     if (deleteFiles) {
-      await Promise.all([
-        moveToTrashBestEffort(workspaceDir),
-        moveToTrashBestEffort(agentDir),
-        moveToTrashBestEffort(sessionsDir),
-      ]);
+      const deletions = [moveToTrashBestEffort(agentDir), moveToTrashBestEffort(sessionsDir)];
+      if (deleteWorkspace) {
+        deletions.unshift(moveToTrashBestEffort(workspaceDir));
+      }
+      await Promise.all(deletions);
     }
 
     respond(true, { ok: true, agentId, removedBindings: result.removedBindings }, undefined);
