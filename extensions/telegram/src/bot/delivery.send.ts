@@ -187,7 +187,18 @@ export async function sendTelegramText(
         return undefined;
       }
       runtime.log?.(`telegram formatted send failed (empty text); retrying without formatting`);
-      return await sendPlainFallback();
+      try {
+        return await sendPlainFallback();
+      } catch (fallbackErr) {
+        const fallbackErrText = formatErrorMessage(fallbackErr);
+        if (EMPTY_TEXT_ERR_RE.test(fallbackErrText)) {
+          runtime.log?.(
+            `telegram sendMessage skipped: plain fallback also rejected as empty text (chat=${chatRef})`,
+          );
+          return undefined;
+        }
+        throw fallbackErr;
+      }
     }
     if (PARSE_ERR_RE.test(errText)) {
       // Parse error: fall back to plain text if available; otherwise re-throw so callers
